@@ -1,0 +1,63 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Новый пациент{% endblock %}
+{% block page_title %}Новый пациент{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+        <a href="{{ url_for('main.patients_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">Добавить пациента</h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-12">
+              {{ form.full_name.label(class='form-label fw-medium') }}
+              {{ form.full_name(class='form-control' + (' is-invalid' if form.full_name.errors else '')) }}
+              {% for e in form.full_name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.birth_year.label(class='form-label fw-medium') }}
+              {{ form.birth_year(class='form-control' + (' is-invalid' if form.birth_year.errors else ''),
+                                 type='number', min='1900', max='2026') }}
+              {% for e in form.birth_year.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.citizenship.label(class='form-label fw-medium') }}
+              {{ form.citizenship(class='form-control' + (' is-invalid' if form.citizenship.errors else '')) }}
+              {% for e in form.citizenship.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.home_address.label(class='form-label fw-medium') }}
+              {{ form.home_address(class='form-control' + (' is-invalid' if form.home_address.errors else '')) }}
+              {% for e in form.home_address.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.insurance_number.label(class='form-label fw-medium') }}
+              {{ form.insurance_number(class='form-control font-monospace' + (' is-invalid' if form.insurance_number.errors else '')) }}
+              {% for e in form.insurance_number.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ url_for('main.patients_list') }}" class="btn btn-outline-secondary">Отмена</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,121 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Редактирование — {{ patient.full_name }}{% endblock %}
+{% block page_title %}Редактирование пациента{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+        <a href="{{ url_for('main.patients_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">{{ patient.full_name }}</h6>
+        {% if patient.is_active %}
+          <span class="badge bg-success-subtle text-success ms-auto">Активен</span>
+        {% else %}
+          <span class="badge bg-secondary-subtle text-secondary ms-auto">Деактивирован</span>
+        {% endif %}
+      </div>
+      <div class="card-body px-4 py-4">
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-12">
+              {{ form.full_name.label(class='form-label fw-medium') }}
+              {{ form.full_name(class='form-control' + (' is-invalid' if form.full_name.errors else '')) }}
+              {% for e in form.full_name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.birth_year.label(class='form-label fw-medium') }}
+              {{ form.birth_year(class='form-control' + (' is-invalid' if form.birth_year.errors else ''),
+                                 type='number', min='1900', max='2026') }}
+              {% for e in form.birth_year.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.citizenship.label(class='form-label fw-medium') }}
+              {{ form.citizenship(class='form-control' + (' is-invalid' if form.citizenship.errors else '')) }}
+              {% for e in form.citizenship.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.home_address.label(class='form-label fw-medium') }}
+              {{ form.home_address(class='form-control' + (' is-invalid' if form.home_address.errors else '')) }}
+              {% for e in form.home_address.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.insurance_number.label(class='form-label fw-medium') }}
+              {{ form.insurance_number(class='form-control font-monospace' + (' is-invalid' if form.insurance_number.errors else '')) }}
+              {% for e in form.insurance_number.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-between align-items-center">
+            <!-- Toggle block -->
+            <form id="toggle-edit" method="POST"
+                  action="{{ url_for('main.patients_toggle', patient_id=patient.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            </form>
+            {% if patient.is_active %}
+              <button type="button" class="btn btn-outline-danger btn-sm"
+                      onclick="confirmAction('toggle-edit', 'Деактивировать пациента?')">
+                <i class="bi bi-slash-circle me-1"></i>Деактивировать
+              </button>
+            {% else %}
+              <button type="button" class="btn btn-outline-success btn-sm"
+                      onclick="confirmAction('toggle-edit', 'Активировать пациента?')">
+                <i class="bi bi-check-circle me-1"></i>Активировать
+              </button>
+            {% endif %}
+
+            <div class="d-flex gap-2">
+              <a href="{{ url_for('main.patients_list') }}" class="btn btn-outline-secondary">Отмена</a>
+              {{ form.submit(class='btn btn-primary px-4') }}
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirmation modal -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body text-center py-4">
+        <i class="bi bi-question-circle text-warning" style="font-size:2.5rem"></i>
+        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Вы уверены?</p>
+      </div>
+      <div class="modal-footer justify-content-center border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Подтвердить</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
+  let pendingForm = null;
+
+  function confirmAction(formId, message) {
+    document.getElementById('confirmMessage').textContent = message || 'Вы уверены?';
+    pendingForm = document.getElementById(formId);
+    confirmModal.show();
+  }
+
+  document.getElementById('confirmOk').addEventListener('click', function () {
+    if (pendingForm) pendingForm.submit();
+    confirmModal.hide();
+  });
+</script>
+{% endblock %}

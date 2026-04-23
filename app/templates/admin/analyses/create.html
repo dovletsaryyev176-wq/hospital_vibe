@@ -1,0 +1,60 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}Новый анализ{% endblock %}
+{% block page_title %}Новый анализ{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card shadow-sm table-card">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+        <a href="{{ url_for('admin.analyses_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">Добавить анализ</h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-12">
+              {{ form.name.label(class='form-label fw-medium') }}
+              {{ form.name(class='form-control' + (' is-invalid' if form.name.errors else '')) }}
+              {% for e in form.name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-5">
+              {{ form.price.label(class='form-label fw-medium') }}
+              <div class="input-group">
+                {{ form.price(class='form-control text-end' + (' is-invalid' if form.price.errors else '')) }}
+                <span class="input-group-text">₽</span>
+                {% for e in form.price.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              </div>
+            </div>
+
+            <div class="col-12">
+              {{ form.responsible_id.label(class='form-label fw-medium') }}
+              {{ form.responsible_id(class='form-select' + (' is-invalid' if form.responsible_id.errors else '')) }}
+              {% for e in form.responsible_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              {% if form.responsible_id.choices | length <= 1 %}
+                <div class="form-text text-warning">
+                  <i class="bi bi-exclamation-triangle me-1"></i>
+                  Нет активных пользователей с ролью «Ответственный по анализам».
+                  <a href="{{ url_for('admin.users_create') }}">Создать пользователя</a>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ url_for('admin.analyses_list') }}" class="btn btn-outline-secondary">Отмена</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

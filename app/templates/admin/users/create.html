@@ -1,0 +1,113 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}Новый пользователь{% endblock %}
+{% block page_title %}Новый пользователь{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+        <a href="{{ url_for('admin.users_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">Добавить пользователя</h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <!-- ФИО -->
+            <div class="col-12">
+              {{ form.full_name.label(class='form-label fw-medium') }}
+              {{ form.full_name(class='form-control' + (' is-invalid' if form.full_name.errors else '')) }}
+              {% for e in form.full_name.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+
+            <!-- Логин -->
+            <div class="col-sm-6">
+              {{ form.username.label(class='form-label fw-medium') }}
+              {{ form.username(class='form-control' + (' is-invalid' if form.username.errors else '')) }}
+              {% for e in form.username.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+
+            <!-- Роль -->
+            <div class="col-sm-6">
+              {{ form.role.label(class='form-label fw-medium') }}
+              {{ form.role(class='form-select' + (' is-invalid' if form.role.errors else '')) }}
+              {% for e in form.role.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+
+            <!-- Телефон -->
+            <div class="col-sm-6">
+              {{ form.phone_number.label(class='form-label fw-medium') }}
+              {{ form.phone_number(class='form-control' + (' is-invalid' if form.phone_number.errors else '')) }}
+              {% for e in form.phone_number.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+
+            <!-- Кабинет -->
+            <div class="col-sm-6">
+              {{ form.cabinet.label(class='form-label fw-medium') }}
+              <span class="text-muted small ms-1">(необязательно)</span>
+              {{ form.cabinet(class='form-control' + (' is-invalid' if form.cabinet.errors else '')) }}
+              {% for e in form.cabinet.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+
+            <!-- Направление врача -->
+            <div class="col-sm-6">
+              {{ form.direction_id.label(class='form-label fw-medium') }}
+              <span class="text-muted small ms-1">(необязательно)</span>
+              {{ form.direction_id(class='form-select' + (' is-invalid' if form.direction_id.errors else '')) }}
+              {% for e in form.direction_id.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+
+            <!-- Пароль -->
+            <div class="col-sm-6">
+              {{ form.password.label(class='form-label fw-medium') }}
+              <div class="input-group">
+                {{ form.password(class='form-control' + (' is-invalid' if form.password.errors else ''), id='pwd') }}
+                <button class="btn btn-outline-secondary" type="button" onclick="togglePwd('pwd','icon-pwd')">
+                  <i class="bi bi-eye" id="icon-pwd"></i>
+                </button>
+                {% for e in form.password.errors %}
+                  <div class="invalid-feedback">{{ e }}</div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ url_for('admin.users_list') }}" class="btn btn-outline-secondary">Отмена</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function togglePwd(inputId, iconId) {
+  const el = document.getElementById(inputId);
+  const ic = document.getElementById(iconId);
+  if (el.type === 'password') { el.type = 'text'; ic.className = 'bi bi-eye-slash'; }
+  else { el.type = 'password'; ic.className = 'bi bi-eye'; }
+}
+</script>
+{% endblock %}

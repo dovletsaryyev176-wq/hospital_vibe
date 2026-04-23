@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from app import create_app; app = create_app\\(\\); print\\('OK'\\)\")",
+      "Bash(pip install *)",
+      "Bash(flask db *)"
+    ]
+  }
+}
