@@ -45,7 +45,7 @@ class PatientForm(FlaskForm):
             DataRequired(message='ätiýaçlandyryş belgisini giriziň'),
             Length(max=50, message='50 simwoldan geçmeli däl'),
         ],
-        render_kw={'placeholder': 'Ätiýaçlandyryş gözle'},
+        render_kw={'placeholder': 'Ätiýaçlandyryş'},
     )
     submit = SubmitField('Сохранить')
 

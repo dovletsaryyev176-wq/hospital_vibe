@@ -28,7 +28,7 @@
               {{ form.price.label(class='form-label fw-medium') }}
               <div class="input-group">
                 {{ form.price(class='form-control text-end' + (' is-invalid' if form.price.errors else '')) }}
-                <span class="input-group-text">₽</span>
+                <span class="input-group-text">manat</span>
                 {% for e in form.price.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
               </div>
             </div>

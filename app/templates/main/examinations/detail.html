@@ -109,7 +109,7 @@
       <div class="card-header bg-white border-bottom px-4 py-3">
         <h6 class="mb-0 fw-semibold">
           <i class="bi bi-clipboard2-pulse me-2 text-primary"></i>
-          Анализы
+          Analizler
           <span class="badge bg-light text-dark border ms-1">{{ exam.exam_analyses | length }}</span>
           {% if exam.exam_analyses %}
             {% set submitted_count = exam.exam_analyses | selectattr('is_submitted') | list | length %}
@@ -164,7 +164,7 @@
                   {% endif %}
                 {% endif %}
               </td>
-              <td class="text-end pe-4 font-monospace small">{{ ea.analysis.price_display }} ₸</td>
+              <td class="text-end pe-4 font-monospace small">{{ ea.analysis.price_display }} manat</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -176,7 +176,7 @@
                 {% for ea in exam.exam_analyses %}
                   {% set total.val = total.val + ea.analysis.price %}
                 {% endfor %}
-                {{ '%.2f' | format(total.val) }} ₸
+                {{ '%.2f' | format(total.val) }} manat
               </td>
             </tr>
           </tfoot>
@@ -222,7 +222,7 @@
               <td>
                 <i class="bi bi-person-fill me-1 text-muted"></i>{{ ed.doctor.full_name }}
                 {% if ed.doctor.cabinet %}
-                  <span class="text-muted small ms-2"><i class="bi bi-door-open me-1"></i>Каб. {{ ed.doctor.cabinet }}</span>
+                  <span class="text-muted small ms-2"><i class="bi bi-door-open me-1"></i>Otag {{ ed.doctor.cabinet }}</span>
                 {% endif %}
                 {% if ed.is_visited %}
                   <div class="text-muted" style="font-size:.7rem">{{ ed.visited_at.strftime('%d.%m.%Y %H:%M') }}</div>
@@ -253,7 +253,7 @@
                   </span>
                 {% endif %}
               </td>
-              <td class="text-end pe-4 font-monospace small">{{ ed.direction.price_display }} ₸</td>
+              <td class="text-end pe-4 font-monospace small">{{ ed.direction.price_display }} manat</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -265,7 +265,7 @@
                 {% for ed in exam.exam_directions %}
                   {% set dir_total.val = dir_total.val + ed.direction.price %}
                 {% endfor %}
-                {{ '%.2f' | format(dir_total.val) }} ₸
+                {{ '%.2f' | format(dir_total.val) }} manat
               </td>
             </tr>
           </tfoot>
@@ -313,19 +313,19 @@
         <div class="mt-2 text-start px-2">
           {% if analyses_total.val > 0 %}
           <div class="d-flex justify-content-between small text-muted">
-            <span>Анализы</span>
-            <span class="font-monospace">{{ '%.2f' | format(analyses_total.val) }} ₸</span>
+            <span>Analizler</span>
+            <span class="font-monospace">{{ '%.2f' | format(analyses_total.val) }} manat</span>
           </div>
           {% endif %}
           {% if dir_total.val > 0 %}
           <div class="d-flex justify-content-between small text-muted">
-            <span>Направления</span>
-            <span class="font-monospace">{{ '%.2f' | format(dir_total.val) }} ₸</span>
+            <span>Ugurlar</span>
+            <span class="font-monospace">{{ '%.2f' | format(dir_total.val) }} manat</span>
           </div>
           {% endif %}
           <div class="d-flex justify-content-between fw-semibold border-top mt-1 pt-1">
             <span>Итого</span>
-            <span class="font-monospace">{{ '%.2f' | format(grand_total) }} ₸</span>
+            <span class="font-monospace">{{ '%.2f' | format(grand_total) }} manat</span>
           </div>
         </div>
         {% endif %}

@@ -46,7 +46,7 @@
             <span class="badge bg-primary rounded-pill">2</span>
             <h6 class="mb-0 fw-semibold">Analizleri saýlaň</h6>
             <span class="text-muted small ms-auto" id="analyses-count">
-              Выбрано: <span id="analyses-selected">{{ selected_analysis_ids | length }}</span>
+              Saýlanan: <span id="analyses-selected">{{ selected_analysis_ids | length }}</span>
             </span>
           </div>
         </div>
@@ -72,7 +72,7 @@
                          {% if a.id in selected_analysis_ids %}checked{% endif %}>
                 </td>
                 <td>{{ a.name }}</td>
-                <td class="font-monospace small">{{ a.price_display }} ₸</td>
+                <td class="font-monospace small">{{ a.price_display }} manat</td>
               </tr>
               {% endfor %}
             </tbody>
