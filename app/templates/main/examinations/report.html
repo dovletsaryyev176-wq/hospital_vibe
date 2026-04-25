@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="tk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barlag Töleg Hyzmatlary — №{{ exam.id }}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
+  table { border-collapse: collapse; }
+  th, td { padding: 4px 6px; }
+  .no-print { margin-bottom: 12px; }
+  @media print { .no-print { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()" style="padding:6px 16px;font-size:13px;cursor:pointer;">
+    &#128438; Распечатать
+  </button>
+  <button onclick="window.close()" style="padding:6px 16px;font-size:13px;cursor:pointer;margin-left:8px;">
+    Закрыть
+  </button>
+</div>
+
+<table width="100%" border="1">
+  <tr>
+    <td colspan="2" rowspan="2" width="40%">&nbsp;</td>
+    <td width="40%">Görnüşiň şertli belligi</td>
+  </tr>
+  <tr>
+    <td>Edaranyň şertli belligi</td>
+  </tr>
+  <tr>
+    <td>Türkmenistanyň Saglygy Goraýyş<br>we Derman Senagaty Minisrtligi</td>
+    <td rowspan="2" width="20%">&nbsp;</td>
+    <td rowspan="2" colspan="2">Türkmenistanyň SG we DS ministrliginiň<br>
+        №7/18-23 haty esasynda 033/h görnüşli<br>
+        lukmançylyk resminamasy №82 buýrugy<br>
+        esasynda tassyklanan</td>
+  </tr>
+  <tr>
+    <td>Edaranyň ady: Daşoguz "Gaýragoýulmasyz tiz kömek" merkezi</td>
+  </tr>
+</table>
+
+<br>
+<center><h1>Barlag Töleg Hyzmatlary</h1></center>
+<center>
+  GIRDEJI KASSA ORDERI "______"______________________________ 20 _______ ý.<br>
+  №_______ TÖLEGLI HYZMATLAR "______" _______________________________ 20 _______ ý.
+</center>
+
+<br><br>
+1.F.A.A.: {{ exam.patient.full_name }} &nbsp;&nbsp;&nbsp; Doglan ýyly: {{ exam.patient.birth_year }}<br>
+2.Raýatlygy: {{ exam.patient.citizenship }}<br>
+3.Öý salgysy: {{ exam.patient.home_address }}<br>
+<br><br>
+
+<table width="100%" border="1">
+<thead>
+<tr>
+  <th rowspan="2">T/b</th>
+  <th rowspan="2">Lukmanyň familiýasy, ady we hünäri</th>
+  <th rowspan="2">Hyzmatyň görnüşi</th>
+  <th rowspan="2">Otag №</th>
+  <th rowspan="2">Barlanma senesi</th>
+  <th colspan="3">Jemi</th>
+  <th rowspan="2">Hünärmeniň goly</th>
+</tr>
+<tr>
+  <th>Barlamanyň bahasy</th>
+  <th>50% Ýeňillik</th>
+  <th>Tölenmeli</th>
+</tr>
+</thead>
+<tbody>
+{% set row = namespace(n=0) %}
+{% for ed in exam.exam_directions %}
+{% set row.n = row.n + 1 %}
+<tr>
+  <td>{{ row.n }}</td>
+  <td>&nbsp;</td>
+  <td>{{ ed.direction.name }}</td>
+  <td>{{ ed.doctor.cabinet or '&nbsp;' }}</td>
+  <td>&nbsp;</td>
+  <td>{{ ed.direction.price_display }}</td>
+  <td>&nbsp;</td>
+  <td>&nbsp;</td>
+  <td>&nbsp;</td>
+</tr>
+{% endfor %}
+{% for ea in exam.exam_analyses %}
+{% set row.n = row.n + 1 %}
+<tr>
+  <td>{{ row.n }}</td>
+  <td>&nbsp;</td>
+  <td>{{ ea.analysis.name }}</td>
+  <td>&nbsp;</td>
+  <td>&nbsp;</td>
+  <td>{{ ea.analysis.price_display }}</td>
+  <td>&nbsp;</td>
+  <td>&nbsp;</td>
+  <td>&nbsp;</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<br><br>
+{% set analyses_total = namespace(val=0) %}
+{% for ea in exam.exam_analyses %}{% set analyses_total.val = analyses_total.val + ea.analysis.price %}{% endfor %}
+{% set dir_total = namespace(val=0) %}
+{% for ed in exam.exam_directions %}{% set dir_total.val = dir_total.val + ed.direction.price %}{% endfor %}
+{% set grand_total = analyses_total.val + dir_total.val %}
+
+<table width="100%">
+  <tr>
+    <td>Bellik________________________________________</td>
+    <td>&nbsp;</td>
+    <td>Jemi: <strong>{{ '%.2f' | format(grand_total) }}</strong></td>
+  </tr>
+  <tr>
+    <td>Saglyk ät.pasp.№ {{ exam.patient.insurance_number }}</td>
+    <td>&nbsp;</td>
+    <td>______________________________________________</td>
+  </tr>
+  <tr>
+    <td>Syrkawyň goly____________________________</td>
+    <td>&nbsp;</td>
+    <td>Hak ujy görnüşindä kabul edilen________________</td>
+  </tr>
+  <tr>
+    <td colspan="3" align="right">Tölemeli: <strong>{{ '%.2f' | format(grand_total) }}</strong></td>
+  </tr>
+</table>
+
+</body>
+</html>

@@ -29,6 +29,15 @@ class DirectionForm(FlaskForm):
         ],
         render_kw={'placeholder': 'Например: Терапия'},
     )
+    price = DecimalField(
+        'Цена (₸)',
+        validators=[
+            DataRequired(message='Введите цену'),
+            NumberRange(min=0, message='Цена не может быть отрицательной'),
+        ],
+        places=2,
+        render_kw={'placeholder': '0.00'},
+    )
     submit = SubmitField('Сохранить')
 
     def __init__(self, *args, editing_direction=None, **kwargs):

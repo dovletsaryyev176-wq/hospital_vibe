@@ -1,0 +1,190 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Новое обследование{% endblock %}
+{% block page_title %}Новое обследование{% endblock %}
+
+{% block content %}
+<form method="POST" action="{{ url_for('main.examinations_create') }}" id="exam-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="row g-4">
+
+    <!-- Step 1: Patient -->
+    <div class="col-12">
+      <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+          <a href="{{ url_for('main.examinations_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+            <i class="bi bi-arrow-left"></i>
+          </a>
+          <span class="badge bg-primary rounded-pill me-1">1</span>
+          <h6 class="mb-0 fw-semibold">Выберите пациента</h6>
+        </div>
+        <div class="card-body p-4">
+          <div class="col-md-6">
+            <label class="form-label fw-medium">Пациент <span class="text-danger">*</span></label>
+            <select name="patient_id" class="form-select" required>
+              <option value="">— Выберите пациента —</option>
+              {% for p in patients %}
+                <option value="{{ p.id }}" {% if selected_patient_id == p.id %}selected{% endif %}>
+                  {{ p.full_name }} ({{ p.birth_year }}, полис: {{ p.insurance_number }})
+                </option>
+              {% endfor %}
+            </select>
+            {% if not patients %}
+              <div class="text-muted small mt-1">Нет активных пациентов.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Analyses -->
+    <div class="col-12">
+      <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-header bg-white border-bottom px-4 py-3">
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-primary rounded-pill">2</span>
+            <h6 class="mb-0 fw-semibold">Выберите анализы</h6>
+            <span class="text-muted small ms-auto" id="analyses-count">
+              Выбрано: <span id="analyses-selected">{{ selected_analysis_ids | length }}</span>
+            </span>
+          </div>
+        </div>
+        {% if analyses %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th class="ps-4" style="width:50px">
+                  <input type="checkbox" class="form-check-input" id="select-all-analyses"
+                         title="Выбрать все">
+                </th>
+                <th>Название анализа</th>
+                <th style="width:140px">Цена</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in analyses %}
+              <tr>
+                <td class="ps-4">
+                  <input type="checkbox" class="form-check-input analysis-cb"
+                         name="analysis_ids" value="{{ a.id }}"
+                         {% if a.id in selected_analysis_ids %}checked{% endif %}>
+                </td>
+                <td>{{ a.name }}</td>
+                <td class="font-monospace small">{{ a.price_display }} ₸</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+          <div class="card-body text-muted">Активные анализы не найдены.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Step 3: Directions + Doctors -->
+    <div class="col-12">
+      <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-header bg-white border-bottom px-4 py-3">
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-primary rounded-pill">3</span>
+            <h6 class="mb-0 fw-semibold">Выберите направление врача</h6>
+            <span class="text-muted small ms-auto fw-normal">необязательно</span>
+          </div>
+        </div>
+        {% if directions %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th class="ps-4" style="width:50px"></th>
+                <th>Направление</th>
+                <th style="width:280px">Врач <span class="text-danger">*</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for d in directions %}
+              <tr id="dir-row-{{ d.id }}"
+                  style="{% if d.id not in selected_direction_ids %}opacity:.45{% endif %}">
+                <td class="ps-4">
+                  <input type="radio" class="form-check-input"
+                         id="dir-{{ d.id }}" name="direction_id" value="{{ d.id }}"
+                         {% if d.id in selected_direction_ids %}checked{% endif %}>
+                </td>
+                <td>
+                  <label class="form-check-label fw-medium mb-0" for="dir-{{ d.id }}"
+                         style="cursor:pointer">{{ d.name }}</label>
+                </td>
+                <td>
+                  <select name="doctor_for_{{ d.id }}"
+                          id="doctor-select-{{ d.id }}"
+                          class="form-select form-select-sm">
+                    <option value="">— Выберите врача —</option>
+                    {% for doc in doctors %}
+                      <option value="{{ doc.id }}"
+                        {% if doctor_for.get(d.id) == doc.id %}selected{% endif %}>
+                        {{ doc.full_name }}{% if doc.direction %} ({{ doc.direction.name }}){% endif %}
+                      </option>
+                    {% endfor %}
+                  </select>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+          <div class="card-body text-muted">Активные направления не найдены.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Submit -->
+    <div class="col-12">
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-check-lg me-1"></i>Создать обследование
+        </button>
+        <a href="{{ url_for('main.examinations_list') }}" class="btn btn-outline-secondary">Отмена</a>
+      </div>
+    </div>
+
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('input[name="direction_id"]').forEach(rb => {
+    rb.addEventListener('change', function () {
+      document.querySelectorAll('input[name="direction_id"]').forEach(other => {
+        const row = document.getElementById('dir-row-' + other.value);
+        const select = document.getElementById('doctor-select-' + other.value);
+        const active = other.checked;
+        row.style.opacity = active ? '1' : '0.45';
+        if (!active) select.value = '';
+      });
+    });
+  });
+
+  const selectAll = document.getElementById('select-all-analyses');
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      document.querySelectorAll('.analysis-cb').forEach(cb => cb.checked = this.checked);
+      updateAnalysesCount();
+    });
+  }
+
+  function updateAnalysesCount() {
+    const count = document.querySelectorAll('.analysis-cb:checked').length;
+    const el = document.getElementById('analyses-selected');
+    if (el) el.textContent = count;
+  }
+
+  document.querySelectorAll('.analysis-cb').forEach(cb => {
+    cb.addEventListener('change', updateAnalysesCount);
+  });
+</script>
+{% endblock %}

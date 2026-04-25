@@ -1,0 +1,352 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Обследование №{{ exam.id }}{% endblock %}
+{% block page_title %}Обследование №{{ exam.id }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <!-- Header card -->
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+        <a href="{{ url_for('main.examinations_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">Обследование №{{ exam.id }}</h6>
+        <div class="ms-auto d-flex align-items-center gap-2">
+          {% if exam.is_open %}
+            <span class="badge bg-primary-subtle text-primary">
+              <i class="bi bi-unlock-fill me-1"></i>Открыто
+            </span>
+          {% else %}
+            <span class="badge bg-success-subtle text-success">
+              <i class="bi bi-lock-fill me-1"></i>Закрыто
+            </span>
+          {% endif %}
+          {% if exam.is_paid %}
+            <span class="badge bg-success-subtle text-success">
+              <i class="bi bi-cash-coin me-1"></i>Оплачено
+            </span>
+          {% else %}
+            <span class="badge bg-warning-subtle text-warning">
+              <i class="bi bi-hourglass-split me-1"></i>Не оплачено
+            </span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-body px-4 py-4">
+        <div class="row g-3">
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Пациент</div>
+            <div class="fw-semibold">{{ exam.patient.full_name }}</div>
+            <div class="text-muted small">{{ exam.patient.birth_year }} г.р., полис: {{ exam.patient.insurance_number }}</div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Создал</div>
+            <div class="fw-semibold">{{ exam.created_by.full_name }}</div>
+            <div class="text-muted small">{{ exam.created_by.get_role_display() }}</div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Дата создания</div>
+            <div class="fw-semibold">{{ exam.created_at.strftime('%d.%m.%Y') }}</div>
+            <div class="text-muted small">{{ exam.created_at.strftime('%H:%M') }}</div>
+          </div>
+          {% if exam.closed_at %}
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Дата закрытия</div>
+            <div class="fw-semibold">{{ exam.closed_at.strftime('%d.%m.%Y') }}</div>
+            <div class="text-muted small">{{ exam.closed_at.strftime('%H:%M') }}</div>
+          </div>
+          {% endif %}
+          {% if exam.is_paid %}
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Оплата принята</div>
+            <div class="fw-semibold">{{ exam.paid_at.strftime('%d.%m.%Y') }}</div>
+            <div class="text-muted small">{{ exam.paid_at.strftime('%H:%M') }} — {{ exam.paid_by.full_name }}</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-footer bg-white border-top px-4 py-3 d-flex gap-2 flex-wrap">
+        <a href="{{ url_for('main.examinations_report', exam_id=exam.id) }}"
+           target="_blank" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-printer me-1"></i>Отчёт
+        </a>
+        {% if exam.is_open and exam.created_by_id == current_user.id %}
+          {% if not exam.is_paid %}
+          <a href="{{ url_for('main.examinations_edit', exam_id=exam.id) }}"
+             class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-pencil me-1"></i>Редактировать
+          </a>
+          {% endif %}
+          <form id="close-form" method="POST"
+                action="{{ url_for('main.examinations_close', exam_id=exam.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          </form>
+          <button type="button" class="btn btn-sm btn-success"
+                  onclick="confirmClose()">
+            <i class="bi bi-check2-circle me-1"></i>Закрыть обследование
+          </button>
+        {% endif %}
+        {% if current_user.role == 'cashier' and not exam.is_paid %}
+          <form id="pay-form" method="POST"
+                action="{{ url_for('main.examinations_pay', exam_id=exam.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          </form>
+          <button type="button" class="btn btn-sm btn-primary"
+                  onclick="confirmPay()">
+            <i class="bi bi-cash-coin me-1"></i>Принять оплату
+          </button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Analyses -->
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-clipboard2-pulse me-2 text-primary"></i>
+          Анализы
+          <span class="badge bg-light text-dark border ms-1">{{ exam.exam_analyses | length }}</span>
+          {% if exam.exam_analyses %}
+            {% set submitted_count = exam.exam_analyses | selectattr('is_submitted') | list | length %}
+            <span class="text-muted small fw-normal ms-2">сдано: {{ submitted_count }} / {{ exam.exam_analyses | length }}</span>
+          {% endif %}
+        </h6>
+      </div>
+      {% if exam.exam_analyses %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4">#</th>
+              <th>Название анализа</th>
+              <th class="text-center">Статус сдачи</th>
+              <th class="text-end pe-4">Цена</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ea in exam.exam_analyses %}
+            <tr>
+              <td class="ps-4 text-muted small">{{ loop.index }}</td>
+              <td>{{ ea.analysis.name }}</td>
+              <td class="text-center">
+                {% if ea.is_submitted %}
+                  <span class="badge bg-success-subtle text-success">
+                    <i class="bi bi-check-circle-fill me-1"></i>Сдан
+                  </span>
+                  <div class="text-muted" style="font-size:.7rem">
+                    {{ ea.submitted_at.strftime('%d.%m.%Y %H:%M') }}
+                  </div>
+                {% else %}
+                  {% if current_user.role == 'analysis_responsible' and ea.analysis_id in my_analysis_ids %}
+                    {% if exam.is_paid %}
+                      <form method="POST"
+                            action="{{ url_for('main.examinations_submit_analysis', exam_id=exam.id, ea_id=ea.id) }}"
+                            class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-success">
+                          <i class="bi bi-check2 me-1"></i>Отметить
+                        </button>
+                      </form>
+                    {% else %}
+                      <span class="badge bg-warning-subtle text-warning" title="Ожидается оплата">
+                        <i class="bi bi-lock me-1"></i>Не оплачено
+                      </span>
+                    {% endif %}
+                  {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary">
+                      <i class="bi bi-hourglass-split me-1"></i>Не сдан
+                    </span>
+                  {% endif %}
+                {% endif %}
+              </td>
+              <td class="text-end pe-4 font-monospace small">{{ ea.analysis.price_display }} ₸</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="border-top">
+            <tr>
+              <td colspan="3" class="ps-4 fw-semibold small">Итого</td>
+              <td class="text-end pe-4 fw-semibold font-monospace small">
+                {% set total = namespace(val=0) %}
+                {% for ea in exam.exam_analyses %}
+                  {% set total.val = total.val + ea.analysis.price %}
+                {% endfor %}
+                {{ '%.2f' | format(total.val) }} ₸
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {% else %}
+        <div class="card-body text-muted small">Анализы не назначены.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Directions -->
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-diagram-3 me-2 text-primary"></i>
+          Направления врача
+          <span class="badge bg-light text-dark border ms-1">{{ exam.exam_directions | length }}</span>
+          {% if exam.exam_directions %}
+            {% set visited_count = exam.exam_directions | selectattr('is_visited') | list | length %}
+            <span class="text-muted small fw-normal ms-2">принято: {{ visited_count }} / {{ exam.exam_directions | length }}</span>
+          {% endif %}
+        </h6>
+      </div>
+      {% if exam.exam_directions %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4">#</th>
+              <th>Направление</th>
+              <th>Врач</th>
+              <th class="text-center">Статус приёма</th>
+              <th class="text-end pe-4">Цена</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ed in exam.exam_directions %}
+            <tr>
+              <td class="ps-4 text-muted small">{{ loop.index }}</td>
+              <td>{{ ed.direction.name }}</td>
+              <td>
+                <i class="bi bi-person-fill me-1 text-muted"></i>{{ ed.doctor.full_name }}
+                {% if ed.doctor.cabinet %}
+                  <span class="text-muted small ms-2"><i class="bi bi-door-open me-1"></i>Каб. {{ ed.doctor.cabinet }}</span>
+                {% endif %}
+                {% if ed.is_visited %}
+                  <div class="text-muted" style="font-size:.7rem">{{ ed.visited_at.strftime('%d.%m.%Y %H:%M') }}</div>
+                {% endif %}
+              </td>
+              <td class="text-center">
+                {% if ed.is_visited %}
+                  <span class="badge bg-success-subtle text-success">
+                    <i class="bi bi-person-check-fill me-1"></i>Принят
+                  </span>
+                {% elif current_user.role == 'doctor' and ed.doctor_id == current_user.id %}
+                  {% if exam.is_paid %}
+                    <form method="POST"
+                          action="{{ url_for('main.examinations_mark_visited', exam_id=exam.id, ed_id=ed.id) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-success">
+                        <i class="bi bi-person-check me-1"></i>Отметить приход
+                      </button>
+                    </form>
+                  {% else %}
+                    <span class="badge bg-warning-subtle text-warning" title="Ожидается оплата">
+                      <i class="bi bi-lock me-1"></i>Не оплачено
+                    </span>
+                  {% endif %}
+                {% else %}
+                  <span class="badge bg-secondary-subtle text-secondary">
+                    <i class="bi bi-hourglass-split me-1"></i>Ожидается
+                  </span>
+                {% endif %}
+              </td>
+              <td class="text-end pe-4 font-monospace small">{{ ed.direction.price_display }} ₸</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="border-top">
+            <tr>
+              <td colspan="4" class="ps-4 fw-semibold small">Итого</td>
+              <td class="text-end pe-4 fw-semibold font-monospace small">
+                {% set dir_total = namespace(val=0) %}
+                {% for ed in exam.exam_directions %}
+                  {% set dir_total.val = dir_total.val + ed.direction.price %}
+                {% endfor %}
+                {{ '%.2f' | format(dir_total.val) }} ₸
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {% else %}
+        <div class="card-body text-muted small">Направления не назначены.</div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- Close confirmation modal -->
+<div class="modal fade" id="closeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body text-center py-4">
+        <i class="bi bi-check2-circle text-success" style="font-size:2.5rem"></i>
+        <p class="mt-2 mb-0 fw-semibold">Закрыть обследование №{{ exam.id }}?</p>
+        <p class="text-muted small mt-1">Действие необратимо.</p>
+      </div>
+      <div class="modal-footer justify-content-center border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-success btn-sm"
+                onclick="document.getElementById('close-form').submit()">Закрыть</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Pay confirmation modal -->
+<div class="modal fade" id="payModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body text-center py-4">
+        <i class="bi bi-cash-coin text-primary" style="font-size:2.5rem"></i>
+        <p class="mt-2 mb-0 fw-semibold">Принять оплату по обследованию №{{ exam.id }}?</p>
+        {% set analyses_total = namespace(val=0) %}
+        {% for ea in exam.exam_analyses %}{% set analyses_total.val = analyses_total.val + ea.analysis.price %}{% endfor %}
+        {% set dir_total = namespace(val=0) %}
+        {% for ed in exam.exam_directions %}{% set dir_total.val = dir_total.val + ed.direction.price %}{% endfor %}
+        {% set grand_total = analyses_total.val + dir_total.val %}
+        {% if grand_total > 0 %}
+        <div class="mt-2 text-start px-2">
+          {% if analyses_total.val > 0 %}
+          <div class="d-flex justify-content-between small text-muted">
+            <span>Анализы</span>
+            <span class="font-monospace">{{ '%.2f' | format(analyses_total.val) }} ₸</span>
+          </div>
+          {% endif %}
+          {% if dir_total.val > 0 %}
+          <div class="d-flex justify-content-between small text-muted">
+            <span>Направления</span>
+            <span class="font-monospace">{{ '%.2f' | format(dir_total.val) }} ₸</span>
+          </div>
+          {% endif %}
+          <div class="d-flex justify-content-between fw-semibold border-top mt-1 pt-1">
+            <span>Итого</span>
+            <span class="font-monospace">{{ '%.2f' | format(grand_total) }} ₸</span>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer justify-content-center border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
+        <button type="button" class="btn btn-primary btn-sm"
+                onclick="document.getElementById('pay-form').submit()">Подтвердить оплату</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const closeModal = new bootstrap.Modal(document.getElementById('closeModal'));
+  function confirmClose() { closeModal.show(); }
+
+  const payModalEl = document.getElementById('payModal');
+  const payModal = payModalEl ? new bootstrap.Modal(payModalEl) : null;
+  function confirmPay() { if (payModal) payModal.show(); }
+</script>
+{% endblock %}
