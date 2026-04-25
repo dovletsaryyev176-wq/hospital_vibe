@@ -17,15 +17,15 @@ def admin_login():
         user = User.query.filter_by(username=form.username.data.strip()).first()
 
         if user is None or not user.check_password(form.password.data):
-            flash('Неверный логин или пароль.', 'danger')
+            flash('Nädogry ulanyjy ady ýa-da gizlin belgisi.', 'danger')
             return render_template('auth/admin_login.html', form=form)
 
         if not user.is_administrator():
-            flash('Доступ к панели администратора запрещён.', 'danger')
+            flash('Dolandyryjy paneline girmek gadagan.', 'danger')
             return render_template('auth/admin_login.html', form=form)
 
         if not user.is_active:
-            flash('Ваша учётная запись заблокирована.', 'danger')
+            flash('Siziň ulanyjyňyz bloklanan.', 'danger')
             return render_template('auth/admin_login.html', form=form)
 
         login_user(user, remember=form.remember_me.data)
@@ -38,7 +38,7 @@ def admin_login():
 @auth_bp.route('/admin/logout')
 def admin_logout():
     logout_user()
-    flash('Вы вышли из системы.', 'info')
+    flash('Siz ulgamdan çykdyňyz.', 'info')
     return redirect(url_for('auth.admin_login'))
 
 
@@ -54,15 +54,15 @@ def login():
         user = User.query.filter_by(username=form.username.data.strip()).first()
 
         if user is None or not user.check_password(form.password.data):
-            flash('Неверный логин или пароль.', 'danger')
+            flash('Nädogry ulanyjy ady ýa-da gizlin belgisi.', 'danger')
             return render_template('auth/login.html', form=form)
 
         if user.is_administrator():
-            flash('Для входа в панель администратора используйте другую страницу входа.', 'warning')
+            flash('Dolandyryjy paneline girmek üçin beýleki penjirä geçiň.', 'warning')
             return render_template('auth/login.html', form=form)
 
         if not user.is_active:
-            flash('Ваша учётная запись заблокирована. Обратитесь к администратору.', 'danger')
+            flash('Siziň ulanyjyňyz bloklanan.', 'danger')
             return render_template('auth/login.html', form=form)
 
         login_user(user, remember=form.remember_me.data)
@@ -75,5 +75,5 @@ def login():
 @auth_bp.route('/logout')
 def logout():
     logout_user()
-    flash('Вы вышли из системы.', 'info')
+    flash('Siz ulgamdan çykdyňyz.', 'info')
     return redirect(url_for('auth.login'))

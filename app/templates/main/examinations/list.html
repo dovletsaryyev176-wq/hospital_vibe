@@ -1,7 +1,7 @@
 {% extends 'main/base.html' %}
 
-{% block title %}Обследования{% endblock %}
-{% block page_title %}Обследования{% endblock %}
+{% block title %}Barlaglar{% endblock %}
+{% block page_title %}Barlaglar{% endblock %}
 
 {% block content %}
 <div class="card shadow-sm border-0 rounded-3 overflow-hidden">
@@ -15,19 +15,19 @@
             <i class="bi bi-search text-muted"></i>
           </span>
           <input type="text" class="form-control border-start-0 ps-0"
-                 name="q" value="{{ search }}" placeholder="Поиск по ФИО пациента">
+                 name="q" value="{{ search }}" placeholder="Syrkaw FAA gözleg">
         </div>
         <select name="status" class="form-select" style="max-width:150px">
-          <option value="">Все статусы</option>
-          <option value="open"   {% if status_filter == 'open'   %}selected{% endif %}>Открытые</option>
-          <option value="closed" {% if status_filter == 'closed' %}selected{% endif %}>Закрытые</option>
+          <option value="">Hemme statuslar</option>
+          <option value="open"   {% if status_filter == 'open'   %}selected{% endif %}>Açyk</option>
+          <option value="closed" {% if status_filter == 'closed' %}selected{% endif %}>Ýapyklar</option>
         </select>
         <select name="paid" class="form-select" style="max-width:150px">
-          <option value="">Вся оплата</option>
-          <option value="unpaid" {% if paid_filter == 'unpaid' %}selected{% endif %}>Не оплачено</option>
-          <option value="paid"   {% if paid_filter == 'paid'   %}selected{% endif %}>Оплачено</option>
+          <option value="">Tölegler</option>
+          <option value="unpaid" {% if paid_filter == 'unpaid' %}selected{% endif %}>Tölenmedik</option>
+          <option value="paid"   {% if paid_filter == 'paid'   %}selected{% endif %}>Tölenen</option>
         </select>
-        <button type="submit" class="btn btn-outline-primary">Найти</button>
+        <button type="submit" class="btn btn-outline-primary">Tapmak</button>
         {% if search or status_filter or paid_filter %}
           <a href="{{ url_for('main.examinations_list') }}" class="btn btn-outline-secondary">
             <i class="bi bi-x-lg"></i>
@@ -37,7 +37,7 @@
 
       {% if current_user.role in ('registrar', 'doctor') %}
       <a href="{{ url_for('main.examinations_create') }}" class="btn btn-primary ms-auto">
-        <i class="bi bi-plus-circle-fill me-1"></i>Новое обследование
+        <i class="bi bi-plus-circle-fill me-1"></i>Täze barlag
       </a>
       {% endif %}
     </div>
@@ -49,14 +49,14 @@
       <thead>
         <tr>
           <th class="ps-4" style="width:50px">#</th>
-          <th>Пациент</th>
-          <th>Создал</th>
-          <th>Дата создания</th>
-          <th class="text-center">Анализы</th>
-          <th class="text-center">Направления</th>
-          <th class="text-center">Статус</th>
-          <th class="text-center">Оплата</th>
-          <th class="text-center pe-4">Действия</th>
+          <th>Syrkaw</th>
+          <th>Döreden</th>
+          <th>Döredilen senesi</th>
+          <th class="text-center">Analizler</th>
+          <th class="text-center">Ugurlar</th>
+          <th class="text-center">Statusy</th>
+          <th class="text-center">Tölegi</th>
+          <th class="text-center pe-4">Amallar</th>
         </tr>
       </thead>
       <tbody>
@@ -79,22 +79,22 @@
             <td class="text-center">
               {% if exam.is_open %}
                 <span class="badge bg-primary-subtle text-primary">
-                  <i class="bi bi-unlock-fill me-1"></i>Открыто
+                  <i class="bi bi-unlock-fill me-1"></i>Açyk
                 </span>
               {% else %}
                 <span class="badge bg-success-subtle text-success">
-                  <i class="bi bi-lock-fill me-1"></i>Закрыто
+                  <i class="bi bi-lock-fill me-1"></i>Ýapyk
                 </span>
               {% endif %}
             </td>
             <td class="text-center">
               {% if exam.is_paid %}
                 <span class="badge bg-success-subtle text-success">
-                  <i class="bi bi-cash-coin me-1"></i>Оплачено
+                  <i class="bi bi-cash-coin me-1"></i>Tölenen
                 </span>
               {% else %}
                 <span class="badge bg-warning-subtle text-warning">
-                  <i class="bi bi-hourglass-split me-1"></i>Не оплачено
+                  <i class="bi bi-hourglass-split me-1"></i>Tölenmedik
                 </span>
               {% endif %}
             </td>
@@ -102,7 +102,7 @@
               <div class="d-flex justify-content-center gap-1">
 
                 <a href="{{ url_for('main.examinations_detail', exam_id=exam.id) }}"
-                   class="btn btn-sm btn-outline-info" title="Просмотр">
+                   class="btn btn-sm btn-outline-info" title="Görmek">
                   <i class="bi bi-eye"></i>
                 </a>
 
@@ -110,7 +110,7 @@
                   {% if exam.is_open and exam.created_by_id == current_user.id %}
                     {% if not exam.is_paid %}
                     <a href="{{ url_for('main.examinations_edit', exam_id=exam.id) }}"
-                       class="btn btn-sm btn-outline-secondary" title="Редактировать">
+                       class="btn btn-sm btn-outline-secondary" title="Üýtgetmek">
                       <i class="bi bi-pencil"></i>
                     </a>
                     {% endif %}
@@ -118,8 +118,8 @@
                           action="{{ url_for('main.examinations_close', exam_id=exam.id) }}" class="d-inline">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     </form>
-                    <button type="button" class="btn btn-sm btn-outline-success" title="Закрыть"
-                            onclick="confirmAction('close-e-{{ exam.id }}', 'Закрыть обследование №{{ exam.id }}?')">
+                    <button type="button" class="btn btn-sm btn-outline-success" title="Ýapmak"
+                            onclick="confirmAction('close-e-{{ exam.id }}', 'Barlagy ýapmak №{{ exam.id }}?')">
                       <i class="bi bi-check2-circle"></i>
                     </button>
                   {% endif %}
@@ -130,8 +130,8 @@
                         action="{{ url_for('main.examinations_pay', exam_id=exam.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   </form>
-                  <button type="button" class="btn btn-sm btn-outline-primary" title="Принять оплату"
-                          onclick="confirmAction('pay-e-{{ exam.id }}', 'Отметить обследование №{{ exam.id }} как оплаченное?')">
+                  <button type="button" class="btn btn-sm btn-outline-primary" title="Tölegi kabul etmek"
+                          onclick="confirmAction('pay-e-{{ exam.id }}', 'Barlag №{{ exam.id }} tölenen diýip bellemelimi?')">
                     <i class="bi bi-cash-coin"></i>
                   </button>
                 {% endif %}
@@ -145,11 +145,11 @@
             <td colspan="9" class="text-center text-muted py-5">
               <i class="bi bi-clipboard2-x display-5 d-block mb-2 opacity-25"></i>
               {% if search or status_filter or paid_filter %}
-                Обследования не найдены. <a href="{{ url_for('main.examinations_list') }}">Сбросить фильтр</a>
+                Barlaglar tapylmady. <a href="{{ url_for('main.examinations_list') }}">Filtri ýatyrmak</a>
               {% else %}
-                Обследований пока нет.
+                Heniz barlag ýok
                 {% if current_user.role in ('registrar', 'doctor') %}
-                  <a href="{{ url_for('main.examinations_create') }}">Создать первое</a>
+                  <a href="{{ url_for('main.examinations_create') }}">Ilkinji barlagy döretmek</a>
                 {% endif %}
               {% endif %}
             </td>
@@ -161,7 +161,7 @@
 
   {% if examinations %}
   <div class="card-footer bg-white text-muted small px-4">
-    Найдено: {{ examinations | length }}
+    Tapylan: {{ examinations | length }}
   </div>
   {% endif %}
 </div>
@@ -172,11 +172,11 @@
     <div class="modal-content">
       <div class="modal-body text-center py-4">
         <i class="bi bi-question-circle text-warning" style="font-size:2.5rem"></i>
-        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Вы уверены?</p>
+        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Hakykatdanmy?</p>
       </div>
       <div class="modal-footer justify-content-center border-0 pt-0">
-        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
-        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Подтвердить</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Tassyklamak</button>
       </div>
     </div>
   </div>

@@ -7,45 +7,45 @@ from app.models import Patient
 
 class PatientForm(FlaskForm):
     full_name = StringField(
-        'ФИО',
+        'FAA',
         validators=[
-            DataRequired(message='Введите ФИО'),
-            Length(min=2, max=150, message='ФИО должно быть от 2 до 150 символов'),
+            DataRequired(message='FAA giriziň'),
+            Length(min=2, max=150, message='FAA 2-150 siwmol arasynda bolmaly'),
         ],
-        render_kw={'placeholder': 'Фамилия Имя Отчество'},
+        render_kw={'placeholder': 'Familiýasy, ady, atasynyň ady'},
     )
     birth_year = IntegerField(
-        'Год рождения',
+        'Doglan ýyly',
         validators=[
-            DataRequired(message='Введите год рождения'),
+            DataRequired(message='Doglan ýyly giriziň'),
             NumberRange(min=1900, max=datetime.utcnow().year,
-                        message=f'Год рождения должен быть от 1900 до {datetime.utcnow().year}'),
+                        message=f'Doglan ýyl 1900 - {datetime.utcnow().year} arasynda bolmaly'),
         ],
-        render_kw={'placeholder': 'Например: 1985'},
+        render_kw={'placeholder': 'Mysal: 1987'},
     )
     citizenship = StringField(
-        'Гражданство',
+        'Raýatlylyk',
         validators=[
-            DataRequired(message='Введите гражданство'),
-            Length(max=100, message='Не более 100 символов'),
+            DataRequired(message='Raýatlylygy giriziň'),
+            Length(max=100, message='100 siwmoldan geçmeli däl'),
         ],
-        render_kw={'placeholder': 'Например: Россия'},
+        render_kw={'placeholder': 'Mysal: Türkmenistan'},
     )
     home_address = TextAreaField(
-        'Домашний адрес',
+        'Öý salgysy',
         validators=[
-            DataRequired(message='Введите домашний адрес'),
-            Length(max=255, message='Не более 255 символов'),
+            DataRequired(message='Öý salgyny giriziň'),
+            Length(max=255, message='255 siwmoldan geçmeli däl'),
         ],
-        render_kw={'placeholder': 'Город, улица, дом, квартира', 'rows': 2},
+        render_kw={'placeholder': 'Şäher köçe jaý otag', 'rows': 2},
     )
     insurance_number = StringField(
-        'Номер медицинского страхования',
+        'Atiýaçlandyryş',
         validators=[
-            DataRequired(message='Введите номер страхования'),
-            Length(max=50, message='Не более 50 символов'),
+            DataRequired(message='ätiýaçlandyryş belgisini giriziň'),
+            Length(max=50, message='50 simwoldan geçmeli däl'),
         ],
-        render_kw={'placeholder': 'Номер полиса ОМС'},
+        render_kw={'placeholder': 'Ätiýaçlandyryş gözle'},
     )
     submit = SubmitField('Сохранить')
 
@@ -56,4 +56,4 @@ class PatientForm(FlaskForm):
     def validate_insurance_number(self, field):
         existing = Patient.query.filter_by(insurance_number=field.data.strip()).first()
         if existing and (self._editing_patient is None or existing.id != self._editing_patient.id):
-            raise ValidationError('Пациент с таким номером страхования уже существует.')
+            raise ValidationError('Bu ätiýaçlandyryş belgili syrkaw eýýäm hasaba alnan.')

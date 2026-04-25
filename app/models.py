@@ -65,11 +65,11 @@ class User(UserMixin, db.Model):
     __tablename__ = 'users'
 
     ROLES = {
-        'administrator': 'Администратор',
-        'registrar': 'Регистратор',
-        'doctor': 'Врач',
-        'analysis_responsible': 'Ответственный по анализам',
-        'cashier': 'Кассир',
+        'administrator': 'Dolandyryjy',
+        'registrar': 'Kabulhana',
+        'doctor': 'Lukman',
+        'analysis_responsible': 'Analizler boýunça jogapkär',
+        'cashier': 'Kassir',
     }
 
     id = db.Column(db.Integer, primary_key=True)

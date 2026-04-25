@@ -1,7 +1,7 @@
 {% extends 'admin/base.html' %}
 
-{% block title %}Редактирование — {{ user.full_name }}{% endblock %}
-{% block page_title %}Редактирование пользователя{% endblock %}
+{% block title %}Ulanyjyny üýtgetmek — {{ user.full_name }}{% endblock %}
+{% block page_title %}Ulanyjyny üýtgetmek{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -13,9 +13,9 @@
         </a>
         <h6 class="mb-0 fw-semibold">{{ user.full_name }}</h6>
         {% if user.is_active %}
-          <span class="badge bg-success-subtle text-success ms-auto">Активен</span>
+          <span class="badge bg-success-subtle text-success ms-auto">Aktiw</span>
         {% else %}
-          <span class="badge bg-danger-subtle text-danger ms-auto">Заблокирован</span>
+          <span class="badge bg-danger-subtle text-danger ms-auto">Bloklanan</span>
         {% endif %}
       </div>
       <div class="card-body px-4 py-4">
@@ -62,7 +62,7 @@
             <!-- Кабинет -->
             <div class="col-sm-6">
               {{ form.cabinet.label(class='form-label fw-medium') }}
-              <span class="text-muted small ms-1">(необязательно)</span>
+              <span class="text-muted small ms-1">(mejbury däl)</span>
               {{ form.cabinet(class='form-control' + (' is-invalid' if form.cabinet.errors else '')) }}
               {% for e in form.cabinet.errors %}
                 <div class="invalid-feedback">{{ e }}</div>
@@ -72,7 +72,7 @@
             <!-- Направление врача -->
             <div class="col-sm-6">
               {{ form.direction_id.label(class='form-label fw-medium') }}
-              <span class="text-muted small ms-1">(необязательно)</span>
+              <span class="text-muted small ms-1">(mejbury däl)</span>
               {{ form.direction_id(class='form-select' + (' is-invalid' if form.direction_id.errors else '')) }}
               {% for e in form.direction_id.errors %}
                 <div class="invalid-feedback">{{ e }}</div>
@@ -83,15 +83,15 @@
             <div class="col-12">
               <div class="alert alert-light border py-2 px-3 small mb-0">
                 <i class="bi bi-info-circle me-1 text-primary"></i>
-                Оставьте поле пароля пустым, чтобы не менять текущий пароль.
+                Gizlin belgini üýtgetmek islemesiň, boş goýuň.
               </div>
             </div>
             <div class="col-sm-6">
               {{ form.password.label(class='form-label fw-medium') }}
-              <span class="text-muted small ms-1">(необязательно)</span>
+              <span class="text-muted small ms-1">(mejbury däl)</span>
               <div class="input-group">
                 {{ form.password(class='form-control' + (' is-invalid' if form.password.errors else ''), id='pwd',
-                                 placeholder='Оставьте пустым для сохранения') }}
+                                 placeholder='Ýatda saklamak üçin boş goýuň') }}
                 <button class="btn btn-outline-secondary" type="button" onclick="togglePwd('pwd','icon-pwd')">
                   <i class="bi bi-eye" id="icon-pwd"></i>
                 </button>
@@ -112,13 +112,13 @@
               </form>
               {% if user.is_active %}
                 <button type="button" class="btn btn-outline-danger btn-sm"
-                        onclick="confirmAction('toggle-form-edit', 'Заблокировать пользователя?')">
-                  <i class="bi bi-lock me-1"></i>Заблокировать
+                        onclick="confirmAction('toggle-form-edit', 'Ulanyjyny bloklamak?')">
+                  <i class="bi bi-lock me-1"></i>Bloklamak
                 </button>
               {% else %}
                 <button type="button" class="btn btn-outline-success btn-sm"
-                        onclick="confirmAction('toggle-form-edit', 'Разблокировать пользователя?')">
-                  <i class="bi bi-unlock me-1"></i>Разблокировать
+                        onclick="confirmAction('toggle-form-edit', 'Ulanyjyny aktiwleşdirmek?')">
+                  <i class="bi bi-unlock me-1"></i>Aktiwleşdirmek
                 </button>
               {% endif %}
             {% else %}
@@ -126,7 +126,7 @@
             {% endif %}
 
             <div class="d-flex gap-2">
-              <a href="{{ url_for('admin.users_list') }}" class="btn btn-outline-secondary">Отмена</a>
+              <a href="{{ url_for('admin.users_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
               {{ form.submit(class='btn btn-primary px-4') }}
             </div>
           </div>

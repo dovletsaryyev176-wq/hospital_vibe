@@ -5,17 +5,17 @@ from wtforms.validators import DataRequired, Length
 
 class _BaseLoginForm(FlaskForm):
     username = StringField(
-        'Логин',
-        validators=[DataRequired(message='Введите логин'), Length(max=50)],
-        render_kw={'placeholder': 'Введите логин', 'autofocus': True},
+        'Ulanyjy ady',
+        validators=[DataRequired(message='Ulanyjy ady giriziň'), Length(max=50)],
+        render_kw={'placeholder': 'Ulanyjy ady giriziň', 'autofocus': True},
     )
     password = PasswordField(
-        'Пароль',
-        validators=[DataRequired(message='Введите пароль')],
-        render_kw={'placeholder': 'Введите пароль'},
+        'Gizlin belgi',
+        validators=[DataRequired(message='Gizlin belgini giriziň')],
+        render_kw={'placeholder': 'Gizlin belgini giriziň'},
     )
-    remember_me = BooleanField('Запомнить меня')
-    submit = SubmitField('Войти')
+    remember_me = BooleanField('Meni ýatda sakla')
+    submit = SubmitField('Ulgama girmek')
 
 
 class AdminLoginForm(_BaseLoginForm):

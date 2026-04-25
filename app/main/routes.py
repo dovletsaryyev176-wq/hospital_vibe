@@ -23,10 +23,10 @@ def role_required(*roles):
                 return redirect(url_for('admin.dashboard'))
             if not current_user.is_active:
                 logout_user()
-                flash('Ваша учётная запись заблокирована. Обратитесь к администратору.', 'danger')
+                flash('Siziň ulanyjyňyz bloklanan.', 'danger')
                 return redirect(url_for('auth.login'))
             if roles and current_user.role not in roles:
-                flash('У вас нет доступа к этому разделу.', 'danger')
+                flash('Siz bu bölege girip bilmeýärsiňiz.', 'danger')
                 return redirect(url_for('main.dashboard'))
             return f(*args, **kwargs)
         return decorated
@@ -105,7 +105,7 @@ def patients_create():
         )
         db.session.add(patient)
         db.session.commit()
-        flash(f'Пациент «{patient.full_name}» успешно добавлен.', 'success')
+        flash(f'Syrkaw «{patient.full_name}» döredilen.', 'success')
         return redirect(url_for('main.patients_list'))
 
     return render_template('main/patients/create.html', form=form)
@@ -129,7 +129,7 @@ def patients_edit(patient_id):
         patient.home_address = form.home_address.data.strip()
         patient.insurance_number = form.insurance_number.data.strip()
         db.session.commit()
-        flash(f'Данные пациента «{patient.full_name}» обновлены.', 'success')
+        flash(f'Syrkaw «{patient.full_name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('main.patients_list'))
 
     return render_template('main/patients/edit.html', form=form, patient=patient)
@@ -147,8 +147,8 @@ def patients_toggle(patient_id):
     patient.is_active = not patient.is_active
     db.session.commit()
 
-    action = 'активирован' if patient.is_active else 'деактивирован'
-    flash(f'Пациент «{patient.full_name}» {action}.', 'success')
+    action = 'aktiw' if patient.is_active else 'bloklanan'
+    flash(f'Syrkaw «{patient.full_name}» {action}.', 'success')
     return redirect(url_for('main.patients_list'))
 
 
@@ -174,14 +174,14 @@ def _parse_exam_form():
     errors = []
 
     if not patient_id:
-        errors.append('Выберите пациента.')
+        errors.append('Syrkawy saýlaň.')
     else:
         p = db.session.get(Patient, patient_id)
         if not p or not p.is_active:
-            errors.append('Выбранный пациент не найден или заблокирован.')
+            errors.append('Saýlanan syrkaw tapylmady ýa-da bloklanan.')
 
     if not analysis_ids and not direction_ids:
-        errors.append('Выберите хотя бы один анализ или направление.')
+        errors.append('Iň bolmanda 1 analiz ýa-da ugur kesgitläň.')
 
     doctor_for = {}
     if direction_id:
@@ -189,7 +189,7 @@ def _parse_exam_form():
         if not doc_id:
             dir_obj = db.session.get(DoctorDirection, direction_id)
             dir_name = dir_obj.name if dir_obj else f'#{direction_id}'
-            errors.append(f'Для направления «{dir_name}» не выбран врач.')
+            errors.append(f'Ugur «{dir_name}» üçin lukman bellenmedik.')
         else:
             doctor_for[direction_id] = doc_id
 
@@ -281,7 +281,7 @@ def examinations_create():
             ))
 
         db.session.commit()
-        flash(f'Обследование №{exam.id} успешно создано.', 'success')
+        flash(f'Barlag №{exam.id} döredilen.', 'success')
         return redirect(url_for('main.examinations_list'))
 
     defaults = {
@@ -308,7 +308,7 @@ def examinations_detail(exam_id):
             for ed in ExaminationDirection.query.filter_by(doctor_id=current_user.id).all()
         }
         if exam.id not in assigned_exam_ids:
-            flash('У вас нет доступа к этому обследованию.', 'danger')
+            flash('Siz üçin bu barlag gadagan.', 'danger')
             return redirect(url_for('main.examinations_list'))
 
     my_analysis_ids = set()
@@ -318,7 +318,7 @@ def examinations_detail(exam_id):
         }
         exam_analysis_ids = {ea.analysis_id for ea in exam.exam_analyses}
         if not my_analysis_ids & exam_analysis_ids:
-            flash('У вас нет доступа к этому обследованию.', 'danger')
+            flash('Siz üçin bu barlag gadagan.', 'danger')
             return redirect(url_for('main.examinations_list'))
 
     return render_template('main/examinations/detail.html', exam=exam, my_analysis_ids=my_analysis_ids)
@@ -345,15 +345,15 @@ def examinations_edit(exam_id):
         abort(404)
 
     if not exam.is_open:
-        flash('Редактировать можно только открытые обследования.', 'warning')
+        flash('Diňe açyk barlaglary üýtgedip bolýar.', 'warning')
         return redirect(url_for('main.examinations_list'))
 
     if exam.is_paid:
-        flash('Редактирование невозможно — обследование уже оплачено.', 'warning')
+        flash('Üýtgetmek mümkin däl-barlag tölenen.', 'warning')
         return redirect(url_for('main.examinations_list'))
 
     if exam.created_by_id != current_user.id:
-        flash('Редактировать обследование может только тот, кто его создал.', 'danger')
+        flash('Diňe barlagy döreden üýtgedip bilýär.', 'danger')
         return redirect(url_for('main.examinations_list'))
 
     ctx = _exam_form_context()
@@ -382,7 +382,7 @@ def examinations_edit(exam_id):
             ))
 
         db.session.commit()
-        flash(f'Обследование №{exam.id} обновлено.', 'success')
+        flash(f'Barlag №{exam.id} maglumatlary täzelenen.', 'success')
         return redirect(url_for('main.examinations_list'))
 
     pre = {
@@ -404,17 +404,17 @@ def examinations_close(exam_id):
         abort(404)
 
     if exam.created_by_id != current_user.id:
-        flash('Закрыть обследование может только тот, кто его создал.', 'danger')
+        flash('Diňe döreden barlagy ýapyp bilýär.', 'danger')
         return redirect(url_for('main.examinations_list'))
 
     if not exam.is_open:
-        flash('Обследование уже закрыто.', 'warning')
+        flash('Barlag eýýäm ýapylan.', 'warning')
         return redirect(url_for('main.examinations_list'))
 
     exam.status = Examination.STATUS_CLOSED
     exam.closed_at = datetime.utcnow()
     db.session.commit()
-    flash(f'Обследование №{exam.id} закрыто.', 'success')
+    flash(f'Barlag №{exam.id} ýapylan.', 'success')
     return redirect(url_for('main.examinations_list'))
 
 
@@ -428,14 +428,14 @@ def examinations_pay(exam_id):
         abort(404)
 
     if exam.is_paid:
-        flash('Обследование уже оплачено.', 'warning')
+        flash('Barlag eýýäm tölenen.', 'warning')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     exam.is_paid = True
     exam.paid_at = datetime.utcnow()
     exam.paid_by_id = current_user.id
     db.session.commit()
-    flash(f'Обследование №{exam.id} отмечено как оплаченное.', 'success')
+    flash(f'Barlag №{exam.id} tölenen diýip bellenilen.', 'success')
     return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
 
@@ -449,22 +449,22 @@ def examinations_submit_analysis(exam_id, ea_id):
         abort(404)
 
     if ea.analysis.responsible_id != current_user.id:
-        flash('Вы не являетесь ответственным за этот анализ.', 'danger')
+        flash('Bu analiziň jogapkäri Siz däl.', 'danger')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     if not ea.examination.is_paid:
-        flash('Нельзя отметить сдачу анализа — обследование ещё не оплачено.', 'warning')
+        flash('Tölenmedik analize bellik goýup bolmaýar.', 'warning')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     if ea.is_submitted:
-        flash('Анализ уже отмечен как сданный.', 'warning')
+        flash('Analiz geçilen diýip bellenilen.', 'warning')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     ea.is_submitted = True
     ea.submitted_at = datetime.utcnow()
     ea.submitted_by_id = current_user.id
     db.session.commit()
-    flash(f'Анализ «{ea.analysis.name}» отмечен как сданный.', 'success')
+    flash(f'Analiz «{ea.analysis.name}» geçilen diýip bellenilen.', 'success')
     return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
 
@@ -478,19 +478,19 @@ def examinations_mark_visited(exam_id, ed_id):
         abort(404)
 
     if ed.doctor_id != current_user.id:
-        flash('Вы не назначены врачом по этому направлению.', 'danger')
+        flash('Siz bu ugur boýunça lukman däl.', 'danger')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     if not ed.examination.is_paid:
-        flash('Нельзя отметить приход — обследование ещё не оплачено.', 'warning')
+        flash('Gelenini belläp bolmaýar-tölenmedik.', 'warning')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     if ed.is_visited:
-        flash('Приход пациента по этому направлению уже отмечен.', 'warning')
+        flash('Bu ugur boýunça geçilen diýilip bellenilen.', 'warning')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     ed.is_visited = True
     ed.visited_at = datetime.utcnow()
     db.session.commit()
-    flash(f'Приход пациента по направлению «{ed.direction.name}» отмечен.', 'success')
+    flash(f'Syrkaw bu ugur geçilen diýip bellenilen «{ed.direction.name}» .', 'success')
     return redirect(url_for('main.examinations_detail', exam_id=exam_id))

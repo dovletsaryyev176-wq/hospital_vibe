@@ -1,7 +1,7 @@
 {% extends 'admin/base.html' %}
 
-{% block title %}Новый пользователь{% endblock %}
-{% block page_title %}Новый пользователь{% endblock %}
+{% block title %}Täze ulanyjy{% endblock %}
+{% block page_title %}Täze ulanyjy{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -11,7 +11,7 @@
         <a href="{{ url_for('admin.users_list') }}" class="btn btn-sm btn-outline-secondary me-1">
           <i class="bi bi-arrow-left"></i>
         </a>
-        <h6 class="mb-0 fw-semibold">Добавить пользователя</h6>
+        <h6 class="mb-0 fw-semibold">Täze ulanyjy goşmak</h6>
       </div>
       <div class="card-body px-4 py-4">
         <form method="POST" novalidate>
@@ -57,7 +57,7 @@
             <!-- Кабинет -->
             <div class="col-sm-6">
               {{ form.cabinet.label(class='form-label fw-medium') }}
-              <span class="text-muted small ms-1">(необязательно)</span>
+              <span class="text-muted small ms-1">(mejbury däl)</span>
               {{ form.cabinet(class='form-control' + (' is-invalid' if form.cabinet.errors else '')) }}
               {% for e in form.cabinet.errors %}
                 <div class="invalid-feedback">{{ e }}</div>
@@ -67,7 +67,7 @@
             <!-- Направление врача -->
             <div class="col-sm-6">
               {{ form.direction_id.label(class='form-label fw-medium') }}
-              <span class="text-muted small ms-1">(необязательно)</span>
+              <span class="text-muted small ms-1">(mejbury däl)</span>
               {{ form.direction_id(class='form-select' + (' is-invalid' if form.direction_id.errors else '')) }}
               {% for e in form.direction_id.errors %}
                 <div class="invalid-feedback">{{ e }}</div>
@@ -91,7 +91,7 @@
 
           <hr class="my-4">
           <div class="d-flex justify-content-end gap-2">
-            <a href="{{ url_for('admin.users_list') }}" class="btn btn-outline-secondary">Отмена</a>
+            <a href="{{ url_for('admin.users_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
             {{ form.submit(class='btn btn-primary px-4') }}
           </div>
         </form>

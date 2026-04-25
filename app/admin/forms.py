@@ -10,7 +10,7 @@ PHONE_RE = re.compile(r'^\+?[\d\s\-\(\)]{7,20}$')
 
 def validate_phone(form, field):
     if field.data and not PHONE_RE.match(field.data.strip()):
-        raise ValidationError('Введите корректный номер телефона.')
+        raise ValidationError('Dogry telefon belgisini giriziň.')
 
 
 def _nullable_int(value):
@@ -22,23 +22,23 @@ def _nullable_int(value):
 
 class DirectionForm(FlaskForm):
     name = StringField(
-        'Наименование',
+        'Ady',
         validators=[
-            DataRequired(message='Введите наименование направления'),
-            Length(max=150, message='Не более 150 символов'),
+            DataRequired(message='Ugruň adyny giriziň'),
+            Length(max=150, message='150 belgiden geçmeli däl'),
         ],
-        render_kw={'placeholder': 'Например: Терапия'},
+        render_kw={'placeholder': 'Mysal: maşgala lukmany'},
     )
     price = DecimalField(
-        'Цена (₸)',
+        'Bahasy (Manat)',
         validators=[
-            DataRequired(message='Введите цену'),
-            NumberRange(min=0, message='Цена не может быть отрицательной'),
+            DataRequired(message='Bahany giriziň'),
+            NumberRange(min=0, message='Baha otrisatel bolup bilmeýär'),
         ],
         places=2,
         render_kw={'placeholder': '0.00'},
     )
-    submit = SubmitField('Сохранить')
+    submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_direction=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -50,63 +50,63 @@ class DirectionForm(FlaskForm):
             DoctorDirection.name.ilike(field.data.strip())
         ).first()
         if existing and (self._editing_direction is None or existing.id != self._editing_direction.id):
-            raise ValidationError('Направление с таким наименованием уже существует.')
+            raise ValidationError('Bu atly ugur eýýäm hasaba alnan.')
 
 
 class UserForm(FlaskForm):
     full_name = StringField(
-        'ФИО',
+        'FAA',
         validators=[
-            DataRequired(message='Введите ФИО'),
-            Length(min=2, max=150, message='ФИО должно быть от 2 до 150 символов'),
+            DataRequired(message='FAA giriziň'),
+            Length(min=2, max=150, message='FAA 2-150 belgi arasynda bolmaly'),
         ],
-        render_kw={'placeholder': 'Фамилия Имя Отчество'},
+        render_kw={'placeholder': 'Familiýasy Ady Atasynyň ady'},
     )
     username = StringField(
-        'Логин',
+        'Ulanyjy ady',
         validators=[
-            DataRequired(message='Введите логин'),
-            Length(min=3, max=50, message='Логин должен быть от 3 до 50 символов'),
-            Regexp(r'^[\w]+$', message='Логин может содержать только буквы, цифры и знак подчёркивания'),
+            DataRequired(message='Ulanyjy ady giriziň'),
+            Length(min=3, max=50, message='Ulanyjy ady 3-50 belgi arasynda bolmaly'),
+            Regexp(r'^[\w]+$', message='Ulanyjy adynda diňe harp, san we aşayk çyzgy bolup bilýar'),
         ],
-        render_kw={'placeholder': 'Логин для входа'},
+        render_kw={'placeholder': 'Ulanyjy ady'},
     )
     role = SelectField(
-        'Роль',
+        'Roly',
         choices=[
-            ('', '— Выберите роль —'),
-            ('administrator', 'Администратор'),
-            ('registrar', 'Регистратор'),
-            ('doctor', 'Врач'),
-            ('analysis_responsible', 'Ответственный по анализам'),
-            ('cashier', 'Кассир'),
+            ('', '— Roly saýlaň —'),
+            ('administrator', 'Dolandyryjy'),
+            ('registrar', 'Kabulhana'),
+            ('doctor', 'Lukman'),
+            ('analysis_responsible', 'Analiz boýunça jogapkär'),
+            ('cashier', 'Kassir'),
         ],
-        validators=[DataRequired(message='Выберите роль')],
+        validators=[DataRequired(message='Roly saýlaň')],
     )
     phone_number = StringField(
-        'Телефон',
+        'Telefon',
         validators=[
-            DataRequired(message='Введите телефонный номер'),
+            DataRequired(message='Telefon belgini giriziň'),
             validate_phone,
         ],
-        render_kw={'placeholder': '+7 (___) ___-__-__'},
+        render_kw={'placeholder': '+993 (___) ___-__-__'},
     )
     cabinet = StringField(
-        'Кабинет',
-        validators=[Optional(), Length(max=20, message='Номер кабинета не более 20 символов')],
-        render_kw={'placeholder': 'Например: 101'},
+        'Otag',
+        validators=[Optional(), Length(max=20, message='Otag belgisi 20 simwoldan geçmeli däl')],
+        render_kw={'placeholder': 'Mysal: 101'},
     )
     direction_id = SelectField(
-        'Направление врача',
+        'Lukmanyň ugurlary',
         coerce=_nullable_int,
         validators=[Optional()],
     )
     password = PasswordField(
-        'Пароль',
-        validators=[Optional(), Length(min=6, message='Пароль не менее 6 символов')],
-        render_kw={'placeholder': 'Не менее 6 символов'},
+        'Gizlin belgi',
+        validators=[Optional(), Length(min=6, message='Gizlin belgi iň az 6 siwmoldan ybarat bolmaly')],
+        render_kw={'placeholder': 'Iň az 6 simwol bolmaly'},
     )
-    submit = SubmitField('Сохранить')
+    submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_user=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -121,13 +121,13 @@ class UserForm(FlaskForm):
             .order_by(DoctorDirection.name)
             .all()
         )
-        choices = [(0, '— Не указано —')]
+        choices = [(0, '— Görkezilmedik —')]
 
         # When editing, keep the current direction even if it's been blocked
         if self._editing_user and self._editing_user.direction_id:
             current = self._editing_user.direction
             if current and not current.is_active:
-                choices.append((current.id, f'{current.name} [отключено]'))
+                choices.append((current.id, f'{current.name} [bloklanan]'))
                 choices += [(d.id, d.name) for d in active if d.id != current.id]
             else:
                 choices += [(d.id, d.name) for d in active]
@@ -139,37 +139,37 @@ class UserForm(FlaskForm):
     def validate_username(self, field):
         existing = User.query.filter_by(username=field.data.strip()).first()
         if existing and (self._editing_user is None or existing.id != self._editing_user.id):
-            raise ValidationError('Пользователь с таким логином уже существует.')
+            raise ValidationError('Bu atly ulanyjy eýýäm hasaba alnan.')
 
     def validate_password(self, field):
         if self._editing_user is None and not field.data:
-            raise ValidationError('Пароль обязателен при создании пользователя.')
+            raise ValidationError('Ulanyjynyň gizlin belgisi hökmanydyr.')
 
 
 class AnalysisForm(FlaskForm):
     name = StringField(
-        'Наименование',
+        'Ady',
         validators=[
-            DataRequired(message='Введите наименование анализа'),
-            Length(max=200, message='Наименование не более 200 символов'),
+            DataRequired(message='Analiziň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
         ],
-        render_kw={'placeholder': 'Название анализа'},
+        render_kw={'placeholder': 'Analiziň ady'},
     )
     price = DecimalField(
-        'Цена (руб.)',
+        'Bahasy (manat)',
         validators=[
-            DataRequired(message='Введите цену'),
-            NumberRange(min=0, message='Цена не может быть отрицательной'),
+            DataRequired(message='Bahany giriziň'),
+            NumberRange(min=0, message='Baha otrisatel bolup bilmeýär'),
         ],
         places=2,
         render_kw={'placeholder': '0.00', 'step': '0.01', 'min': '0'},
     )
     responsible_id = SelectField(
-        'Ответственный по анализам',
+        'Analizler boýunça jogapkär',
         coerce=int,
-        validators=[DataRequired(message='Выберите ответственного')],
+        validators=[DataRequired(message='Jogapkäri saýlaň')],
     )
-    submit = SubmitField('Сохранить')
+    submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_analysis=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -183,12 +183,12 @@ class AnalysisForm(FlaskForm):
             .order_by(User.full_name)
             .all()
         )
-        choices = [(0, '— Выберите ответственного —')]
+        choices = [(0, '— Jogapkäri saýlaň —')]
 
         if self._editing_analysis and self._editing_analysis.responsible:
             current = self._editing_analysis.responsible
             if not current.is_active:
-                choices.append((current.id, f'{current.full_name} [заблокирован]'))
+                choices.append((current.id, f'{current.full_name} [bloklanan]'))
                 choices += [(u.id, u.full_name) for u in active_users]
             else:
                 choices += [(u.id, u.full_name) for u in active_users]
@@ -199,4 +199,4 @@ class AnalysisForm(FlaskForm):
 
     def validate_responsible_id(self, field):
         if not field.data:
-            raise ValidationError('Выберите ответственного по анализам.')
+            raise ValidationError('Analiz boýunça jogapkäri saýlaň.')

@@ -16,14 +16,14 @@
           </span>
           <input type="text" class="form-control border-start-0 ps-0"
                  name="q" value="{{ search }}"
-                 placeholder="Поиск по ФИО, полису, гражданству">
+                 placeholder="FAA, ätiýaçlandyryş, raýatlylylgy boýunça">
         </div>
         <select name="status" class="form-select" style="max-width:160px">
-          <option value="">Все статусы</option>
-          <option value="active"   {% if status_filter == 'active'   %}selected{% endif %}>Активные</option>
-          <option value="blocked"  {% if status_filter == 'blocked'  %}selected{% endif %}>Деактивированные</option>
+          <option value="">Hemme statuslar</option>
+          <option value="active"   {% if status_filter == 'active'   %}selected{% endif %}>Aktiw</option>
+          <option value="blocked"  {% if status_filter == 'blocked'  %}selected{% endif %}>Bloklanan</option>
         </select>
-        <button type="submit" class="btn btn-outline-primary">Найти</button>
+        <button type="submit" class="btn btn-outline-primary">Tapmak</button>
         {% if search or status_filter %}
           <a href="{{ url_for('main.patients_list') }}" class="btn btn-outline-secondary">
             <i class="bi bi-x-lg"></i>
@@ -32,7 +32,7 @@
       </form>
 
       <a href="{{ url_for('main.patients_create') }}" class="btn btn-primary ms-auto">
-        <i class="bi bi-person-plus-fill me-1"></i>Добавить
+        <i class="bi bi-person-plus-fill me-1"></i>Goşmak
       </a>
     </div>
   </div>
@@ -43,13 +43,13 @@
       <thead>
         <tr>
           <th class="ps-4" style="width:50px">#</th>
-          <th>ФИО</th>
-          <th>Год рождения</th>
-          <th>Гражданство</th>
-          <th>Домашний адрес</th>
-          <th>Полис ОМС</th>
-          <th class="text-center">Статус</th>
-          <th class="text-center pe-4">Действия</th>
+          <th>FAA</th>
+          <th>Doglan ýyly</th>
+          <th>Raýatlylygy</th>
+          <th>Öý salgysy</th>
+          <th>Ätiýaçlandyryş</th>
+          <th class="text-center">Statusy</th>
+          <th class="text-center pe-4">Amallar</th>
         </tr>
       </thead>
       <tbody>
@@ -60,7 +60,7 @@
             <td class="fw-medium">{{ patient.full_name }}</td>
             <td class="text-nowrap">
               {{ patient.birth_year }}
-              <span class="text-muted small">({{ patient.age }} лет)</span>
+              <span class="text-muted small">({{ patient.age }} ýyl)</span>
             </td>
             <td>{{ patient.citizenship }}</td>
             <td class="text-truncate" style="max-width:200px" title="{{ patient.home_address }}">
@@ -70,18 +70,18 @@
             <td class="text-center">
               {% if patient.is_active %}
                 <span class="badge bg-success-subtle text-success">
-                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Активен
+                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Aktiw
                 </span>
               {% else %}
                 <span class="badge bg-secondary-subtle text-secondary">
-                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Деактивирован
+                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Bloklanan
                 </span>
               {% endif %}
             </td>
             <td class="text-center pe-4">
               <div class="d-flex justify-content-center gap-1">
                 <a href="{{ url_for('main.patients_edit', patient_id=patient.id) }}"
-                   class="btn btn-sm btn-outline-secondary" title="Редактировать">
+                   class="btn btn-sm btn-outline-secondary" title="Üýtgetmek">
                   <i class="bi bi-pencil"></i>
                 </a>
 
@@ -91,13 +91,13 @@
                 </form>
 
                 {% if patient.is_active %}
-                  <button type="button" class="btn btn-sm btn-outline-danger" title="Деактивировать"
-                          onclick="confirmAction('toggle-p-{{ patient.id }}', 'Деактивировать пациента «{{ patient.full_name }}»?')">
+                  <button type="button" class="btn btn-sm btn-outline-danger" title="Bloklamak"
+                          onclick="confirmAction('toggle-p-{{ patient.id }}', 'Syrkawy bloklamak «{{ patient.full_name }}»?')">
                     <i class="bi bi-slash-circle"></i>
                   </button>
                 {% else %}
-                  <button type="button" class="btn btn-sm btn-outline-success" title="Активировать"
-                          onclick="confirmAction('toggle-p-{{ patient.id }}', 'Активировать пациента «{{ patient.full_name }}»?')">
+                  <button type="button" class="btn btn-sm btn-outline-success" title="Aktiwleşdirmek"
+                          onclick="confirmAction('toggle-p-{{ patient.id }}', 'Syrkawy aktiwleşdirmek «{{ patient.full_name }}»?')">
                     <i class="bi bi-check-circle"></i>
                   </button>
                 {% endif %}
@@ -110,10 +110,10 @@
             <td colspan="8" class="text-center text-muted py-5">
               <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
               {% if search or status_filter %}
-                Пациенты не найдены. <a href="{{ url_for('main.patients_list') }}">Сбросить фильтр</a>
+                Syrkawlar tapylmady. <a href="{{ url_for('main.patients_list') }}">Filtri aýyrmak</a>
               {% else %}
-                Пациентов пока нет.
-                <a href="{{ url_for('main.patients_create') }}">Добавить первого пациента</a>
+                Heniz syrkaw ýok.
+                <a href="{{ url_for('main.patients_create') }}">Ilkinji syrkawy goşmak</a>
               {% endif %}
             </td>
           </tr>
@@ -124,7 +124,7 @@
 
   {% if patients %}
   <div class="card-footer bg-white text-muted small px-4">
-    Найдено: {{ patients | length }}
+    Tapylan: {{ patients | length }}
   </div>
   {% endif %}
 </div>
@@ -135,11 +135,11 @@
     <div class="modal-content">
       <div class="modal-body text-center py-4">
         <i class="bi bi-question-circle text-warning" style="font-size:2.5rem"></i>
-        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Вы уверены?</p>
+        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Hakykatdanmy?</p>
       </div>
       <div class="modal-footer justify-content-center border-0 pt-0">
-        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
-        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Подтвердить</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Tassyklamak</button>
       </div>
     </div>
   </div>

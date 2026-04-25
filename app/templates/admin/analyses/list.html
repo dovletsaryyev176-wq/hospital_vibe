@@ -1,7 +1,7 @@
 {% extends 'admin/base.html' %}
 
-{% block title %}Анализы{% endblock %}
-{% block page_title %}Анализы{% endblock %}
+{% block title %}Analizler{% endblock %}
+{% block page_title %}Analizler{% endblock %}
 
 {% block content %}
 <div class="card shadow-sm table-card">
@@ -16,14 +16,14 @@
           </span>
           <input type="text" class="form-control border-start-0 ps-0"
                  name="q" value="{{ search }}"
-                 placeholder="Поиск по наименованию или ответственному">
+                 placeholder="Adyna ýa-da jogapkärine görä gözleg">
         </div>
         <select name="status" class="form-select" style="max-width:160px">
-          <option value="">Все статусы</option>
-          <option value="active"  {% if status_filter == 'active'  %}selected{% endif %}>Активные</option>
-          <option value="blocked" {% if status_filter == 'blocked' %}selected{% endif %}>Отключённые</option>
+          <option value="">Hemme statuslar</option>
+          <option value="active"  {% if status_filter == 'active'  %}selected{% endif %}>Aktiwler</option>
+          <option value="blocked" {% if status_filter == 'blocked' %}selected{% endif %}>Bloklananlar</option>
         </select>
-        <button type="submit" class="btn btn-outline-primary">Найти</button>
+        <button type="submit" class="btn btn-outline-primary">Tapmak</button>
         {% if search or status_filter %}
           <a href="{{ url_for('admin.analyses_list') }}" class="btn btn-outline-secondary">
             <i class="bi bi-x-lg"></i>
@@ -32,7 +32,7 @@
       </form>
 
       <a href="{{ url_for('admin.analyses_create') }}" class="btn btn-primary ms-auto">
-        <i class="bi bi-plus-lg me-1"></i>Добавить анализ
+        <i class="bi bi-plus-lg me-1"></i>Analiz goşmak
       </a>
     </div>
   </div>
@@ -43,11 +43,11 @@
       <thead>
         <tr>
           <th class="ps-4" style="width:50px">#</th>
-          <th>Наименование</th>
-          <th class="text-end" style="width:130px">Цена, руб.</th>
-          <th>Ответственный</th>
-          <th class="text-center" style="width:130px">Статус</th>
-          <th class="text-center pe-4" style="width:110px">Действия</th>
+          <th>Ady</th>
+          <th class="text-end" style="width:130px">Bahasy</th>
+          <th>Jogapkär</th>
+          <th class="text-center" style="width:130px">Ýagdaýy</th>
+          <th class="text-center pe-4" style="width:110px">Amallar</th>
         </tr>
       </thead>
       <tbody>
@@ -61,18 +61,18 @@
               <span class="d-flex align-items-center gap-1">
                 {{ analysis.responsible.full_name }}
                 {% if not analysis.responsible.is_active %}
-                  <span class="badge bg-danger-subtle text-danger" style="font-size:.65rem">заблокирован</span>
+                  <span class="badge bg-danger-subtle text-danger" style="font-size:.65rem">bloklanan</span>
                 {% endif %}
               </span>
             </td>
             <td class="text-center">
               {% if analysis.is_active %}
                 <span class="badge bg-success-subtle text-success">
-                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Активен
+                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Aktiw
                 </span>
               {% else %}
                 <span class="badge bg-secondary-subtle text-secondary">
-                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Отключён
+                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Bloklanan
                 </span>
               {% endif %}
             </td>
@@ -90,12 +90,12 @@
 
                 {% if analysis.is_active %}
                   <button type="button" class="btn btn-sm btn-outline-danger" title="Отключить"
-                          onclick="confirmAction('toggle-a-{{ analysis.id }}', 'Отключить анализ «{{ analysis.name }}»?')">
+                          onclick="confirmAction('toggle-a-{{ analysis.id }}', 'Analizi bloklamak «{{ analysis.name }}»?')">
                     <i class="bi bi-slash-circle"></i>
                   </button>
                 {% else %}
-                  <button type="button" class="btn btn-sm btn-outline-success" title="Включить"
-                          onclick="confirmAction('toggle-a-{{ analysis.id }}', 'Включить анализ «{{ analysis.name }}»?')">
+                  <button type="button" class="btn btn-sm btn-outline-success" title="Aktiwleşdirmek"
+                          onclick="confirmAction('toggle-a-{{ analysis.id }}', 'Analizi aktiwleşdirmek «{{ analysis.name }}»?')">
                     <i class="bi bi-check-circle"></i>
                   </button>
                 {% endif %}
@@ -108,10 +108,10 @@
             <td colspan="6" class="text-center text-muted py-5">
               <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
               {% if search or status_filter %}
-                Анализы не найдены. <a href="{{ url_for('admin.analyses_list') }}">Сбросить фильтр</a>
+                Analizler tapylmady. <a href="{{ url_for('admin.analyses_list') }}">Filtri aýyrmak</a>
               {% else %}
-                Анализов пока нет.
-                <a href="{{ url_for('admin.analyses_create') }}">Добавить первый анализ</a>
+                Heniz analiz ýok
+                <a href="{{ url_for('admin.analyses_create') }}">Ilki analizi goşmak</a>
               {% endif %}
             </td>
           </tr>
@@ -122,7 +122,7 @@
 
   {% if analyses %}
   <div class="card-footer bg-white text-muted small px-4">
-    Найдено: {{ analyses | length }}
+    Tapylanlar: {{ analyses | length }}
   </div>
   {% endif %}
 </div>

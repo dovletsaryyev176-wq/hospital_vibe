@@ -1,7 +1,7 @@
 {% extends 'admin/base.html' %}
 
-{% block title %}Новый анализ{% endblock %}
-{% block page_title %}Новый анализ{% endblock %}
+{% block title %}Täze analiz{% endblock %}
+{% block page_title %}Täze analiz{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -11,7 +11,7 @@
         <a href="{{ url_for('admin.analyses_list') }}" class="btn btn-sm btn-outline-secondary me-1">
           <i class="bi bi-arrow-left"></i>
         </a>
-        <h6 class="mb-0 fw-semibold">Добавить анализ</h6>
+        <h6 class="mb-0 fw-semibold">Analiz goşmak</h6>
       </div>
       <div class="card-body px-4 py-4">
         <form method="POST" novalidate>
@@ -40,8 +40,8 @@
               {% if form.responsible_id.choices | length <= 1 %}
                 <div class="form-text text-warning">
                   <i class="bi bi-exclamation-triangle me-1"></i>
-                  Нет активных пользователей с ролью «Ответственный по анализам».
-                  <a href="{{ url_for('admin.users_create') }}">Создать пользователя</a>
+                  Analizlere jogapkär görnüşli aktiw ulanyjy ýok.
+                  <a href="{{ url_for('admin.users_create') }}">Ulanyjy döretmek</a>
                 </div>
               {% endif %}
             </div>
@@ -49,7 +49,7 @@
 
           <hr class="my-4">
           <div class="d-flex justify-content-end gap-2">
-            <a href="{{ url_for('admin.analyses_list') }}" class="btn btn-outline-secondary">Отмена</a>
+            <a href="{{ url_for('admin.analyses_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
             {{ form.submit(class='btn btn-primary px-4') }}
           </div>
         </form>

@@ -1,7 +1,7 @@
 {% extends 'main/base.html' %}
 
-{% block title %}Редактирование — {{ patient.full_name }}{% endblock %}
-{% block page_title %}Редактирование пациента{% endblock %}
+{% block title %}Syrkawy üýtgetmek — {{ patient.full_name }}{% endblock %}
+{% block page_title %}Syrkawy üýtgetmek{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -13,9 +13,9 @@
         </a>
         <h6 class="mb-0 fw-semibold">{{ patient.full_name }}</h6>
         {% if patient.is_active %}
-          <span class="badge bg-success-subtle text-success ms-auto">Активен</span>
+          <span class="badge bg-success-subtle text-success ms-auto">Aktiw</span>
         {% else %}
-          <span class="badge bg-secondary-subtle text-secondary ms-auto">Деактивирован</span>
+          <span class="badge bg-secondary-subtle text-secondary ms-auto">Bloklamak</span>
         {% endif %}
       </div>
       <div class="card-body px-4 py-4">
@@ -64,18 +64,18 @@
             </form>
             {% if patient.is_active %}
               <button type="button" class="btn btn-outline-danger btn-sm"
-                      onclick="confirmAction('toggle-edit', 'Деактивировать пациента?')">
-                <i class="bi bi-slash-circle me-1"></i>Деактивировать
+                      onclick="confirmAction('toggle-edit', 'Syrkawy bloklamak?')">
+                <i class="bi bi-slash-circle me-1"></i>Bloklamak
               </button>
             {% else %}
               <button type="button" class="btn btn-outline-success btn-sm"
-                      onclick="confirmAction('toggle-edit', 'Активировать пациента?')">
-                <i class="bi bi-check-circle me-1"></i>Активировать
+                      onclick="confirmAction('toggle-edit', 'Syrkawy aktiwleşdirmek?')">
+                <i class="bi bi-check-circle me-1"></i>Aktiwleşdirmek
               </button>
             {% endif %}
 
             <div class="d-flex gap-2">
-              <a href="{{ url_for('main.patients_list') }}" class="btn btn-outline-secondary">Отмена</a>
+              <a href="{{ url_for('main.patients_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
               {{ form.submit(class='btn btn-primary px-4') }}
             </div>
           </div>
@@ -91,11 +91,11 @@
     <div class="modal-content">
       <div class="modal-body text-center py-4">
         <i class="bi bi-question-circle text-warning" style="font-size:2.5rem"></i>
-        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Вы уверены?</p>
+        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Hakykatdanmy?</p>
       </div>
       <div class="modal-footer justify-content-center border-0 pt-0">
-        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Отмена</button>
-        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Подтвердить</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Tassyklamak</button>
       </div>
     </div>
   </div>

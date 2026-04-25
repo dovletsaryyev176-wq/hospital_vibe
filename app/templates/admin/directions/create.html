@@ -1,7 +1,7 @@
 {% extends 'admin/base.html' %}
 
-{% block title %}Новое направление{% endblock %}
-{% block page_title %}Новое направление{% endblock %}
+{% block title %}Täze ugur{% endblock %}
+{% block page_title %}Täze ugur{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -11,7 +11,7 @@
         <a href="{{ url_for('admin.directions_list') }}" class="btn btn-sm btn-outline-secondary me-1">
           <i class="bi bi-arrow-left"></i>
         </a>
-        <h6 class="mb-0 fw-semibold">Добавить направление</h6>
+        <h6 class="mb-0 fw-semibold">Täze ugur goşmak</h6>
       </div>
       <div class="card-body px-4 py-4">
         <form method="POST" novalidate>
@@ -34,7 +34,7 @@
 
           <hr class="my-4">
           <div class="d-flex justify-content-end gap-2">
-            <a href="{{ url_for('admin.directions_list') }}" class="btn btn-outline-secondary">Отмена</a>
+            <a href="{{ url_for('admin.directions_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
             {{ form.submit(class='btn btn-primary px-4') }}
           </div>
         </form>

@@ -13,7 +13,7 @@ def admin_required(f):
         if not current_user.is_authenticated:
             return redirect(url_for('auth.admin_login'))
         if not current_user.is_administrator():
-            flash('Доступ запрещён.', 'danger')
+            flash('Girmek gadagan.', 'danger')
             return redirect(url_for('auth.admin_login'))
         return f(*args, **kwargs)
     return decorated
@@ -94,7 +94,7 @@ def users_create():
         user.set_password(form.password.data)
         db.session.add(user)
         db.session.commit()
-        flash(f'Пользователь «{user.full_name}» успешно создан.', 'success')
+        flash(f'Ulanyjy «{user.full_name}» döredilen.', 'success')
         return redirect(url_for('admin.users_list'))
 
     return render_template('admin/users/create.html', form=form)
@@ -123,7 +123,7 @@ def users_edit(user_id):
             user.set_password(form.password.data)
 
         db.session.commit()
-        flash(f'Данные пользователя «{user.full_name}» обновлены.', 'success')
+        flash(f'Ulanyjy «{user.full_name}» maglumatlary täzelendi.', 'success')
         return redirect(url_for('admin.users_list'))
 
     return render_template('admin/users/edit.html', form=form, user=user)
@@ -139,14 +139,14 @@ def users_toggle(user_id):
         abort(404)
 
     if user.id == current_user.id:
-        flash('Нельзя заблокировать собственную учётную запись.', 'warning')
+        flash('Öz ulanyjyňy bloklap bolmaýar.', 'warning')
         return redirect(url_for('admin.users_list'))
 
     user.is_active = not user.is_active
     db.session.commit()
 
-    action = 'разблокирован' if user.is_active else 'заблокирован'
-    flash(f'Пользователь «{user.full_name}» {action}.', 'success')
+    action = 'aktiw' if user.is_active else 'bloklanan'
+    flash(f'Ulanyjy «{user.full_name}» {action}.', 'success')
     return redirect(url_for('admin.users_list'))
 
 
@@ -198,7 +198,7 @@ def analyses_create():
         )
         db.session.add(analysis)
         db.session.commit()
-        flash(f'Анализ «{analysis.name}» успешно добавлен.', 'success')
+        flash(f'Analiz «{analysis.name}» döredilen.', 'success')
         return redirect(url_for('admin.analyses_list'))
 
     return render_template('admin/analyses/create.html', form=form)
@@ -220,7 +220,7 @@ def analyses_edit(analysis_id):
         analysis.price = form.price.data
         analysis.responsible_id = form.responsible_id.data
         db.session.commit()
-        flash(f'Анализ «{analysis.name}» обновлён.', 'success')
+        flash(f'Analiz «{analysis.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.analyses_list'))
 
     return render_template('admin/analyses/edit.html', form=form, analysis=analysis)
@@ -238,8 +238,8 @@ def analyses_toggle(analysis_id):
     analysis.is_active = not analysis.is_active
     db.session.commit()
 
-    action = 'включён' if analysis.is_active else 'отключён'
-    flash(f'Анализ «{analysis.name}» {action}.', 'success')
+    action = 'aktiw' if analysis.is_active else 'bloklanan'
+    flash(f'Analiz «{analysis.name}» {action}.', 'success')
     return redirect(url_for('admin.analyses_list'))
 
 
@@ -281,7 +281,7 @@ def directions_create():
         direction = DoctorDirection(name=form.name.data.strip(), price=form.price.data)
         db.session.add(direction)
         db.session.commit()
-        flash(f'Направление «{direction.name}» успешно добавлено.', 'success')
+        flash(f'Ugur «{direction.name}» döredilen.', 'success')
         return redirect(url_for('admin.directions_list'))
 
     return render_template('admin/directions/create.html', form=form)
@@ -302,7 +302,7 @@ def directions_edit(direction_id):
         direction.name = form.name.data.strip()
         direction.price = form.price.data
         db.session.commit()
-        flash(f'Направление «{direction.name}» обновлено.', 'success')
+        flash(f'Ugur «{direction.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.directions_list'))
 
     return render_template('admin/directions/edit.html', form=form, direction=direction)
@@ -320,6 +320,6 @@ def directions_toggle(direction_id):
     direction.is_active = not direction.is_active
     db.session.commit()
 
-    action = 'включено' if direction.is_active else 'отключено'
-    flash(f'Направление «{direction.name}» {action}.', 'success')
+    action = 'aktiw' if direction.is_active else 'bloklanan'
+    flash(f'Ugur «{direction.name}» {action}.', 'success')
     return redirect(url_for('admin.directions_list'))

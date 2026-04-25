@@ -5,15 +5,15 @@ from app.models import User
 
 
 @click.command('create-admin')
-@click.option('--username', prompt='Логин', help='Логин администратора')
-@click.option('--full-name', prompt='ФИО', help='Полное имя администратора')
-@click.option('--phone', prompt='Телефон', help='Телефонный номер')
-@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Пароль')
+@click.option('--username', prompt='Ulanyjy ady', help='Dolandyryjynyň ulanyjy ady ')
+@click.option('--full-name', prompt='FAA', help='Dolandyryjynyň doly ady')
+@click.option('--phone', prompt='Telefon belgisi', help='Telefon belgisi')
+@click.option('--password', prompt=True, hide_input=True, confirmation_prompt=True, help='Gizlin belgi')
 @with_appcontext
 def create_admin(username, full_name, phone, password):
     """Создать учётную запись администратора."""
     if User.query.filter_by(username=username).first():
-        click.echo(f'Ошибка: пользователь "{username}" уже существует.')
+        click.echo(f'Ýalňyşlyk: bu "{username}" atly ulanyjy eýýäm hasaba alnan.')
         return
 
     admin = User(
@@ -26,4 +26,4 @@ def create_admin(username, full_name, phone, password):
     admin.set_password(password)
     db.session.add(admin)
     db.session.commit()
-    click.echo(f'Администратор "{username}" успешно создан.')
+    click.echo(f'Dolandyryjy "{username}" döredilen.')

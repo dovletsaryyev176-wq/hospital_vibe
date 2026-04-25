@@ -1,7 +1,7 @@
 {% extends 'admin/base.html' %}
 
-{% block title %}Редактирование — {{ analysis.name }}{% endblock %}
-{% block page_title %}Редактирование анализа{% endblock %}
+{% block title %}Analizi üýtgetmek — {{ analysis.name }}{% endblock %}
+{% block page_title %}Analizi üýtgetmek{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -13,9 +13,9 @@
         </a>
         <h6 class="mb-0 fw-semibold text-truncate">{{ analysis.name }}</h6>
         {% if analysis.is_active %}
-          <span class="badge bg-success-subtle text-success ms-auto flex-shrink-0">Активен</span>
+          <span class="badge bg-success-subtle text-success ms-auto flex-shrink-0">Aktiw</span>
         {% else %}
-          <span class="badge bg-secondary-subtle text-secondary ms-auto flex-shrink-0">Отключён</span>
+          <span class="badge bg-secondary-subtle text-secondary ms-auto flex-shrink-0">Bloklanan</span>
         {% endif %}
       </div>
       <div class="card-body px-4 py-4">
@@ -54,18 +54,18 @@
             </form>
             {% if analysis.is_active %}
               <button type="button" class="btn btn-outline-danger btn-sm"
-                      onclick="confirmAction('toggle-edit', 'Отключить анализ «{{ analysis.name }}»?')">
-                <i class="bi bi-slash-circle me-1"></i>Отключить
+                      onclick="confirmAction('toggle-edit', 'Analizi öçürmek «{{ analysis.name }}»?')">
+                <i class="bi bi-slash-circle me-1"></i>Bloklamak
               </button>
             {% else %}
               <button type="button" class="btn btn-outline-success btn-sm"
-                      onclick="confirmAction('toggle-edit', 'Включить анализ «{{ analysis.name }}»?')">
-                <i class="bi bi-check-circle me-1"></i>Включить
+                      onclick="confirmAction('toggle-edit', 'Analizi aktiwleşdirmek «{{ analysis.name }}»?')">
+                <i class="bi bi-check-circle me-1"></i>Aktiwleşdirmek
               </button>
             {% endif %}
 
             <div class="d-flex gap-2">
-              <a href="{{ url_for('admin.analyses_list') }}" class="btn btn-outline-secondary">Отмена</a>
+              <a href="{{ url_for('admin.analyses_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
               {{ form.submit(class='btn btn-primary px-4') }}
             </div>
           </div>

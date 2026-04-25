@@ -1,7 +1,7 @@
 {% extends 'main/base.html' %}
 
-{% block title %}Редактировать обследование №{{ exam.id }}{% endblock %}
-{% block page_title %}Редактировать обследование №{{ exam.id }}{% endblock %}
+{% block title %}Barlagy düzetmek №{{ exam.id }}{% endblock %}
+{% block page_title %}Barlagy düzetmek №{{ exam.id }}{% endblock %}
 
 {% block content %}
 <form method="POST" action="{{ url_for('main.examinations_edit', exam_id=exam.id) }}" id="exam-form">
@@ -18,13 +18,13 @@
             <i class="bi bi-arrow-left"></i>
           </a>
           <span class="badge bg-primary rounded-pill me-1">1</span>
-          <h6 class="mb-0 fw-semibold">Выберите пациента</h6>
+          <h6 class="mb-0 fw-semibold">Syrkawy saýlaň</h6>
         </div>
         <div class="card-body p-4">
           <div class="col-md-6">
-            <label class="form-label fw-medium">Пациент <span class="text-danger">*</span></label>
+            <label class="form-label fw-medium">Syrkaw <span class="text-danger">*</span></label>
             <select name="patient_id" class="form-select" required>
-              <option value="">— Выберите пациента —</option>
+              <option value="">— Syrkawy saýlaň —</option>
               {% for p in patients %}
                 <option value="{{ p.id }}" {% if selected_patient_id == p.id %}selected{% endif %}>
                   {{ p.full_name }} ({{ p.birth_year }}, полис: {{ p.insurance_number }})
@@ -42,9 +42,9 @@
         <div class="card-header bg-white border-bottom px-4 py-3">
           <div class="d-flex align-items-center gap-2">
             <span class="badge bg-primary rounded-pill">2</span>
-            <h6 class="mb-0 fw-semibold">Выберите анализы</h6>
+            <h6 class="mb-0 fw-semibold">Analizleri saýlaň</h6>
             <span class="text-muted small ms-auto">
-              Выбрано: <span id="analyses-selected">{{ selected_analysis_ids | length }}</span>
+              Saýlanan: <span id="analyses-selected">{{ selected_analysis_ids | length }}</span>
             </span>
           </div>
         </div>
@@ -55,10 +55,10 @@
               <tr>
                 <th class="ps-4" style="width:50px">
                   <input type="checkbox" class="form-check-input" id="select-all-analyses"
-                         title="Выбрать все">
+                         title="Hemmesi">
                 </th>
-                <th>Название анализа</th>
-                <th style="width:140px">Цена</th>
+                <th>Analiziň ady</th>
+                <th style="width:140px">Baha</th>
               </tr>
             </thead>
             <tbody>
@@ -77,7 +77,7 @@
           </table>
         </div>
         {% else %}
-          <div class="card-body text-muted">Активные анализы не найдены.</div>
+          <div class="card-body text-muted">Aktiw analizler tapylmady.</div>
         {% endif %}
       </div>
     </div>
@@ -88,8 +88,8 @@
         <div class="card-header bg-white border-bottom px-4 py-3">
           <div class="d-flex align-items-center gap-2">
             <span class="badge bg-primary rounded-pill">3</span>
-            <h6 class="mb-0 fw-semibold">Выберите направление врача</h6>
-            <span class="text-muted small ms-auto fw-normal">необязательно</span>
+            <h6 class="mb-0 fw-semibold">Lukmanyň ugruny saýlaň</h6>
+            <span class="text-muted small ms-auto fw-normal">mejbury däl</span>
           </div>
         </div>
         {% if directions %}
@@ -98,8 +98,8 @@
             <thead>
               <tr>
                 <th class="ps-4" style="width:50px"></th>
-                <th>Направление</th>
-                <th style="width:280px">Врач <span class="text-danger">*</span></th>
+                <th>Ugur</th>
+                <th style="width:280px">Lukman <span class="text-danger">*</span></th>
               </tr>
             </thead>
             <tbody>
@@ -119,7 +119,7 @@
                   <select name="doctor_for_{{ d.id }}"
                           id="doctor-select-{{ d.id }}"
                           class="form-select form-select-sm">
-                    <option value="">— Выберите врача —</option>
+                    <option value="">— Lukmany saýlaň —</option>
                     {% for doc in doctors %}
                       <option value="{{ doc.id }}"
                         {% if doctor_for.get(d.id) == doc.id %}selected{% endif %}>
@@ -134,7 +134,7 @@
           </table>
         </div>
         {% else %}
-          <div class="card-body text-muted">Активные направления не найдены.</div>
+          <div class="card-body text-muted">Aktiw ugurlar tapylmady.</div>
         {% endif %}
       </div>
     </div>
@@ -143,10 +143,10 @@
     <div class="col-12">
       <div class="d-flex gap-2">
         <button type="submit" class="btn btn-primary px-4">
-          <i class="bi bi-check-lg me-1"></i>Сохранить изменения
+          <i class="bi bi-check-lg me-1"></i>Düzedişleri ýatda saklamak
         </button>
         <a href="{{ url_for('main.examinations_detail', exam_id=exam.id) }}"
-           class="btn btn-outline-secondary">Отмена</a>
+           class="btn btn-outline-secondary">Gaýtarmak</a>
       </div>
     </div>
 
