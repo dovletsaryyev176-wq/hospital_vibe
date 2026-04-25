@@ -11,7 +11,7 @@ class DoctorDirection(db.Model):
     name = db.Column(db.String(150), unique=True, nullable=False)
     price = db.Column(db.Numeric(10, 2), nullable=False, default=0)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
     @property
     def price_display(self):
@@ -29,7 +29,7 @@ class Analysis(db.Model):
     price = db.Column(db.Numeric(10, 2), nullable=False)
     responsible_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
     responsible = db.relationship('User', backref=db.backref('analyses', lazy='dynamic'))
 
@@ -51,11 +51,11 @@ class Patient(db.Model):
     home_address = db.Column(db.String(255), nullable=False)
     insurance_number = db.Column(db.String(50), unique=True, nullable=False, index=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
     @property
     def age(self) -> int:
-        return datetime.utcnow().year - self.birth_year
+        return datetime.now().year - self.birth_year
 
     def __repr__(self) -> str:
         return f'<Patient {self.full_name}>'
@@ -81,7 +81,7 @@ class User(UserMixin, db.Model):
     direction_id = db.Column(db.Integer, db.ForeignKey('doctor_directions.id'), nullable=True)
     password_hash = db.Column(db.String(256), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
     direction = db.relationship('DoctorDirection', backref=db.backref('users', lazy='dynamic'))
 
@@ -111,7 +111,7 @@ class Examination(db.Model):
     patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'), nullable=False)
     created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     status = db.Column(db.String(20), nullable=False, default='open')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
     closed_at = db.Column(db.DateTime, nullable=True)
     is_paid = db.Column(db.Boolean, default=False, nullable=False)
     paid_at = db.Column(db.DateTime, nullable=True)

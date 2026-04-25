@@ -412,7 +412,7 @@ def examinations_close(exam_id):
         return redirect(url_for('main.examinations_list'))
 
     exam.status = Examination.STATUS_CLOSED
-    exam.closed_at = datetime.utcnow()
+    exam.closed_at = datetime.now()
     db.session.commit()
     flash(f'Barlag №{exam.id} ýapylan.', 'success')
     return redirect(url_for('main.examinations_list'))
@@ -432,7 +432,7 @@ def examinations_pay(exam_id):
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     exam.is_paid = True
-    exam.paid_at = datetime.utcnow()
+    exam.paid_at = datetime.now()
     exam.paid_by_id = current_user.id
     db.session.commit()
     flash(f'Barlag №{exam.id} tölenen diýip bellenilen.', 'success')
@@ -461,7 +461,7 @@ def examinations_submit_analysis(exam_id, ea_id):
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     ea.is_submitted = True
-    ea.submitted_at = datetime.utcnow()
+    ea.submitted_at = datetime.now()
     ea.submitted_by_id = current_user.id
     db.session.commit()
     flash(f'Analiz «{ea.analysis.name}» geçilen diýip bellenilen.', 'success')
@@ -490,7 +490,7 @@ def examinations_mark_visited(exam_id, ed_id):
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     ed.is_visited = True
-    ed.visited_at = datetime.utcnow()
+    ed.visited_at = datetime.now()
     db.session.commit()
     flash(f'Syrkaw bu ugur geçilen diýip bellenilen «{ed.direction.name}» .', 'success')
     return redirect(url_for('main.examinations_detail', exam_id=exam_id))

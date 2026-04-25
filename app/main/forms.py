@@ -18,8 +18,8 @@ class PatientForm(FlaskForm):
         'Doglan ýyly',
         validators=[
             DataRequired(message='Doglan ýyly giriziň'),
-            NumberRange(min=1900, max=datetime.utcnow().year,
-                        message=f'Doglan ýyl 1900 - {datetime.utcnow().year} arasynda bolmaly'),
+            NumberRange(min=1900, max=datetime.now().year,
+                        message=f'Doglan ýyl 1900 - {datetime.now().year} arasynda bolmaly'),
         ],
         render_kw={'placeholder': 'Mysal: 1987'},
     )
