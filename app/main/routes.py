@@ -2,6 +2,7 @@ from datetime import datetime
 from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user, logout_user
+from sqlalchemy.orm import joinedload, subqueryload
 from app.main import main_bp
 from app.main.forms import PatientForm
 from app.extensions import db
@@ -242,7 +243,15 @@ def examinations_list():
     elif paid_filter == 'unpaid':
         query = query.filter(Examination.is_paid == False)
 
-    examinations = query.order_by(Examination.created_at.desc()).all()
+    examinations = (query
+        .options(
+            joinedload(Examination.patient),
+            joinedload(Examination.created_by),
+            subqueryload(Examination.exam_analyses),
+            subqueryload(Examination.exam_directions),
+        )
+        .order_by(Examination.created_at.desc())
+        .all())
 
     return render_template(
         'main/examinations/list.html',
