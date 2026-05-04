@@ -123,8 +123,9 @@
                     <option value="">— Lukmany saýlaň —</option>
                     {% for doc in doctors %}
                       <option value="{{ doc.id }}"
+                        data-dir-ids="{{ doc.directions | map(attribute='id') | list | tojson }}"
                         {% if doctor_for.get(d.id) == doc.id %}selected{% endif %}>
-                        {{ doc.full_name }}{% if doc.directions %} ({{ doc.directions | map(attribute='name') | join(', ') }}){% endif %}
+                        {{ doc.full_name }}
                       </option>
                     {% endfor %}
                   </select>
@@ -157,10 +158,23 @@
 
 {% block scripts %}
 <script>
+  function filterDoctorSelect(dirId) {
+    const select = document.getElementById('doctor-select-' + dirId);
+    if (!select) return;
+    select.querySelectorAll('option[data-dir-ids]').forEach(opt => {
+      const ids = JSON.parse(opt.dataset.dirIds);
+      opt.hidden = !ids.includes(dirId);
+    });
+    const sel = select.options[select.selectedIndex];
+    if (sel && sel.hidden) select.value = '';
+  }
+
   document.querySelectorAll('.dir-cb').forEach(cb => {
+    filterDoctorSelect(parseInt(cb.value));
     cb.addEventListener('change', function () {
-      const row = document.getElementById('dir-row-' + this.value);
-      const select = document.getElementById('doctor-select-' + this.value);
+      const dirId = parseInt(this.value);
+      const row = document.getElementById('dir-row-' + dirId);
+      const select = document.getElementById('doctor-select-' + dirId);
       row.style.opacity = this.checked ? '1' : '0.45';
       select.disabled = !this.checked;
       if (!this.checked) select.value = '';
