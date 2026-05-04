@@ -49,7 +49,8 @@ class Patient(db.Model):
     birth_year = db.Column(db.Integer, nullable=False)
     citizenship = db.Column(db.String(100), nullable=False)
     home_address = db.Column(db.String(255), nullable=False)
-    insurance_number = db.Column(db.String(50), unique=True, nullable=False, index=True)
+    passport_number = db.Column(db.String(50), unique=True, nullable=True, index=True)
+    insurance_number = db.Column(db.String(50), unique=True, nullable=True, index=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
@@ -59,6 +60,13 @@ class Patient(db.Model):
 
     def __repr__(self) -> str:
         return f'<Patient {self.full_name}>'
+
+
+user_directions = db.Table(
+    'user_directions',
+    db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
+    db.Column('direction_id', db.Integer, db.ForeignKey('doctor_directions.id'), primary_key=True),
+)
 
 
 class User(UserMixin, db.Model):
@@ -78,12 +86,12 @@ class User(UserMixin, db.Model):
     role = db.Column(db.String(30), nullable=False)
     phone_number = db.Column(db.String(20), nullable=False)
     cabinet = db.Column(db.String(20), nullable=True)
-    direction_id = db.Column(db.Integer, db.ForeignKey('doctor_directions.id'), nullable=True)
     password_hash = db.Column(db.String(256), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
-    direction = db.relationship('DoctorDirection', backref=db.backref('users', lazy='dynamic'))
+    directions = db.relationship('DoctorDirection', secondary=user_directions, lazy='select',
+                                 backref=db.backref('users', lazy='dynamic'))
 
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)

@@ -47,6 +47,7 @@
           <th>Doglan ýyly</th>
           <th>Raýatlylygy</th>
           <th>Öý salgysy</th>
+          <th>Pasport</th>
           <th>Ätiýaçlandyryş</th>
           <th class="text-center">Statusy</th>
           <th class="text-center pe-4">Amallar</th>
@@ -66,7 +67,8 @@
             <td class="text-truncate" style="max-width:200px" title="{{ patient.home_address }}">
               {{ patient.home_address }}
             </td>
-            <td class="font-monospace small">{{ patient.insurance_number }}</td>
+            <td class="font-monospace small">{{ patient.passport_number or '—' }}</td>
+            <td class="font-monospace small">{{ patient.insurance_number or '—' }}</td>
             <td class="text-center">
               {% if patient.is_active %}
                 <span class="badge bg-success-subtle text-success">
@@ -107,7 +109,7 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="8" class="text-center text-muted py-5">
+            <td colspan="9" class="text-center text-muted py-5">
               <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
               {% if search or status_filter %}
                 Syrkawlar tapylmady. <a href="{{ url_for('main.patients_list') }}">Filtri aýyrmak</a>

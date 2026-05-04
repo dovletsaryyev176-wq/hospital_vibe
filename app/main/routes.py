@@ -70,6 +70,7 @@ def patients_list():
         query = query.filter(
             db.or_(
                 Patient.full_name.ilike(like),
+                Patient.passport_number.ilike(like),
                 Patient.insurance_number.ilike(like),
                 Patient.citizenship.ilike(like),
             )
@@ -102,7 +103,8 @@ def patients_create():
             birth_year=form.birth_year.data,
             citizenship=form.citizenship.data.strip(),
             home_address=form.home_address.data.strip(),
-            insurance_number=form.insurance_number.data.strip(),
+            passport_number=form.passport_number.data.strip(),
+            insurance_number=form.insurance_number.data.strip() or None,
         )
         db.session.add(patient)
         db.session.commit()
@@ -128,7 +130,8 @@ def patients_edit(patient_id):
         patient.birth_year = form.birth_year.data
         patient.citizenship = form.citizenship.data.strip()
         patient.home_address = form.home_address.data.strip()
-        patient.insurance_number = form.insurance_number.data.strip()
+        patient.passport_number = form.passport_number.data.strip()
+        patient.insurance_number = form.insurance_number.data.strip() or None
         db.session.commit()
         flash(f'Syrkaw «{patient.full_name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('main.patients_list'))
@@ -169,8 +172,7 @@ def _parse_exam_form():
     """Parse and validate POST data for examination form. Returns (data_dict, errors)."""
     patient_id = request.form.get('patient_id', type=int)
     analysis_ids = request.form.getlist('analysis_ids', type=int)
-    direction_id = request.form.get('direction_id', type=int)
-    direction_ids = [direction_id] if direction_id else []
+    direction_ids = request.form.getlist('direction_ids', type=int)
 
     errors = []
 
@@ -185,14 +187,14 @@ def _parse_exam_form():
         errors.append('Iň bolmanda 1 analiz ýa-da ugur kesgitläň.')
 
     doctor_for = {}
-    if direction_id:
-        doc_id = request.form.get(f'doctor_for_{direction_id}', type=int)
+    for did in direction_ids:
+        doc_id = request.form.get(f'doctor_for_{did}', type=int)
         if not doc_id:
-            dir_obj = db.session.get(DoctorDirection, direction_id)
-            dir_name = dir_obj.name if dir_obj else f'#{direction_id}'
+            dir_obj = db.session.get(DoctorDirection, did)
+            dir_name = dir_obj.name if dir_obj else f'#{did}'
             errors.append(f'Ugur «{dir_name}» üçin lukman bellenmedik.')
         else:
-            doctor_for[direction_id] = doc_id
+            doctor_for[did] = doc_id
 
     data = {
         'patient_id': patient_id,

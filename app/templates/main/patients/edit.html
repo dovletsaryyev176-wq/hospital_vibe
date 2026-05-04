@@ -48,8 +48,15 @@
               {% for e in form.home_address.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
             </div>
 
-            <div class="col-12">
+            <div class="col-sm-6">
+              {{ form.passport_number.label(class='form-label fw-medium') }}
+              {{ form.passport_number(class='form-control font-monospace' + (' is-invalid' if form.passport_number.errors else '')) }}
+              {% for e in form.passport_number.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
               {{ form.insurance_number.label(class='form-label fw-medium') }}
+              <span class="text-muted small ms-1">(mejbury däl)</span>
               {{ form.insurance_number(class='form-control font-monospace' + (' is-invalid' if form.insurance_number.errors else '')) }}
               {% for e in form.insurance_number.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
             </div>

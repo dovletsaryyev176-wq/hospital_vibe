@@ -1,6 +1,6 @@
 import re
 from flask_wtf import FlaskForm
-from wtforms import StringField, SelectField, PasswordField, DecimalField, SubmitField
+from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional, NumberRange, ValidationError, Regexp
 from app.models import User
 
@@ -96,9 +96,9 @@ class UserForm(FlaskForm):
         validators=[Optional(), Length(max=20, message='Otag belgisi 20 simwoldan geçmeli däl')],
         render_kw={'placeholder': 'Mysal: 101'},
     )
-    direction_id = SelectField(
+    direction_ids = SelectMultipleField(
         'Lukmanyň ugurlary',
-        coerce=_nullable_int,
+        coerce=int,
         validators=[Optional()],
     )
     password = PasswordField(
@@ -121,20 +121,15 @@ class UserForm(FlaskForm):
             .order_by(DoctorDirection.name)
             .all()
         )
-        choices = [(0, '— Görkezilmedik —')]
+        choices = [(d.id, d.name) for d in active]
 
-        # When editing, keep the current direction even if it's been blocked
-        if self._editing_user and self._editing_user.direction_id:
-            current = self._editing_user.direction
-            if current and not current.is_active:
-                choices.append((current.id, f'{current.name} [bloklanan]'))
-                choices += [(d.id, d.name) for d in active if d.id != current.id]
-            else:
-                choices += [(d.id, d.name) for d in active]
-        else:
-            choices += [(d.id, d.name) for d in active]
+        if self._editing_user:
+            active_ids = {d.id for d in active}
+            for d in self._editing_user.directions:
+                if not d.is_active and d.id not in active_ids:
+                    choices.insert(0, (d.id, f'{d.name} [bloklanan]'))
 
-        self.direction_id.choices = choices
+        self.direction_ids.choices = choices
 
     def validate_username(self, field):
         existing = User.query.filter_by(username=field.data.strip()).first()

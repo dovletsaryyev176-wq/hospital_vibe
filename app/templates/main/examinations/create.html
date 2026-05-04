@@ -26,7 +26,7 @@
               <option value="">— Syrkawy saýlaň —</option>
               {% for p in patients %}
                 <option value="{{ p.id }}" {% if selected_patient_id == p.id %}selected{% endif %}>
-                  {{ p.full_name }} ({{ p.birth_year }}, ätiýaçlandyryş: {{ p.insurance_number }})
+                  {{ p.full_name }} ({{ p.birth_year }}, pasport: {{ p.passport_number or '—' }}{% if p.insurance_number %}, ätiýaçlandyryş: {{ p.insurance_number }}{% endif %})
                 </option>
               {% endfor %}
             </select>
@@ -109,8 +109,8 @@
               <tr id="dir-row-{{ d.id }}"
                   style="{% if d.id not in selected_direction_ids %}opacity:.45{% endif %}">
                 <td class="ps-4">
-                  <input type="radio" class="form-check-input"
-                         id="dir-{{ d.id }}" name="direction_id" value="{{ d.id }}"
+                  <input type="checkbox" class="form-check-input dir-cb"
+                         id="dir-{{ d.id }}" name="direction_ids" value="{{ d.id }}"
                          {% if d.id in selected_direction_ids %}checked{% endif %}>
                 </td>
                 <td>
@@ -120,12 +120,13 @@
                 <td>
                   <select name="doctor_for_{{ d.id }}"
                           id="doctor-select-{{ d.id }}"
-                          class="form-select form-select-sm">
+                          class="form-select form-select-sm"
+                          {% if d.id not in selected_direction_ids %}disabled{% endif %}>
                     <option value="">— Lukmany saýlaň —</option>
                     {% for doc in doctors %}
                       <option value="{{ doc.id }}"
                         {% if doctor_for.get(d.id) == doc.id %}selected{% endif %}>
-                        {{ doc.full_name }}{% if doc.direction %} ({{ doc.direction.name }}){% endif %}
+                        {{ doc.full_name }}{% if doc.directions %} ({{ doc.directions | map(attribute='name') | join(', ') }}){% endif %}
                       </option>
                     {% endfor %}
                   </select>
@@ -157,15 +158,13 @@
 
 {% block scripts %}
 <script>
-  document.querySelectorAll('input[name="direction_id"]').forEach(rb => {
-    rb.addEventListener('change', function () {
-      document.querySelectorAll('input[name="direction_id"]').forEach(other => {
-        const row = document.getElementById('dir-row-' + other.value);
-        const select = document.getElementById('doctor-select-' + other.value);
-        const active = other.checked;
-        row.style.opacity = active ? '1' : '0.45';
-        if (!active) select.value = '';
-      });
+  document.querySelectorAll('.dir-cb').forEach(cb => {
+    cb.addEventListener('change', function () {
+      const row = document.getElementById('dir-row-' + this.value);
+      const select = document.getElementById('doctor-select-' + this.value);
+      row.style.opacity = this.checked ? '1' : '0.45';
+      select.disabled = !this.checked;
+      if (!this.checked) select.value = '';
     });
   });
 

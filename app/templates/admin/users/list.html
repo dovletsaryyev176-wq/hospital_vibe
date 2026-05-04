@@ -74,11 +74,10 @@
               </span>
             </td>
             <td class="text-muted small">
-              {% if user.direction %}
-                {{ user.direction.name }}
-                {% if not user.direction.is_active %}
-                  <span class="badge bg-danger-subtle text-danger" style="font-size:.6rem">bloklanan</span>
-                {% endif %}
+              {% if user.directions %}
+                {% for d in user.directions %}
+                  {{ d.name }}{% if not d.is_active %} <span class="badge bg-danger-subtle text-danger" style="font-size:.6rem">bloklanan</span>{% endif %}{% if not loop.last %}, {% endif %}
+                {% endfor %}
               {% else %}—{% endif %}
             </td>
             <td class="text-nowrap">{{ user.phone_number }}</td>

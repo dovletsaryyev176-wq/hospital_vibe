@@ -1,7 +1,7 @@
 from datetime import datetime
 from flask_wtf import FlaskForm
 from wtforms import StringField, IntegerField, TextAreaField, SubmitField
-from wtforms.validators import DataRequired, Length, NumberRange, ValidationError
+from wtforms.validators import DataRequired, Length, NumberRange, Optional, ValidationError
 from app.models import Patient
 
 
@@ -39,13 +39,21 @@ class PatientForm(FlaskForm):
         ],
         render_kw={'placeholder': 'Şäher köçe jaý otag', 'rows': 2},
     )
-    insurance_number = StringField(
-        'Atiýaçlandyryş',
+    passport_number = StringField(
+        'Pasport belgisi',
         validators=[
-            DataRequired(message='ätiýaçlandyryş belgisini giriziň'),
+            DataRequired(message='Pasport belgisini giriziň'),
             Length(max=50, message='50 simwoldan geçmeli däl'),
         ],
-        render_kw={'placeholder': 'Ätiýaçlandyryş'},
+        render_kw={'placeholder': 'Pasport belgisi'},
+    )
+    insurance_number = StringField(
+        'Ätiýaçlandyryş belgisi',
+        validators=[
+            Optional(),
+            Length(max=50, message='50 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Ätiýaçlandyryş belgisi (mejbury däl)'},
     )
     submit = SubmitField('Сохранить')
 
@@ -53,7 +61,14 @@ class PatientForm(FlaskForm):
         super().__init__(*args, **kwargs)
         self._editing_patient = editing_patient
 
+    def validate_passport_number(self, field):
+        existing = Patient.query.filter_by(passport_number=field.data.strip()).first()
+        if existing and (self._editing_patient is None or existing.id != self._editing_patient.id):
+            raise ValidationError('Bu pasport belgili syrkaw eýýäm hasaba alnan.')
+
     def validate_insurance_number(self, field):
+        if not field.data or not field.data.strip():
+            return
         existing = Patient.query.filter_by(insurance_number=field.data.strip()).first()
         if existing and (self._editing_patient is None or existing.id != self._editing_patient.id):
             raise ValidationError('Bu ätiýaçlandyryş belgili syrkaw eýýäm hasaba alnan.')

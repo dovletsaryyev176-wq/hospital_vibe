@@ -89,9 +89,11 @@ def users_create():
             role=form.role.data,
             phone_number=form.phone_number.data.strip(),
             cabinet=form.cabinet.data.strip() or None,
-            direction_id=form.direction_id.data or None,
         )
         user.set_password(form.password.data)
+        selected_ids = form.direction_ids.data or []
+        if selected_ids:
+            user.directions = DoctorDirection.query.filter(DoctorDirection.id.in_(selected_ids)).all()
         db.session.add(user)
         db.session.commit()
         flash(f'Ulanyjy «{user.full_name}» döredilen.', 'success')
@@ -111,13 +113,18 @@ def users_edit(user_id):
 
     form = UserForm(obj=user, editing_user=user)
 
+    if request.method == 'GET':
+        form.direction_ids.data = [d.id for d in user.directions]
+
     if form.validate_on_submit():
         user.full_name = form.full_name.data.strip()
         user.username = form.username.data.strip()
         user.role = form.role.data
         user.phone_number = form.phone_number.data.strip()
         user.cabinet = form.cabinet.data.strip() or None
-        user.direction_id = form.direction_id.data or None
+
+        selected_ids = form.direction_ids.data or []
+        user.directions = DoctorDirection.query.filter(DoctorDirection.id.in_(selected_ids)).all() if selected_ids else []
 
         if form.password.data:
             user.set_password(form.password.data)
