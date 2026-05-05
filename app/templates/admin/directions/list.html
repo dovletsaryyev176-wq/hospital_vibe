@@ -42,6 +42,7 @@
           <th class="ps-4" style="width:50px">#</th>
           <th>Ady</th>
           <th style="width:140px">Bahasy</th>
+          <th class="text-center" style="width:120px">Ätiýaçlandyryş</th>
           <th class="text-center" style="width:130px">Statusy</th>
           <th class="text-center pe-4" style="width:110px">Amallar</th>
         </tr>
@@ -53,6 +54,15 @@
             <td class="ps-4 text-muted">{{ loop.index }}</td>
             <td class="fw-medium">{{ direction.name }}</td>
             <td class="font-monospace small">{{ direction.price_display }} manat</td>
+            <td class="text-center">
+              {% if direction.is_insurance %}
+                <span class="badge bg-info-subtle text-info">
+                  <i class="bi bi-shield-check me-1"></i>Hawa
+                </span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
             <td class="text-center">
               {% if direction.is_active %}
                 <span class="badge bg-success-subtle text-success">
@@ -93,7 +103,7 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="5" class="text-center text-muted py-5">
+            <td colspan="6" class="text-center text-muted py-5">
               <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
               {% if search or status_filter %}
                 Ugurlar tapylmady. <a href="{{ url_for('admin.directions_list') }}">Filtry aýyrmak</a>

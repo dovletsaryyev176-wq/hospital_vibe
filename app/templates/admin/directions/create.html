@@ -32,6 +32,13 @@
             </div>
           </div>
 
+          <div class="mb-3">
+            <div class="form-check">
+              {{ form.is_insurance(class='form-check-input') }}
+              {{ form.is_insurance.label(class='form-check-label') }}
+            </div>
+          </div>
+
           <hr class="my-4">
           <div class="d-flex justify-content-end gap-2">
             <a href="{{ url_for('admin.directions_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>

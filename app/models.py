@@ -10,6 +10,7 @@ class DoctorDirection(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(150), unique=True, nullable=False)
     price = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    is_insurance = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
@@ -28,6 +29,7 @@ class Analysis(db.Model):
     name = db.Column(db.String(200), nullable=False)
     price = db.Column(db.Numeric(10, 2), nullable=False)
     responsible_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    is_insurance = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
@@ -39,6 +41,38 @@ class Analysis(db.Model):
 
     def __repr__(self) -> str:
         return f'<Analysis {self.name}>'
+
+
+combined_analysis_items = db.Table(
+    'combined_analysis_items',
+    db.Column('combined_analysis_id', db.Integer, db.ForeignKey('combined_analyses.id'), primary_key=True),
+    db.Column('analysis_id', db.Integer, db.ForeignKey('analyses.id'), primary_key=True),
+)
+
+
+class CombinedAnalysis(db.Model):
+    __tablename__ = 'combined_analyses'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    analyses = db.relationship(
+        'Analysis', secondary=combined_analysis_items, lazy='select',
+        backref=db.backref('combined_analyses', lazy='dynamic'),
+    )
+
+    @property
+    def total_price(self):
+        return sum(a.price for a in self.analyses)
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.total_price:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<CombinedAnalysis {self.name}>'
 
 
 class Patient(db.Model):

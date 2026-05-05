@@ -1,0 +1,64 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}Täze kombinlened analiz{% endblock %}
+{% block page_title %}Täze kombinlened analiz{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card shadow-sm table-card">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+        <a href="{{ url_for('admin.combined_analyses_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">Kombinlened analiz goşmak</h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-12">
+              {{ form.name.label(class='form-label fw-medium') }}
+              {{ form.name(class='form-control' + (' is-invalid' if form.name.errors else '')) }}
+              {% for e in form.name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.analysis_ids.label(class='form-label fw-medium') }}
+              {% if form.analysis_ids.choices %}
+                <div class="border rounded p-3 d-flex flex-wrap gap-2 {{ 'is-invalid' if form.analysis_ids.errors else '' }}">
+                  {% for value, label in form.analysis_ids.choices %}
+                  <div class="form-check me-3">
+                    <input class="form-check-input" type="checkbox"
+                           name="analysis_ids" value="{{ value }}"
+                           id="ca_create_{{ value }}"
+                           {% if value in (form.analysis_ids.data or []) %}checked{% endif %}>
+                    <label class="form-check-label" for="ca_create_{{ value }}">{{ label }}</label>
+                  </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="text-muted small">
+                  <i class="bi bi-exclamation-triangle me-1 text-warning"></i>
+                  Aktiw analizler tapylmady.
+                  <a href="{{ url_for('admin.analyses_create') }}">Analiz döretmek</a>
+                </div>
+              {% endif %}
+              {% for e in form.analysis_ids.errors %}
+                <div class="text-danger small mt-1">{{ e }}</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ url_for('admin.combined_analyses_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

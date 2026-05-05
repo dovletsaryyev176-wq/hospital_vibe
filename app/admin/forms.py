@@ -1,8 +1,8 @@
 import re
 from flask_wtf import FlaskForm
-from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, SubmitField
+from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, BooleanField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional, NumberRange, ValidationError, Regexp
-from app.models import User
+from app.models import User, Analysis
 
 
 PHONE_RE = re.compile(r'^\+?[\d\s\-\(\)]{7,20}$')
@@ -38,6 +38,7 @@ class DirectionForm(FlaskForm):
         places=2,
         render_kw={'placeholder': '0.00'},
     )
+    is_insurance = BooleanField('Ätiýaçlandyryş')
     submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_direction=None, **kwargs):
@@ -164,6 +165,7 @@ class AnalysisForm(FlaskForm):
         coerce=int,
         validators=[DataRequired(message='Jogapkäri saýlaň')],
     )
+    is_insurance = BooleanField('Ätiýaçlandyryş')
     submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_analysis=None, **kwargs):
@@ -195,3 +197,54 @@ class AnalysisForm(FlaskForm):
     def validate_responsible_id(self, field):
         if not field.data:
             raise ValidationError('Analiz boýunça jogapkäri saýlaň.')
+
+
+class CombinedAnalysisForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Kombinlenen analiziň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Kombinlened analiziň ady'},
+    )
+    analysis_ids = SelectMultipleField(
+        'Analizler',
+        coerce=int,
+        validators=[DataRequired(message='Iň az bir analiz saýlaň')],
+    )
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_combined=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_combined = editing_combined
+        self._build_analysis_choices()
+
+    def _build_analysis_choices(self):
+        active = (
+            Analysis.query
+            .filter_by(is_active=True)
+            .order_by(Analysis.name)
+            .all()
+        )
+        choices = [(a.id, a.name) for a in active]
+
+        if self._editing_combined:
+            active_ids = {a.id for a in active}
+            for a in self._editing_combined.analyses:
+                if not a.is_active and a.id not in active_ids:
+                    choices.insert(0, (a.id, f'{a.name} [bloklanan]'))
+
+        self.analysis_ids.choices = choices
+
+    def validate_name(self, field):
+        from app.models import CombinedAnalysis
+        existing = CombinedAnalysis.query.filter(
+            CombinedAnalysis.name.ilike(field.data.strip())
+        ).first()
+        if existing and (self._editing_combined is None or existing.id != self._editing_combined.id):
+            raise ValidationError('Bu atly kombinlened analiz eýýäm hasaba alnan.')
+
+    def validate_analysis_ids(self, field):
+        if not field.data:
+            raise ValidationError('Iň az bir analiz saýlaň.')

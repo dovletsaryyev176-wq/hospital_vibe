@@ -160,6 +160,10 @@
        class="nav-link {% if 'admin.directions' in request.endpoint %}active{% endif %}">
       <i class="bi bi-signpost-split"></i> Lukmanlaryň ugurlary
     </a>
+    <a href="{{ url_for('admin.combined_analyses_list') }}"
+       class="nav-link {% if 'admin.combined_analyses' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-collection"></i> Kombinlenen analizler
+    </a>
   </nav>
 
   <div class="sidebar-footer">

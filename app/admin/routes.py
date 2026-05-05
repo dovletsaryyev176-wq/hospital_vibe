@@ -2,9 +2,9 @@ from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user
 from app.admin import admin_bp
-from app.admin.forms import UserForm, AnalysisForm, DirectionForm
+from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm
 from app.extensions import db
-from app.models import User, Analysis, DoctorDirection
+from app.models import User, Analysis, DoctorDirection, CombinedAnalysis
 
 
 def admin_required(f):
@@ -202,6 +202,7 @@ def analyses_create():
             name=form.name.data.strip(),
             price=form.price.data,
             responsible_id=form.responsible_id.data,
+            is_insurance=form.is_insurance.data,
         )
         db.session.add(analysis)
         db.session.commit()
@@ -226,6 +227,7 @@ def analyses_edit(analysis_id):
         analysis.name = form.name.data.strip()
         analysis.price = form.price.data
         analysis.responsible_id = form.responsible_id.data
+        analysis.is_insurance = form.is_insurance.data
         db.session.commit()
         flash(f'Analiz «{analysis.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.analyses_list'))
@@ -285,7 +287,7 @@ def directions_list():
 def directions_create():
     form = DirectionForm()
     if form.validate_on_submit():
-        direction = DoctorDirection(name=form.name.data.strip(), price=form.price.data)
+        direction = DoctorDirection(name=form.name.data.strip(), price=form.price.data, is_insurance=form.is_insurance.data)
         db.session.add(direction)
         db.session.commit()
         flash(f'Ugur «{direction.name}» döredilen.', 'success')
@@ -308,6 +310,7 @@ def directions_edit(direction_id):
     if form.validate_on_submit():
         direction.name = form.name.data.strip()
         direction.price = form.price.data
+        direction.is_insurance = form.is_insurance.data
         db.session.commit()
         flash(f'Ugur «{direction.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.directions_list'))
@@ -330,3 +333,89 @@ def directions_toggle(direction_id):
     action = 'aktiw' if direction.is_active else 'bloklanan'
     flash(f'Ugur «{direction.name}» {action}.', 'success')
     return redirect(url_for('admin.directions_list'))
+
+
+# ── Combined analyses list ────────────────────────────────────────────────────
+
+@admin_bp.route('/combined-analyses')
+@admin_required
+def combined_analyses_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+
+    query = CombinedAnalysis.query
+
+    if search:
+        query = query.filter(CombinedAnalysis.name.ilike(f'%{search}%'))
+
+    if status_filter == 'active':
+        query = query.filter(CombinedAnalysis.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(CombinedAnalysis.is_active == False)
+
+    combined_analyses = query.order_by(CombinedAnalysis.name).all()
+
+    return render_template(
+        'admin/combined_analyses/list.html',
+        combined_analyses=combined_analyses,
+        search=search,
+        status_filter=status_filter,
+    )
+
+
+# ── Create combined analysis ──────────────────────────────────────────────────
+
+@admin_bp.route('/combined-analyses/create', methods=['GET', 'POST'])
+@admin_required
+def combined_analyses_create():
+    form = CombinedAnalysisForm()
+    if form.validate_on_submit():
+        combined = CombinedAnalysis(name=form.name.data.strip())
+        combined.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
+        db.session.add(combined)
+        db.session.commit()
+        flash(f'Kombinlenen analiz «{combined.name}» döredilen.', 'success')
+        return redirect(url_for('admin.combined_analyses_list'))
+
+    return render_template('admin/combined_analyses/create.html', form=form)
+
+
+# ── Edit combined analysis ────────────────────────────────────────────────────
+
+@admin_bp.route('/combined-analyses/<int:combined_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def combined_analyses_edit(combined_id):
+    combined = db.session.get(CombinedAnalysis, combined_id)
+    if combined is None:
+        abort(404)
+
+    form = CombinedAnalysisForm(obj=combined, editing_combined=combined)
+
+    if form.validate_on_submit():
+        combined.name = form.name.data.strip()
+        combined.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
+        db.session.commit()
+        flash(f'Kombinlenen analiz «{combined.name}» maglumatlary täzelenen.', 'success')
+        return redirect(url_for('admin.combined_analyses_list'))
+
+    if request.method == 'GET':
+        form.analysis_ids.data = [a.id for a in combined.analyses]
+
+    return render_template('admin/combined_analyses/edit.html', form=form, combined=combined)
+
+
+# ── Toggle combined analysis ──────────────────────────────────────────────────
+
+@admin_bp.route('/combined-analyses/<int:combined_id>/toggle', methods=['POST'])
+@admin_required
+def combined_analyses_toggle(combined_id):
+    combined = db.session.get(CombinedAnalysis, combined_id)
+    if combined is None:
+        abort(404)
+
+    combined.is_active = not combined.is_active
+    db.session.commit()
+
+    action = 'aktiw' if combined.is_active else 'bloklanan'
+    flash(f'Kombinlenen analiz «{combined.name}» {action}.', 'success')
+    return redirect(url_for('admin.combined_analyses_list'))

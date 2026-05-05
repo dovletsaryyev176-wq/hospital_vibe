@@ -43,6 +43,13 @@
               {{ form.responsible_id(class='form-select' + (' is-invalid' if form.responsible_id.errors else '')) }}
               {% for e in form.responsible_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
             </div>
+
+            <div class="col-12">
+              <div class="form-check">
+                {{ form.is_insurance(class='form-check-input') }}
+                {{ form.is_insurance.label(class='form-check-label') }}
+              </div>
+            </div>
           </div>
 
           <hr class="my-4">

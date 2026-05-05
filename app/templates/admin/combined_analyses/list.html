@@ -1,22 +1,21 @@
 {% extends 'admin/base.html' %}
 
-{% block title %}Analizler{% endblock %}
-{% block page_title %}Analizler{% endblock %}
+{% block title %}Kombinlenen analizler{% endblock %}
+{% block page_title %}Kombinlenen analizler{% endblock %}
 
 {% block content %}
 <div class="card shadow-sm table-card">
 
-  <!-- Toolbar -->
   <div class="card-header bg-white border-bottom px-4 py-3">
     <div class="d-flex flex-wrap align-items-center gap-2">
-      <form class="d-flex gap-2 flex-grow-1" method="GET" action="{{ url_for('admin.analyses_list') }}">
+      <form class="d-flex gap-2 flex-grow-1" method="GET" action="{{ url_for('admin.combined_analyses_list') }}">
         <div class="input-group" style="max-width:320px">
           <span class="input-group-text bg-white border-end-0">
             <i class="bi bi-search text-muted"></i>
           </span>
           <input type="text" class="form-control border-start-0 ps-0"
                  name="q" value="{{ search }}"
-                 placeholder="Adyna ýa-da jogapkärine görä gözleg">
+                 placeholder="Adyna görä gözleg">
         </div>
         <select name="status" class="form-select" style="max-width:160px">
           <option value="">Hemme statuslar</option>
@@ -25,58 +24,46 @@
         </select>
         <button type="submit" class="btn btn-outline-primary">Tapmak</button>
         {% if search or status_filter %}
-          <a href="{{ url_for('admin.analyses_list') }}" class="btn btn-outline-secondary">
+          <a href="{{ url_for('admin.combined_analyses_list') }}" class="btn btn-outline-secondary">
             <i class="bi bi-x-lg"></i>
           </a>
         {% endif %}
       </form>
 
-      <a href="{{ url_for('admin.analyses_create') }}" class="btn btn-primary ms-auto">
-        <i class="bi bi-plus-lg me-1"></i>Analiz goşmak
+      <a href="{{ url_for('admin.combined_analyses_create') }}" class="btn btn-primary ms-auto">
+        <i class="bi bi-plus-lg me-1"></i>Goşmak
       </a>
     </div>
   </div>
 
-  <!-- Table -->
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0">
       <thead>
         <tr>
           <th class="ps-4" style="width:50px">#</th>
           <th>Ady</th>
-          <th class="text-end" style="width:130px">Bahasy</th>
-          <th>Jogapkär</th>
-          <th class="text-center" style="width:120px">Ätiýaçlandyryş</th>
+          <th class="text-end" style="width:140px">Jemi bahasy</th>
+          <th>Analizler</th>
           <th class="text-center" style="width:130px">Ýagdaýy</th>
           <th class="text-center pe-4" style="width:110px">Amallar</th>
         </tr>
       </thead>
       <tbody>
-        {% if analyses %}
-          {% for analysis in analyses %}
+        {% if combined_analyses %}
+          {% for combined in combined_analyses %}
           <tr>
             <td class="ps-4 text-muted">{{ loop.index }}</td>
-            <td class="fw-medium">{{ analysis.name }}</td>
-            <td class="text-end font-monospace">{{ analysis.price_display }}</td>
+            <td class="fw-medium">{{ combined.name }}</td>
+            <td class="text-end font-monospace">{{ combined.price_display }} manat</td>
             <td>
-              <span class="d-flex align-items-center gap-1">
-                {{ analysis.responsible.full_name }}
-                {% if not analysis.responsible.is_active %}
-                  <span class="badge bg-danger-subtle text-danger" style="font-size:.65rem">bloklanan</span>
-                {% endif %}
-              </span>
-            </td>
-            <td class="text-center">
-              {% if analysis.is_insurance %}
-                <span class="badge bg-info-subtle text-info">
-                  <i class="bi bi-shield-check me-1"></i>Hawa
-                </span>
+              {% for a in combined.analyses %}
+                <span class="badge bg-light text-dark border me-1 mb-1">{{ a.name }}</span>
               {% else %}
                 <span class="text-muted">—</span>
-              {% endif %}
+              {% endfor %}
             </td>
             <td class="text-center">
-              {% if analysis.is_active %}
+              {% if combined.is_active %}
                 <span class="badge bg-success-subtle text-success">
                   <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Aktiw
                 </span>
@@ -88,24 +75,24 @@
             </td>
             <td class="text-center pe-4">
               <div class="d-flex justify-content-center gap-1">
-                <a href="{{ url_for('admin.analyses_edit', analysis_id=analysis.id) }}"
-                   class="btn btn-sm btn-outline-secondary" title="Редактировать">
+                <a href="{{ url_for('admin.combined_analyses_edit', combined_id=combined.id) }}"
+                   class="btn btn-sm btn-outline-secondary" title="Üýtgetmek">
                   <i class="bi bi-pencil"></i>
                 </a>
 
-                <form id="toggle-a-{{ analysis.id }}" method="POST"
-                      action="{{ url_for('admin.analyses_toggle', analysis_id=analysis.id) }}" class="d-inline">
+                <form id="toggle-ca-{{ combined.id }}" method="POST"
+                      action="{{ url_for('admin.combined_analyses_toggle', combined_id=combined.id) }}" class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 </form>
 
-                {% if analysis.is_active %}
-                  <button type="button" class="btn btn-sm btn-outline-danger" title="Отключить"
-                          onclick="confirmAction('toggle-a-{{ analysis.id }}', 'Analizi bloklamak «{{ analysis.name }}»?')">
+                {% if combined.is_active %}
+                  <button type="button" class="btn btn-sm btn-outline-danger" title="Bloklamak"
+                          onclick="confirmAction('toggle-ca-{{ combined.id }}', 'Kombinlenen analizi bloklamak «{{ combined.name }}»?')">
                     <i class="bi bi-slash-circle"></i>
                   </button>
                 {% else %}
                   <button type="button" class="btn btn-sm btn-outline-success" title="Aktiwleşdirmek"
-                          onclick="confirmAction('toggle-a-{{ analysis.id }}', 'Analizi aktiwleşdirmek «{{ analysis.name }}»?')">
+                          onclick="confirmAction('toggle-ca-{{ combined.id }}', 'Kombinlenen analizi aktiwleşdirmek «{{ combined.name }}»?')">
                     <i class="bi bi-check-circle"></i>
                   </button>
                 {% endif %}
@@ -115,13 +102,13 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="7" class="text-center text-muted py-5">
+            <td colspan="6" class="text-center text-muted py-5">
               <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
               {% if search or status_filter %}
-                Analizler tapylmady. <a href="{{ url_for('admin.analyses_list') }}">Filtri aýyrmak</a>
+                Kombinlenen analizler tapylmady. <a href="{{ url_for('admin.combined_analyses_list') }}">Filtri aýyrmak</a>
               {% else %}
-                Heniz analiz ýok
-                <a href="{{ url_for('admin.analyses_create') }}">Ilki analizi goşmak</a>
+                Heniz kombinlenen analiz ýok.
+                <a href="{{ url_for('admin.combined_analyses_create') }}">Ilkinji kombinlenen analizi goşmak</a>
               {% endif %}
             </td>
           </tr>
@@ -130,9 +117,9 @@
     </table>
   </div>
 
-  {% if analyses %}
+  {% if combined_analyses %}
   <div class="card-footer bg-white text-muted small px-4">
-    Tapylanlar: {{ analyses | length }}
+    Tapylanlar: {{ combined_analyses | length }}
   </div>
   {% endif %}
 </div>
