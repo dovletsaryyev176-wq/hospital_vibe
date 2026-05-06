@@ -314,11 +314,9 @@ def examinations_detail(exam_id):
         abort(404)
 
     if current_user.role == 'doctor':
-        assigned_exam_ids = {
-            ed.examination_id
-            for ed in ExaminationDirection.query.filter_by(doctor_id=current_user.id).all()
-        }
-        if exam.id not in assigned_exam_ids:
+        if not ExaminationDirection.query.filter_by(
+            doctor_id=current_user.id, examination_id=exam_id
+        ).first():
             flash('Siz üçin bu barlag gadagan.', 'danger')
             return redirect(url_for('main.examinations_list'))
 

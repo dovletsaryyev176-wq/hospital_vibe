@@ -1,6 +1,7 @@
 from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user
+from sqlalchemy import func
 from app.admin import admin_bp
 from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm
 from app.extensions import db
@@ -28,10 +29,10 @@ def dashboard():
     total = User.query.count()
     active = User.query.filter_by(is_active=True).count()
     blocked = User.query.filter_by(is_active=False).count()
-    by_role = {
-        role: User.query.filter_by(role=role).count()
-        for role in User.ROLES
-    }
+    counts = dict(
+        db.session.query(User.role, func.count(User.id)).group_by(User.role).all()
+    )
+    by_role = {role: counts.get(role, 0) for role in User.ROLES}
     return render_template(
         'admin/dashboard.html',
         total=total,

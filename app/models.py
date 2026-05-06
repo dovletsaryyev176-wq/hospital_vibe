@@ -59,7 +59,7 @@ class CombinedAnalysis(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
     analyses = db.relationship(
-        'Analysis', secondary=combined_analysis_items, lazy='select',
+        'Analysis', secondary=combined_analysis_items, lazy='subquery',
         backref=db.backref('combined_analyses', lazy='dynamic'),
     )
 

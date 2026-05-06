@@ -1,0 +1,3 @@
+flask db upgrade
+flask create-admin
+python run.py
