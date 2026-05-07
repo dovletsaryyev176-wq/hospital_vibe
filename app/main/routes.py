@@ -1,6 +1,6 @@
 from datetime import datetime
 from functools import wraps
-from flask import render_template, redirect, url_for, flash, request, abort
+from flask import render_template, redirect, url_for, flash, request, abort, jsonify
 from flask_login import current_user, logout_user
 from sqlalchemy.orm import joinedload, subqueryload
 from app.main import main_bp
@@ -156,12 +156,34 @@ def patients_toggle(patient_id):
     return redirect(url_for('main.patients_list'))
 
 
+# ── Patients search API ───────────────────────────────────────────────────────
+
+@main_bp.route('/patients/search')
+@patients_required
+def patients_search():
+    q = request.args.get('q', '').strip()
+    if not q or len(q) < 2:
+        return jsonify([])
+    patients = (Patient.query
+                .filter(Patient.is_active == True,
+                        Patient.full_name.ilike(f'%{q}%'))
+                .order_by(Patient.full_name)
+                .limit(20)
+                .all())
+    return jsonify([{
+        'id': p.id,
+        'full_name': p.full_name,
+        'birth_year': p.birth_year,
+        'passport_number': p.passport_number or '',
+        'insurance_number': p.insurance_number or '',
+    } for p in patients])
+
+
 # ── Examinations helpers ──────────────────────────────────────────────────────
 
 def _exam_form_context():
     """Return data needed to render create/edit examination form."""
     return {
-        'patients': Patient.query.filter_by(is_active=True).order_by(Patient.full_name).all(),
         'analyses': Analysis.query.filter_by(is_active=True).order_by(Analysis.name).all(),
         'directions': DoctorDirection.query.filter_by(is_active=True).order_by(DoctorDirection.name).all(),
         'doctors': User.query.filter_by(role='doctor', is_active=True).order_by(User.full_name).all(),
@@ -276,7 +298,9 @@ def examinations_create():
         if errors:
             for e in errors:
                 flash(e, 'danger')
-            return render_template('main/examinations/create.html', **ctx, **data)
+            selected_patient = db.session.get(Patient, data['patient_id']) if data['patient_id'] else None
+            return render_template('main/examinations/create.html', **ctx, **data,
+                                   selected_patient=selected_patient)
 
         exam = Examination(patient_id=data['patient_id'], created_by_id=current_user.id)
         db.session.add(exam)
@@ -297,6 +321,7 @@ def examinations_create():
 
     defaults = {
         'selected_patient_id': None,
+        'selected_patient': None,
         'selected_analysis_ids': set(),
         'selected_direction_ids': set(),
         'doctor_for': {},
@@ -372,7 +397,9 @@ def examinations_edit(exam_id):
         if errors:
             for e in errors:
                 flash(e, 'danger')
-            return render_template('main/examinations/edit.html', exam=exam, **ctx, **data)
+            selected_patient = db.session.get(Patient, data['patient_id']) if data['patient_id'] else None
+            return render_template('main/examinations/edit.html', exam=exam, **ctx, **data,
+                                   selected_patient=selected_patient)
 
         exam.patient_id = data['patient_id']
 
@@ -396,6 +423,7 @@ def examinations_edit(exam_id):
 
     pre = {
         'selected_patient_id': exam.patient_id,
+        'selected_patient': exam.patient,
         'selected_analysis_ids': {ea.analysis_id for ea in exam.exam_analyses},
         'selected_direction_ids': {ed.direction_id for ed in exam.exam_directions},
         'doctor_for': {ed.direction_id: ed.doctor_id for ed in exam.exam_directions},

@@ -21,17 +21,32 @@
         </div>
         <div class="card-body p-4">
           <div class="col-md-6">
-            <label class="form-label fw-medium">Syrkaw <span class="text-danger">*</span></label>
-            <select name="patient_id" class="form-select" required>
-              <option value="">— Syrkawy saýlaň —</option>
-              {% for p in patients %}
-                <option value="{{ p.id }}" {% if selected_patient_id == p.id %}selected{% endif %}>
-                  {{ p.full_name }} ({{ p.birth_year }}, pasport: {{ p.passport_number or '—' }}{% if p.insurance_number %}, ätiýaçlandyryş: {{ p.insurance_number }}{% endif %})
-                </option>
-              {% endfor %}
-            </select>
-            {% if not patients %}
-              <div class="text-muted small mt-1">Aktiw syrkaw ýok.</div>
+            <label class="form-label fw-medium" for="patient-search">Syrkaw <span class="text-danger">*</span></label>
+            <input type="hidden" name="patient_id" id="patient-id-input"
+                   value="{{ selected_patient_id or '' }}" required>
+            <div class="position-relative">
+              <div class="input-group">
+                <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+                <input type="text" id="patient-search" class="form-control"
+                       placeholder="F.A.A. boýunça gözläň…"
+                       autocomplete="off"
+                       value="{{ selected_patient.full_name if selected_patient else '' }}">
+                <button type="button" class="btn btn-outline-secondary" id="patient-clear"
+                        title="Arassala"
+                        style="display:{{ 'flex' if selected_patient else 'none' }}">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </div>
+              <div id="patient-dropdown"
+                   class="list-group shadow position-absolute w-100 mt-1"
+                   style="z-index:1050;display:none;max-height:280px;overflow-y:auto"></div>
+            </div>
+            {% if selected_patient %}
+              <div class="text-muted small mt-1" id="patient-info">
+                {{ selected_patient.birth_year }}, pasport: {{ selected_patient.passport_number or '—' }}{% if selected_patient.insurance_number %}, ätiýaçlandyryş: {{ selected_patient.insurance_number }}{% endif %}
+              </div>
+            {% else %}
+              <div class="text-muted small mt-1" id="patient-info" style="display:none"></div>
             {% endif %}
           </div>
         </div>
@@ -159,6 +174,92 @@
 
 {% block scripts %}
 <script>
+  // ── Patient autocomplete ──────────────────────────────────────────────────
+  (function () {
+    const searchInput  = document.getElementById('patient-search');
+    const hiddenInput  = document.getElementById('patient-id-input');
+    const dropdown     = document.getElementById('patient-dropdown');
+    const clearBtn     = document.getElementById('patient-clear');
+    const infoEl       = document.getElementById('patient-info');
+    const searchUrl    = '{{ url_for("main.patients_search") }}';
+    let debounceTimer  = null;
+
+    function showInfo(p) {
+      let txt = p.birth_year;
+      if (p.passport_number)  txt += ', pasport: '         + p.passport_number;
+      if (p.insurance_number) txt += ', ätiýaçlandyryş: ' + p.insurance_number;
+      infoEl.textContent = txt;
+      infoEl.style.display = '';
+    }
+
+    function clearSelection() {
+      hiddenInput.value  = '';
+      searchInput.value  = '';
+      infoEl.textContent = '';
+      infoEl.style.display = 'none';
+      clearBtn.style.display = 'none';
+      dropdown.style.display = 'none';
+    }
+
+    function selectPatient(p) {
+      hiddenInput.value      = p.id;
+      searchInput.value      = p.full_name;
+      clearBtn.style.display = 'flex';
+      dropdown.style.display = 'none';
+      showInfo(p);
+    }
+
+    function renderDropdown(patients) {
+      dropdown.innerHTML = '';
+      if (!patients.length) {
+        const el = document.createElement('div');
+        el.className = 'list-group-item text-muted small py-2';
+        el.textContent = 'Tapylmady';
+        dropdown.appendChild(el);
+      } else {
+        patients.forEach(p => {
+          const el = document.createElement('button');
+          el.type = 'button';
+          el.className = 'list-group-item list-group-item-action py-2';
+          let sub = String(p.birth_year);
+          if (p.passport_number)  sub += ' · pasport: '         + p.passport_number;
+          if (p.insurance_number) sub += ' · ätiýaçlandyryş: ' + p.insurance_number;
+          el.innerHTML = `<div class="fw-medium">${p.full_name}</div><div class="text-muted small">${sub}</div>`;
+          el.addEventListener('mousedown', e => { e.preventDefault(); selectPatient(p); });
+          dropdown.appendChild(el);
+        });
+      }
+      dropdown.style.display = '';
+    }
+
+    searchInput.addEventListener('input', function () {
+      const q = this.value.trim();
+      if (hiddenInput.value) { hiddenInput.value = ''; clearBtn.style.display = 'none'; }
+      clearTimeout(debounceTimer);
+      if (q.length < 2) { dropdown.style.display = 'none'; return; }
+      debounceTimer = setTimeout(() => {
+        fetch(searchUrl + '?q=' + encodeURIComponent(q))
+          .then(r => r.json())
+          .then(renderDropdown);
+      }, 250);
+    });
+
+    searchInput.addEventListener('blur', function () {
+      setTimeout(() => { dropdown.style.display = 'none'; }, 150);
+    });
+
+    searchInput.addEventListener('focus', function () {
+      if (this.value.trim().length >= 2 && !hiddenInput.value) {
+        fetch(searchUrl + '?q=' + encodeURIComponent(this.value.trim()))
+          .then(r => r.json())
+          .then(renderDropdown);
+      }
+    });
+
+    clearBtn.addEventListener('click', clearSelection);
+  })();
+
+  // ── Doctor selects ────────────────────────────────────────────────────────
   function filterDoctorSelect(dirId) {
     const select = document.getElementById('doctor-select-' + dirId);
     if (!select) return;
