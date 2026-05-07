@@ -17,8 +17,8 @@ depends_on = None
 
 
 def upgrade():
-    bind = op.get_bind()
-    insp = inspect(bind)
+    conn = op.get_bind()
+    insp = inspect(conn)
     cols = [c['name'] for c in insp.get_columns('combined_analyses')]
     if 'responsible_id' in cols:
         return
@@ -26,7 +26,6 @@ def upgrade():
     with op.batch_alter_table('combined_analyses', schema=None) as batch_op:
         batch_op.add_column(sa.Column('responsible_id', sa.Integer(), nullable=True))
 
-    conn = op.get_bind()
     result = conn.execute(sa.text('SELECT id FROM users LIMIT 1'))
     row = result.fetchone()
     if row:

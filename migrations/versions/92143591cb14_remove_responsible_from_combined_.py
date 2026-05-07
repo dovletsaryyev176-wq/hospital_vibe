@@ -8,9 +8,6 @@ Create Date: 2026-05-05 15:18:53.630567
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import inspect
-from sqlalchemy.dialects import mysql
-
-
 revision = '92143591cb14'
 down_revision = '72058c90ae8a'
 branch_labels = None
@@ -42,7 +39,7 @@ def downgrade():
 
     with op.batch_alter_table('combined_analyses', schema=None) as batch_op:
         batch_op.add_column(
-            sa.Column('responsible_id', mysql.INTEGER(), autoincrement=False, nullable=False)
+            sa.Column('responsible_id', sa.Integer(), nullable=False)
         )
         batch_op.create_foreign_key(
             'fk_combined_analyses_responsible', 'users', ['responsible_id'], ['id']

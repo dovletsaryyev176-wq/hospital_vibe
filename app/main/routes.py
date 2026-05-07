@@ -169,10 +169,11 @@ def patients_history(patient_id):
         Examination.query
         .filter_by(patient_id=patient_id)
         .options(
-            joinedload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
-            joinedload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
-            joinedload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
+            subqueryload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
+            subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
+            subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
             joinedload(Examination.created_by),
+            joinedload(Examination.paid_by),
         )
         .order_by(Examination.created_at.desc())
         .all()
@@ -284,9 +285,9 @@ def examinations_list():
         query = query.filter(Patient.full_name.ilike(like))
 
     if status_filter == 'open':
-        query = query.filter(Examination.status == 'open')
+        query = query.filter(Examination.status == Examination.STATUS_OPEN)
     elif status_filter == 'closed':
-        query = query.filter(Examination.status == 'closed')
+        query = query.filter(Examination.status == Examination.STATUS_CLOSED)
 
     if paid_filter == 'paid':
         query = query.filter(Examination.is_paid == True)
@@ -337,16 +338,20 @@ def examinations_create():
         db.session.add(exam)
         db.session.flush()
 
+        analyses_by_id = {a.id: a for a in Analysis.query.filter(
+            Analysis.id.in_(data['analysis_ids'])).all()} if data['analysis_ids'] else {}
         for aid in data['analysis_ids']:
-            a = db.session.get(Analysis, aid)
+            a = analyses_by_id[aid]
             db.session.add(ExaminationAnalysis(
                 examination_id=exam.id,
                 analysis_id=aid,
                 price=a.price,
                 is_insurance=a.is_insurance,
             ))
+        directions_by_id = {d.id: d for d in DoctorDirection.query.filter(
+            DoctorDirection.id.in_(data['direction_ids'])).all()} if data['direction_ids'] else {}
         for did in data['direction_ids']:
-            d = db.session.get(DoctorDirection, did)
+            d = directions_by_id[did]
             db.session.add(ExaminationDirection(
                 examination_id=exam.id,
                 direction_id=did,
@@ -374,7 +379,19 @@ def examinations_create():
 @main_bp.route('/examinations/<int:exam_id>')
 @examinations_view_required
 def examinations_detail(exam_id):
-    exam = db.session.get(Examination, exam_id)
+    exam = (
+        Examination.query
+        .filter_by(id=exam_id)
+        .options(
+            joinedload(Examination.patient),
+            joinedload(Examination.created_by),
+            joinedload(Examination.paid_by),
+            subqueryload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
+            subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
+            subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
+        )
+        .first()
+    )
     if exam is None:
         abort(404)
 
@@ -387,11 +404,14 @@ def examinations_detail(exam_id):
 
     my_analysis_ids = set()
     if current_user.role == 'analysis_responsible':
-        my_analysis_ids = {
-            a.id for a in Analysis.query.filter_by(responsible_id=current_user.id).all()
-        }
         exam_analysis_ids = {ea.analysis_id for ea in exam.exam_analyses}
-        if not my_analysis_ids & exam_analysis_ids:
+        my_analysis_ids = {
+            a.id for a in Analysis.query.filter(
+                Analysis.responsible_id == current_user.id,
+                Analysis.id.in_(exam_analysis_ids),
+            ).all()
+        }
+        if not my_analysis_ids:
             flash('Siz üçin bu barlag gadagan.', 'danger')
             return redirect(url_for('main.examinations_list'))
 
@@ -447,8 +467,10 @@ def examinations_edit(exam_id):
 
         for ea in list(exam.exam_analyses):
             db.session.delete(ea)
+        analyses_by_id = {a.id: a for a in Analysis.query.filter(
+            Analysis.id.in_(data['analysis_ids'])).all()} if data['analysis_ids'] else {}
         for aid in data['analysis_ids']:
-            a = db.session.get(Analysis, aid)
+            a = analyses_by_id[aid]
             db.session.add(ExaminationAnalysis(
                 examination_id=exam.id,
                 analysis_id=aid,
@@ -458,8 +480,10 @@ def examinations_edit(exam_id):
 
         for ed in list(exam.exam_directions):
             db.session.delete(ed)
+        directions_by_id = {d.id: d for d in DoctorDirection.query.filter(
+            DoctorDirection.id.in_(data['direction_ids'])).all()} if data['direction_ids'] else {}
         for did in data['direction_ids']:
-            d = db.session.get(DoctorDirection, did)
+            d = directions_by_id[did]
             db.session.add(ExaminationDirection(
                 examination_id=exam.id,
                 direction_id=did,

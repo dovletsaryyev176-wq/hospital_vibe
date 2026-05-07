@@ -4,6 +4,35 @@ from flask_login import UserMixin
 from app.extensions import db
 
 
+class PricingSnapshotMixin:
+    """Shared pricing logic for ExaminationAnalysis and ExaminationDirection.
+
+    Subclasses must expose: self.price, self.is_insurance, self.examination, self._source
+    where _source is the catalogue object (Analysis or DoctorDirection).
+    """
+
+    @property
+    def snapshot_price(self):
+        return self.price if self.price is not None else self._source.price
+
+    @property
+    def snapshot_is_insurance(self):
+        return self.is_insurance if self.is_insurance is not None else self._source.is_insurance
+
+    @property
+    def effective_price(self):
+        has_ins = self.examination.patient_has_insurance
+        return self.snapshot_price / 2 if (has_ins and self.snapshot_is_insurance) else self.snapshot_price
+
+    @property
+    def snapshot_price_display(self):
+        return f'{self.snapshot_price:,.2f}'
+
+    @property
+    def effective_price_display(self):
+        return f'{self.effective_price:,.2f}'
+
+
 class DoctorDirection(db.Model):
     __tablename__ = 'doctor_directions'
 
@@ -16,7 +45,7 @@ class DoctorDirection(db.Model):
 
     @property
     def price_display(self):
-        return f'{self.price:.2f}'
+        return f'{self.price:,.2f}'
 
     def __repr__(self) -> str:
         return f'<DoctorDirection {self.name}>'
@@ -177,7 +206,7 @@ class Examination(db.Model):
         return f'<Examination {self.id}>'
 
 
-class ExaminationAnalysis(db.Model):
+class ExaminationAnalysis(PricingSnapshotMixin, db.Model):
     __tablename__ = 'examination_analyses'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -194,28 +223,11 @@ class ExaminationAnalysis(db.Model):
     submitted_by = db.relationship('User', foreign_keys=[submitted_by_id])
 
     @property
-    def snapshot_price(self):
-        return self.price if self.price is not None else self.analysis.price
-
-    @property
-    def snapshot_is_insurance(self):
-        return self.is_insurance if self.is_insurance is not None else self.analysis.is_insurance
-
-    @property
-    def effective_price(self):
-        has_ins = self.examination.patient_has_insurance or False
-        return self.snapshot_price / 2 if (has_ins and self.snapshot_is_insurance) else self.snapshot_price
-
-    @property
-    def snapshot_price_display(self):
-        return f'{self.snapshot_price:,.2f}'
-
-    @property
-    def effective_price_display(self):
-        return f'{self.effective_price:,.2f}'
+    def _source(self):
+        return self.analysis
 
 
-class ExaminationDirection(db.Model):
+class ExaminationDirection(PricingSnapshotMixin, db.Model):
     __tablename__ = 'examination_directions'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -232,22 +244,5 @@ class ExaminationDirection(db.Model):
     doctor = db.relationship('User', foreign_keys=[doctor_id])
 
     @property
-    def snapshot_price(self):
-        return self.price if self.price is not None else self.direction.price
-
-    @property
-    def snapshot_is_insurance(self):
-        return self.is_insurance if self.is_insurance is not None else self.direction.is_insurance
-
-    @property
-    def effective_price(self):
-        has_ins = self.examination.patient_has_insurance or False
-        return self.snapshot_price / 2 if (has_ins and self.snapshot_is_insurance) else self.snapshot_price
-
-    @property
-    def snapshot_price_display(self):
-        return f'{self.snapshot_price:,.2f}'
-
-    @property
-    def effective_price_display(self):
-        return f'{self.effective_price:,.2f}'
+    def _source(self):
+        return self.direction
