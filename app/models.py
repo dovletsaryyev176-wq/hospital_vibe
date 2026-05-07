@@ -21,7 +21,7 @@ class PricingSnapshotMixin:
 
     @property
     def effective_price(self):
-        has_ins = self.examination.patient_has_insurance
+        has_ins = bool(self.examination.patient_has_insurance)
         return self.snapshot_price / 2 if (has_ins and self.snapshot_is_insurance) else self.snapshot_price
 
     @property

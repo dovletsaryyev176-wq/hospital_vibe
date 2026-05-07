@@ -104,7 +104,7 @@ def patients_create():
             birth_year=form.birth_year.data,
             citizenship=form.citizenship.data.strip(),
             home_address=form.home_address.data.strip(),
-            passport_number=form.passport_number.data.strip(),
+            passport_number=form.passport_number.data.strip() or None,
             insurance_number=form.insurance_number.data.strip() or None,
         )
         db.session.add(patient)
@@ -131,7 +131,7 @@ def patients_edit(patient_id):
         patient.birth_year = form.birth_year.data
         patient.citizenship = form.citizenship.data.strip()
         patient.home_address = form.home_address.data.strip()
-        patient.passport_number = form.passport_number.data.strip()
+        patient.passport_number = form.passport_number.data.strip() or None
         patient.insurance_number = form.insurance_number.data.strip() or None
         db.session.commit()
         flash(f'Syrkaw «{patient.full_name}» maglumatlary täzelenen.', 'success')
@@ -423,9 +423,36 @@ def examinations_detail(exam_id):
 @main_bp.route('/examinations/<int:exam_id>/report')
 @examinations_view_required
 def examinations_report(exam_id):
-    exam = db.session.get(Examination, exam_id)
+    exam = (
+        Examination.query
+        .filter_by(id=exam_id)
+        .options(
+            joinedload(Examination.patient),
+            joinedload(Examination.created_by),
+            subqueryload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
+            subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
+            subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
+        )
+        .first()
+    )
     if exam is None:
         abort(404)
+
+    if current_user.role == 'doctor':
+        if not ExaminationDirection.query.filter_by(
+            doctor_id=current_user.id, examination_id=exam_id
+        ).first():
+            abort(403)
+
+    if current_user.role == 'analysis_responsible':
+        exam_analysis_ids = {ea.analysis_id for ea in exam.exam_analyses}
+        has_own = Analysis.query.filter(
+            Analysis.responsible_id == current_user.id,
+            Analysis.id.in_(exam_analysis_ids),
+        ).first()
+        if not has_own:
+            abort(403)
+
     return render_template('main/examinations/report.html', exam=exam)
 
 

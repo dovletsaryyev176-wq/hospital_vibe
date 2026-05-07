@@ -4,18 +4,22 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _require_env(name: str) -> str:
+    value = os.environ.get(name)
+    if not value:
+        raise ValueError(f'Required environment variable {name!r} is not set')
+    return value
+
+
 class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        'DATABASE_URL',
-        'mysql+pymysql://root:password@localhost/hospital_vibe'
-    )
+    SECRET_KEY = _require_env('SECRET_KEY')
+    SQLALCHEMY_DATABASE_URI = _require_env('DATABASE_URL')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_pre_ping': True,   # проверяет соединение перед использованием, убирает мёртвые
-        'pool_recycle': 300,     # пересоздаёт соединения каждые 5 минут
-        'pool_size': 10,         # базовый размер пула
-        'max_overflow': 20,      # дополнительные соединения при пике нагрузки
-        'pool_timeout': 10,      # не ждать дольше 10 сек — быстрее падать с ошибкой
+        'pool_pre_ping': True,
+        'pool_recycle': 300,
+        'pool_size': 10,
+        'max_overflow': 20,
+        'pool_timeout': 10,
     }
     WTF_CSRF_ENABLED = True

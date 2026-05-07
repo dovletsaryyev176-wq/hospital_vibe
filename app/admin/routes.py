@@ -13,7 +13,7 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated:
             return redirect(url_for('auth.admin_login'))
-        if not current_user.is_administrator():
+        if not current_user.is_administrator() or not current_user.is_active:
             flash('Girmek gadagan.', 'danger')
             return redirect(url_for('auth.admin_login'))
         return f(*args, **kwargs)

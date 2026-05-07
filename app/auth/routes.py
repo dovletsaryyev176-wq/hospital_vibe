@@ -1,8 +1,15 @@
+from urllib.parse import urlparse
 from flask import render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, current_user
 from app.auth import auth_bp
 from app.auth.forms import AdminLoginForm, LoginForm
 from app.models import User
+
+
+def _safe_next(next_url: str | None, fallback: str) -> str:
+    if next_url and not urlparse(next_url).netloc:
+        return next_url
+    return fallback
 
 
 # ── Admin login ───────────────────────────────────────────────────────────────
@@ -29,8 +36,7 @@ def admin_login():
             return render_template('auth/admin_login.html', form=form)
 
         login_user(user, remember=form.remember_me.data)
-        next_page = request.args.get('next')
-        return redirect(next_page or url_for('admin.dashboard'))
+        return redirect(_safe_next(request.args.get('next'), url_for('admin.dashboard')))
 
     return render_template('auth/admin_login.html', form=form)
 
@@ -66,8 +72,7 @@ def login():
             return render_template('auth/login.html', form=form)
 
         login_user(user, remember=form.remember_me.data)
-        next_page = request.args.get('next')
-        return redirect(next_page or url_for('main.dashboard'))
+        return redirect(_safe_next(request.args.get('next'), url_for('main.dashboard')))
 
     return render_template('auth/login.html', form=form)
 
