@@ -3,7 +3,8 @@
     "allow": [
       "Bash(python -c \"from app import create_app; app = create_app\\(\\); print\\('OK'\\)\")",
       "Bash(pip install *)",
-      "Bash(flask db *)"
+      "Bash(flask db *)",
+      "Bash(python -c ' *)"
     ]
   }
 }
