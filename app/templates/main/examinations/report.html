@@ -74,38 +74,33 @@
   <th>Tölenmeli</th>
 </tr>
 </thead>
-{% set has_insurance = exam.patient.insurance_number %}
 <tbody>
 {% set row = namespace(n=0) %}
 {% for ed in exam.exam_directions %}
 {% set row.n = row.n + 1 %}
-{% set discounted = has_insurance and ed.direction.is_insurance %}
-{% set eff_price = ed.direction.price / 2 if discounted else ed.direction.price %}
 <tr>
   <td>{{ row.n }}</td>
   <td>&nbsp;</td>
   <td>{{ ed.direction.name }}</td>
   <td>{{ ed.doctor.cabinet or '' }}</td>
   <td>&nbsp;</td>
-  <td>{{ ed.direction.price_display }}</td>
-  <td>{% if discounted %}{{ '%.2f' | format(ed.direction.price / 2) }}{% else %}&nbsp;{% endif %}</td>
-  <td>{{ '%.2f' | format(eff_price) }}</td>
+  <td>{{ ed.snapshot_price_display }}</td>
+  <td>{% if ed.examination.patient_has_insurance and ed.snapshot_is_insurance %}{{ ed.effective_price_display }}{% else %}&nbsp;{% endif %}</td>
+  <td>{{ ed.effective_price_display }}</td>
   <td>&nbsp;</td>
 </tr>
 {% endfor %}
 {% for ea in exam.exam_analyses %}
 {% set row.n = row.n + 1 %}
-{% set discounted = has_insurance and ea.analysis.is_insurance %}
-{% set eff_price = ea.analysis.price / 2 if discounted else ea.analysis.price %}
 <tr>
   <td>{{ row.n }}</td>
   <td>&nbsp;</td>
   <td>{{ ea.analysis.name }}</td>
   <td>&nbsp;</td>
   <td>&nbsp;</td>
-  <td>{{ ea.analysis.price_display }}</td>
-  <td>{% if discounted %}{{ '%.2f' | format(ea.analysis.price / 2) }}{% else %}&nbsp;{% endif %}</td>
-  <td>{{ '%.2f' | format(eff_price) }}</td>
+  <td>{{ ea.snapshot_price_display }}</td>
+  <td>{% if ea.examination.patient_has_insurance and ea.snapshot_is_insurance %}{{ ea.effective_price_display }}{% else %}&nbsp;{% endif %}</td>
+  <td>{{ ea.effective_price_display }}</td>
   <td>&nbsp;</td>
 </tr>
 {% endfor %}
@@ -115,19 +110,11 @@
 <br><br>
 {% set analyses_total = namespace(val=0) %}
 {% for ea in exam.exam_analyses %}
-  {% if has_insurance and ea.analysis.is_insurance %}
-    {% set analyses_total.val = analyses_total.val + ea.analysis.price / 2 %}
-  {% else %}
-    {% set analyses_total.val = analyses_total.val + ea.analysis.price %}
-  {% endif %}
+  {% set analyses_total.val = analyses_total.val + ea.effective_price %}
 {% endfor %}
 {% set dir_total = namespace(val=0) %}
 {% for ed in exam.exam_directions %}
-  {% if has_insurance and ed.direction.is_insurance %}
-    {% set dir_total.val = dir_total.val + ed.direction.price / 2 %}
-  {% else %}
-    {% set dir_total.val = dir_total.val + ed.direction.price %}
-  {% endif %}
+  {% set dir_total.val = dir_total.val + ed.effective_price %}
 {% endfor %}
 {% set grand_total = analyses_total.val + dir_total.val %}
 

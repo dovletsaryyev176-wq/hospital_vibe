@@ -158,6 +158,7 @@ class Examination(db.Model):
     is_paid = db.Column(db.Boolean, default=False, nullable=False)
     paid_at = db.Column(db.DateTime, nullable=True)
     paid_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    patient_has_insurance = db.Column(db.Boolean, default=False, nullable=True)
 
     patient = db.relationship('Patient', backref=db.backref('examinations', lazy='dynamic'))
     created_by = db.relationship('User', foreign_keys=[created_by_id],
@@ -182,6 +183,8 @@ class ExaminationAnalysis(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     examination_id = db.Column(db.Integer, db.ForeignKey('examinations.id'), nullable=False)
     analysis_id = db.Column(db.Integer, db.ForeignKey('analyses.id'), nullable=False)
+    price = db.Column(db.Numeric(10, 2), nullable=True)
+    is_insurance = db.Column(db.Boolean, nullable=True)
     is_submitted = db.Column(db.Boolean, default=False, nullable=False)
     submitted_at = db.Column(db.DateTime, nullable=True)
     submitted_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
@@ -189,6 +192,27 @@ class ExaminationAnalysis(db.Model):
     examination = db.relationship('Examination', back_populates='exam_analyses')
     analysis = db.relationship('Analysis')
     submitted_by = db.relationship('User', foreign_keys=[submitted_by_id])
+
+    @property
+    def snapshot_price(self):
+        return self.price if self.price is not None else self.analysis.price
+
+    @property
+    def snapshot_is_insurance(self):
+        return self.is_insurance if self.is_insurance is not None else self.analysis.is_insurance
+
+    @property
+    def effective_price(self):
+        has_ins = self.examination.patient_has_insurance or False
+        return self.snapshot_price / 2 if (has_ins and self.snapshot_is_insurance) else self.snapshot_price
+
+    @property
+    def snapshot_price_display(self):
+        return f'{self.snapshot_price:,.2f}'
+
+    @property
+    def effective_price_display(self):
+        return f'{self.effective_price:,.2f}'
 
 
 class ExaminationDirection(db.Model):
@@ -198,9 +222,32 @@ class ExaminationDirection(db.Model):
     examination_id = db.Column(db.Integer, db.ForeignKey('examinations.id'), nullable=False)
     direction_id = db.Column(db.Integer, db.ForeignKey('doctor_directions.id'), nullable=False)
     doctor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    price = db.Column(db.Numeric(10, 2), nullable=True)
+    is_insurance = db.Column(db.Boolean, nullable=True)
     is_visited = db.Column(db.Boolean, default=False, nullable=False)
     visited_at = db.Column(db.DateTime, nullable=True)
 
     examination = db.relationship('Examination', back_populates='exam_directions')
     direction = db.relationship('DoctorDirection')
     doctor = db.relationship('User', foreign_keys=[doctor_id])
+
+    @property
+    def snapshot_price(self):
+        return self.price if self.price is not None else self.direction.price
+
+    @property
+    def snapshot_is_insurance(self):
+        return self.is_insurance if self.is_insurance is not None else self.direction.is_insurance
+
+    @property
+    def effective_price(self):
+        has_ins = self.examination.patient_has_insurance or False
+        return self.snapshot_price / 2 if (has_ins and self.snapshot_is_insurance) else self.snapshot_price
+
+    @property
+    def snapshot_price_display(self):
+        return f'{self.snapshot_price:,.2f}'
+
+    @property
+    def effective_price_display(self):
+        return f'{self.effective_price:,.2f}'

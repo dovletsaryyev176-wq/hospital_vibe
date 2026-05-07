@@ -157,6 +157,30 @@ def patients_toggle(patient_id):
     return redirect(url_for('main.patients_list'))
 
 
+# ── Patient examination history ───────────────────────────────────────────────
+
+@main_bp.route('/patients/<int:patient_id>/history')
+@patients_required
+def patients_history(patient_id):
+    patient = db.session.get(Patient, patient_id)
+    if patient is None:
+        abort(404)
+    examinations = (
+        Examination.query
+        .filter_by(patient_id=patient_id)
+        .options(
+            joinedload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
+            joinedload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
+            joinedload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
+            joinedload(Examination.created_by),
+        )
+        .order_by(Examination.created_at.desc())
+        .all()
+    )
+    return render_template('main/patients/history.html',
+                           patient=patient, examinations=examinations)
+
+
 # ── Patients search API ───────────────────────────────────────────────────────
 
 @main_bp.route('/patients/search')
@@ -304,17 +328,31 @@ def examinations_create():
             return render_template('main/examinations/create.html', **ctx, **data,
                                    selected_patient=selected_patient)
 
-        exam = Examination(patient_id=data['patient_id'], created_by_id=current_user.id)
+        patient = db.session.get(Patient, data['patient_id'])
+        exam = Examination(
+            patient_id=data['patient_id'],
+            created_by_id=current_user.id,
+            patient_has_insurance=bool(patient.insurance_number),
+        )
         db.session.add(exam)
         db.session.flush()
 
         for aid in data['analysis_ids']:
-            db.session.add(ExaminationAnalysis(examination_id=exam.id, analysis_id=aid))
+            a = db.session.get(Analysis, aid)
+            db.session.add(ExaminationAnalysis(
+                examination_id=exam.id,
+                analysis_id=aid,
+                price=a.price,
+                is_insurance=a.is_insurance,
+            ))
         for did in data['direction_ids']:
+            d = db.session.get(DoctorDirection, did)
             db.session.add(ExaminationDirection(
                 examination_id=exam.id,
                 direction_id=did,
                 doctor_id=data['doctor_for'][did],
+                price=d.price,
+                is_insurance=d.is_insurance,
             ))
 
         db.session.commit()
@@ -403,20 +441,31 @@ def examinations_edit(exam_id):
             return render_template('main/examinations/edit.html', exam=exam, **ctx, **data,
                                    selected_patient=selected_patient)
 
+        patient = db.session.get(Patient, data['patient_id'])
         exam.patient_id = data['patient_id']
+        exam.patient_has_insurance = bool(patient.insurance_number)
 
         for ea in list(exam.exam_analyses):
             db.session.delete(ea)
         for aid in data['analysis_ids']:
-            db.session.add(ExaminationAnalysis(examination_id=exam.id, analysis_id=aid))
+            a = db.session.get(Analysis, aid)
+            db.session.add(ExaminationAnalysis(
+                examination_id=exam.id,
+                analysis_id=aid,
+                price=a.price,
+                is_insurance=a.is_insurance,
+            ))
 
         for ed in list(exam.exam_directions):
             db.session.delete(ed)
         for did in data['direction_ids']:
+            d = db.session.get(DoctorDirection, did)
             db.session.add(ExaminationDirection(
                 examination_id=exam.id,
                 direction_id=did,
                 doctor_id=data['doctor_for'][did],
+                price=d.price,
+                is_insurance=d.is_insurance,
             ))
 
         db.session.commit()

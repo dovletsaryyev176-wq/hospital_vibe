@@ -1,0 +1,224 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Barlag taryhy — {{ patient.full_name }}{% endblock %}
+{% block page_title %}Barlag taryhy{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <!-- Patient info card -->
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+        <a href="{{ url_for('main.patients_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <i class="bi bi-person-lines-fill text-primary"></i>
+        <h6 class="mb-0 fw-semibold">{{ patient.full_name }}</h6>
+        {% if not patient.is_active %}
+          <span class="badge bg-secondary-subtle text-secondary ms-1">Bloklanan</span>
+        {% endif %}
+        <span class="ms-auto text-muted small">
+          Barlaglar sany: <strong>{{ examinations | length }}</strong>
+        </span>
+      </div>
+      <div class="card-body px-4 py-3">
+        <div class="row g-2 small text-muted">
+          <div class="col-auto">
+            <i class="bi bi-calendar3 me-1"></i>{{ patient.birth_year }} ý.d.
+            <span class="text-body-secondary">({{ patient.age }} ýaş)</span>
+          </div>
+          <div class="col-auto">·</div>
+          <div class="col-auto">
+            <i class="bi bi-globe2 me-1"></i>{{ patient.citizenship }}
+          </div>
+          <div class="col-auto">·</div>
+          <div class="col-auto">
+            <i class="bi bi-credit-card me-1"></i>Pasport: {{ patient.passport_number or '—' }}
+          </div>
+          {% if patient.insurance_number %}
+          <div class="col-auto">·</div>
+          <div class="col-auto text-success fw-medium">
+            <i class="bi bi-shield-check me-1"></i>Ätiýaçlandyryş: {{ patient.insurance_number }}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Examinations list -->
+  {% if examinations %}
+  {% for exam in examinations %}
+  {% set a_total = namespace(val=0) %}
+  {% for ea in exam.exam_analyses %}{% set a_total.val = a_total.val + ea.effective_price %}{% endfor %}
+  {% set d_total = namespace(val=0) %}
+  {% for ed in exam.exam_directions %}{% set d_total.val = d_total.val + ed.effective_price %}{% endfor %}
+  {% set grand = a_total.val + d_total.val %}
+
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <!-- Exam header -->
+      <div class="card-header bg-white border-bottom px-4 py-3">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="fw-semibold">Barlag №{{ exam.id }}</span>
+          <span class="text-muted small">{{ exam.created_at.strftime('%d.%m.%Y %H:%M') }}</span>
+
+          {% if exam.is_open %}
+            <span class="badge bg-primary-subtle text-primary">
+              <i class="bi bi-unlock-fill me-1"></i>Açyk
+            </span>
+          {% else %}
+            <span class="badge bg-success-subtle text-success">
+              <i class="bi bi-lock-fill me-1"></i>Ýapylan
+            </span>
+          {% endif %}
+
+          {% if exam.is_paid %}
+            <span class="badge bg-success-subtle text-success">
+              <i class="bi bi-cash-coin me-1"></i>Tölenen
+            </span>
+          {% else %}
+            <span class="badge bg-warning-subtle text-warning">
+              <i class="bi bi-hourglass-split me-1"></i>Tölenmedik
+            </span>
+          {% endif %}
+
+          {% if exam.patient_has_insurance %}
+            <span class="badge bg-info-subtle text-info">
+              <i class="bi bi-shield-check me-1"></i>Ätiýaçlandyryş
+            </span>
+          {% endif %}
+
+          <div class="ms-auto d-flex align-items-center gap-2">
+            <span class="fw-semibold font-monospace">{{ '%.2f' | format(grand) }} manat</span>
+            <a href="{{ url_for('main.examinations_detail', exam_id=exam.id) }}"
+               class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-eye me-1"></i>Görmek
+            </a>
+            <a href="{{ url_for('main.examinations_report', exam_id=exam.id) }}"
+               target="_blank" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-printer"></i>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-body p-0">
+        <div class="row g-0">
+
+          <!-- Analyses column -->
+          {% if exam.exam_analyses %}
+          <div class="{% if exam.exam_directions %}col-md-6 border-end{% else %}col-12{% endif %}">
+            <div class="px-4 py-2 border-bottom" style="background:#f8f9fc">
+              <span class="small fw-semibold text-muted text-uppercase" style="letter-spacing:.05em">
+                <i class="bi bi-clipboard2-pulse me-1 text-primary"></i>Analizler
+              </span>
+            </div>
+            <ul class="list-unstyled mb-0">
+              {% for ea in exam.exam_analyses %}
+              <li class="d-flex justify-content-between align-items-center px-4 py-2 border-bottom">
+                <div class="small">
+                  {{ ea.analysis.name }}
+                  {% if ea.is_submitted %}
+                    <span class="badge bg-success-subtle text-success ms-1" style="font-size:.6rem">
+                      <i class="bi bi-check-circle-fill"></i> Tabşyrylan
+                    </span>
+                  {% endif %}
+                </div>
+                <div class="text-end font-monospace small ms-3 flex-shrink-0">
+                  {% if ea.examination.patient_has_insurance and ea.snapshot_is_insurance %}
+                    <span class="text-decoration-line-through text-muted" style="font-size:.75rem">
+                      {{ ea.snapshot_price_display }}
+                    </span>
+                    <span class="text-success fw-semibold d-block">{{ ea.effective_price_display }}</span>
+                  {% else %}
+                    {{ ea.effective_price_display }}
+                  {% endif %}
+                </div>
+              </li>
+              {% endfor %}
+              <li class="d-flex justify-content-between px-4 py-2 fw-semibold small border-top bg-light">
+                <span>Jemi</span>
+                <span class="font-monospace">{{ '%.2f' | format(a_total.val) }} manat</span>
+              </li>
+            </ul>
+          </div>
+          {% endif %}
+
+          <!-- Directions column -->
+          {% if exam.exam_directions %}
+          <div class="{% if exam.exam_analyses %}col-md-6{% else %}col-12{% endif %}">
+            <div class="px-4 py-2 border-bottom" style="background:#f8f9fc">
+              <span class="small fw-semibold text-muted text-uppercase" style="letter-spacing:.05em">
+                <i class="bi bi-diagram-3 me-1 text-primary"></i>Lukmanyň ugurlary
+              </span>
+            </div>
+            <ul class="list-unstyled mb-0">
+              {% for ed in exam.exam_directions %}
+              <li class="d-flex justify-content-between align-items-center px-4 py-2 border-bottom">
+                <div class="small">
+                  <div>{{ ed.direction.name }}</div>
+                  <div class="text-muted" style="font-size:.75rem">
+                    <i class="bi bi-person-fill me-1"></i>{{ ed.doctor.full_name }}
+                    {% if ed.doctor.cabinet %}
+                      · Otag {{ ed.doctor.cabinet }}
+                    {% endif %}
+                  </div>
+                  {% if ed.is_visited %}
+                    <span class="badge bg-success-subtle text-success mt-1" style="font-size:.6rem">
+                      <i class="bi bi-person-check-fill"></i> Kabul edilen
+                    </span>
+                  {% endif %}
+                </div>
+                <div class="text-end font-monospace small ms-3 flex-shrink-0">
+                  {% if ed.examination.patient_has_insurance and ed.snapshot_is_insurance %}
+                    <span class="text-decoration-line-through text-muted" style="font-size:.75rem">
+                      {{ ed.snapshot_price_display }}
+                    </span>
+                    <span class="text-success fw-semibold d-block">{{ ed.effective_price_display }}</span>
+                  {% else %}
+                    {{ ed.effective_price_display }}
+                  {% endif %}
+                </div>
+              </li>
+              {% endfor %}
+              <li class="d-flex justify-content-between px-4 py-2 fw-semibold small border-top bg-light">
+                <span>Jemi</span>
+                <span class="font-monospace">{{ '%.2f' | format(d_total.val) }} manat</span>
+              </li>
+            </ul>
+          </div>
+          {% endif %}
+
+        </div>
+      </div>
+
+      <!-- Exam footer: created_by info -->
+      <div class="card-footer bg-white border-top px-4 py-2 text-muted small">
+        <i class="bi bi-person me-1"></i>Döreden: {{ exam.created_by.full_name }}
+        {% if exam.closed_at %}
+          · <i class="bi bi-lock me-1"></i>Ýapylan: {{ exam.closed_at.strftime('%d.%m.%Y %H:%M') }}
+        {% endif %}
+        {% if exam.is_paid and exam.paid_at %}
+          · <i class="bi bi-cash-coin me-1"></i>Tölenen: {{ exam.paid_at.strftime('%d.%m.%Y') }}
+          ({{ exam.paid_by.full_name }})
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+  {% else %}
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-body text-center py-5 text-muted">
+        <i class="bi bi-clipboard2-x display-5 d-block mb-2 opacity-25"></i>
+        Bu syrkaw üçin barlaglar ýok.
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

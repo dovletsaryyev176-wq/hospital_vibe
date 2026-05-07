@@ -82,6 +82,10 @@
             </td>
             <td class="text-center pe-4">
               <div class="d-flex justify-content-center gap-1">
+                <a href="{{ url_for('main.patients_history', patient_id=patient.id) }}"
+                   class="btn btn-sm btn-outline-primary" title="Barlag taryhy">
+                  <i class="bi bi-clock-history"></i>
+                </a>
                 <a href="{{ url_for('main.patients_edit', patient_id=patient.id) }}"
                    class="btn btn-sm btn-outline-secondary" title="Üýtgetmek">
                   <i class="bi bi-pencil"></i>

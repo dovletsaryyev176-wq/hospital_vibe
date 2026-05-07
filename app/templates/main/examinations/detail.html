@@ -4,7 +4,6 @@
 {% block page_title %}Barlag №{{ exam.id }}{% endblock %}
 
 {% block content %}
-{% set has_insurance = exam.patient.insurance_number %}
 <div class="row g-4">
 
   <!-- Header card -->
@@ -166,12 +165,12 @@
                 {% endif %}
               </td>
               <td class="text-end pe-4 font-monospace small">
-                {% if has_insurance and ea.analysis.is_insurance %}
-                  <span class="text-decoration-line-through text-muted">{{ ea.analysis.price_display }}</span><br>
-                  <span class="text-success fw-semibold">{{ '%.2f' | format(ea.analysis.price / 2) }} manat</span>
+                {% if ea.examination.patient_has_insurance and ea.snapshot_is_insurance %}
+                  <span class="text-decoration-line-through text-muted">{{ ea.snapshot_price_display }}</span><br>
+                  <span class="text-success fw-semibold">{{ ea.effective_price_display }} manat</span>
                   <span class="badge bg-success-subtle text-success ms-1" style="font-size:.65rem">−50%</span>
                 {% else %}
-                  {{ ea.analysis.price_display }} manat
+                  {{ ea.effective_price_display }} manat
                 {% endif %}
               </td>
             </tr>
@@ -183,11 +182,7 @@
               <td class="text-end pe-4 fw-semibold font-monospace small">
                 {% set total = namespace(val=0) %}
                 {% for ea in exam.exam_analyses %}
-                  {% if has_insurance and ea.analysis.is_insurance %}
-                    {% set total.val = total.val + ea.analysis.price / 2 %}
-                  {% else %}
-                    {% set total.val = total.val + ea.analysis.price %}
-                  {% endif %}
+                  {% set total.val = total.val + ea.effective_price %}
                 {% endfor %}
                 {{ '%.2f' | format(total.val) }} manat
               </td>
@@ -267,12 +262,12 @@
                 {% endif %}
               </td>
               <td class="text-end pe-4 font-monospace small">
-                {% if has_insurance and ed.direction.is_insurance %}
-                  <span class="text-decoration-line-through text-muted">{{ ed.direction.price_display }}</span><br>
-                  <span class="text-success fw-semibold">{{ '%.2f' | format(ed.direction.price / 2) }} manat</span>
+                {% if ed.examination.patient_has_insurance and ed.snapshot_is_insurance %}
+                  <span class="text-decoration-line-through text-muted">{{ ed.snapshot_price_display }}</span><br>
+                  <span class="text-success fw-semibold">{{ ed.effective_price_display }} manat</span>
                   <span class="badge bg-success-subtle text-success ms-1" style="font-size:.65rem">−50%</span>
                 {% else %}
-                  {{ ed.direction.price_display }} manat
+                  {{ ed.effective_price_display }} manat
                 {% endif %}
               </td>
             </tr>
@@ -284,11 +279,7 @@
               <td class="text-end pe-4 fw-semibold font-monospace small">
                 {% set dir_total = namespace(val=0) %}
                 {% for ed in exam.exam_directions %}
-                  {% if has_insurance and ed.direction.is_insurance %}
-                    {% set dir_total.val = dir_total.val + ed.direction.price / 2 %}
-                  {% else %}
-                    {% set dir_total.val = dir_total.val + ed.direction.price %}
-                  {% endif %}
+                  {% set dir_total.val = dir_total.val + ed.effective_price %}
                 {% endfor %}
                 {{ '%.2f' | format(dir_total.val) }} manat
               </td>
@@ -331,19 +322,11 @@
         <p class="mt-2 mb-0 fw-semibold">Tölegi kabul etmek №{{ exam.id }}?</p>
         {% set analyses_total = namespace(val=0) %}
         {% for ea in exam.exam_analyses %}
-          {% if has_insurance and ea.analysis.is_insurance %}
-            {% set analyses_total.val = analyses_total.val + ea.analysis.price / 2 %}
-          {% else %}
-            {% set analyses_total.val = analyses_total.val + ea.analysis.price %}
-          {% endif %}
+          {% set analyses_total.val = analyses_total.val + ea.effective_price %}
         {% endfor %}
         {% set dir_total = namespace(val=0) %}
         {% for ed in exam.exam_directions %}
-          {% if has_insurance and ed.direction.is_insurance %}
-            {% set dir_total.val = dir_total.val + ed.direction.price / 2 %}
-          {% else %}
-            {% set dir_total.val = dir_total.val + ed.direction.price %}
-          {% endif %}
+          {% set dir_total.val = dir_total.val + ed.effective_price %}
         {% endfor %}
         {% set grand_total = analyses_total.val + dir_total.val %}
         {% if grand_total > 0 %}
