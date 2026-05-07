@@ -7,7 +7,8 @@ from app.main import main_bp
 from app.main.forms import PatientForm
 from app.extensions import db
 from app.models import (Patient, Examination, ExaminationAnalysis,
-                        ExaminationDirection, DoctorDirection, Analysis, User)
+                        ExaminationDirection, DoctorDirection, Analysis,
+                        CombinedAnalysis, User)
 
 
 def role_required(*roles):
@@ -185,6 +186,7 @@ def _exam_form_context():
     """Return data needed to render create/edit examination form."""
     return {
         'analyses': Analysis.query.filter_by(is_active=True).order_by(Analysis.name).all(),
+        'combined_analyses': CombinedAnalysis.query.filter_by(is_active=True).order_by(CombinedAnalysis.name).all(),
         'directions': DoctorDirection.query.filter_by(is_active=True).order_by(DoctorDirection.name).all(),
         'doctors': User.query.filter_by(role='doctor', is_active=True).order_by(User.full_name).all(),
     }
@@ -193,7 +195,7 @@ def _exam_form_context():
 def _parse_exam_form():
     """Parse and validate POST data for examination form. Returns (data_dict, errors)."""
     patient_id = request.form.get('patient_id', type=int)
-    analysis_ids = request.form.getlist('analysis_ids', type=int)
+    analysis_ids = list(dict.fromkeys(request.form.getlist('analysis_ids', type=int)))
     direction_ids = request.form.getlist('direction_ids', type=int)
 
     errors = []

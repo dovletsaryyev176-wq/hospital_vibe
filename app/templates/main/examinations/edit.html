@@ -66,17 +66,68 @@
             </span>
           </div>
         </div>
+
+        {% if combined_analyses %}
+        <!-- Combined analyses section -->
+        <div class="border-bottom">
+          <div class="px-4 py-2 d-flex align-items-center gap-2" style="background:#f8f9fc">
+            <i class="bi bi-collection text-primary" style="font-size:.85rem"></i>
+            <span class="fw-semibold small text-uppercase text-muted" style="letter-spacing:.05em">Kombinlenen analizler</span>
+          </div>
+          {% for ca in combined_analyses %}
+          <div class="border-top">
+            <div class="d-flex align-items-center gap-2 px-4 py-2">
+              <input type="checkbox" class="form-check-input flex-shrink-0 combo-all-cb"
+                     id="combo-all-{{ ca.id }}" data-combo-id="{{ ca.id }}">
+              <label class="fw-medium mb-0 flex-grow-1 user-select-none" for="combo-all-{{ ca.id }}"
+                     style="cursor:pointer">{{ ca.name }}</label>
+              <span class="text-muted small me-1">{{ ca.analyses|length }} analiz · {{ ca.price_display }} manat</span>
+              <button type="button"
+                      class="btn btn-sm btn-outline-secondary py-0 px-2 combo-toggle-btn"
+                      data-bs-toggle="collapse"
+                      data-bs-target="#combo-body-{{ ca.id }}"
+                      title="Giňelt / ýygy">
+                <i class="bi bi-chevron-down combo-chevron" style="font-size:.75rem;transition:transform .2s"></i>
+              </button>
+            </div>
+            <div class="collapse" id="combo-body-{{ ca.id }}">
+              <table class="table table-sm align-middle mb-0" style="background:#fafbfc">
+                <tbody>
+                  {% for a in ca.analyses %}
+                  <tr>
+                    <td style="width:56px" class="ps-5">
+                      <input type="checkbox" class="form-check-input combo-item-cb"
+                             data-analysis-id="{{ a.id }}" data-combo-id="{{ ca.id }}">
+                    </td>
+                    <td class="small">{{ a.name }}</td>
+                    <td class="font-monospace small text-end pe-4" style="width:140px">{{ a.price_display }} manat</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
         {% if analyses %}
+        <!-- Individual analyses section -->
+        {% if combined_analyses %}
+        <div class="px-4 py-2 d-flex align-items-center gap-2" style="background:#f8f9fc">
+          <i class="bi bi-list-check text-primary" style="font-size:.85rem"></i>
+          <span class="fw-semibold small text-uppercase text-muted" style="letter-spacing:.05em">Aýratyn analizler</span>
+        </div>
+        {% endif %}
         <div class="table-responsive">
           <table class="table table-hover align-middle mb-0">
             <thead>
               <tr>
                 <th class="ps-4" style="width:50px">
-                  <input type="checkbox" class="form-check-input" id="select-all-analyses"
-                         title="Hemmesi">
+                  <input type="checkbox" class="form-check-input" id="select-all-analyses" title="Hemmesini">
                 </th>
                 <th>Analiziň ady</th>
-                <th style="width:140px">Baha</th>
+                <th class="text-end pe-4" style="width:140px">Bahasy</th>
               </tr>
             </thead>
             <tbody>
@@ -88,7 +139,7 @@
                          {% if a.id in selected_analysis_ids %}checked{% endif %}>
                 </td>
                 <td>{{ a.name }}</td>
-                <td class="font-monospace small">{{ a.price_display }} manat</td>
+                <td class="font-monospace small text-end pe-4">{{ a.price_display }} manat</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -261,6 +312,94 @@
     clearBtn.addEventListener('click', clearSelection);
   })();
 
+  // ── Combined analyses sync ────────────────────────────────────────────────
+  function updateAnalysesCount() {
+    const count = document.querySelectorAll('.analysis-cb:checked').length;
+    const el = document.getElementById('analyses-selected');
+    if (el) el.textContent = count;
+  }
+
+  function updateComboAllState(comboId) {
+    const allCb = document.getElementById('combo-all-' + comboId);
+    if (!allCb) return;
+    const items   = document.querySelectorAll(`.combo-item-cb[data-combo-id="${comboId}"]`);
+    const checked = Array.from(items).filter(cb => cb.checked).length;
+    allCb.checked       = checked === items.length && items.length > 0;
+    allCb.indeterminate = checked > 0 && checked < items.length;
+  }
+
+  function syncCombosFromReal(analysisId, checked) {
+    document.querySelectorAll(`.combo-item-cb[data-analysis-id="${analysisId}"]`).forEach(cb => {
+      cb.checked = checked;
+      updateComboAllState(cb.dataset.comboId);
+    });
+  }
+
+  document.querySelectorAll('.analysis-cb').forEach(cb => {
+    cb.addEventListener('change', function () {
+      syncCombosFromReal(parseInt(this.value), this.checked);
+      updateAnalysesCount();
+    });
+  });
+
+  document.querySelectorAll('.combo-item-cb').forEach(cb => {
+    cb.addEventListener('change', function () {
+      const analysisId = parseInt(this.dataset.analysisId);
+      const realCb = document.querySelector(`.analysis-cb[value="${analysisId}"]`);
+      if (realCb) realCb.checked = this.checked;
+      document.querySelectorAll(`.combo-item-cb[data-analysis-id="${analysisId}"]`).forEach(other => {
+        other.checked = this.checked;
+      });
+      updateComboAllState(this.dataset.comboId);
+      updateAnalysesCount();
+    });
+  });
+
+  document.querySelectorAll('.combo-all-cb').forEach(cb => {
+    cb.addEventListener('change', function () {
+      const comboId = this.dataset.comboId;
+      document.querySelectorAll(`.combo-item-cb[data-combo-id="${comboId}"]`).forEach(item => {
+        item.checked = this.checked;
+        const analysisId = parseInt(item.dataset.analysisId);
+        const realCb = document.querySelector(`.analysis-cb[value="${analysisId}"]`);
+        if (realCb) realCb.checked = this.checked;
+        document.querySelectorAll(`.combo-item-cb[data-analysis-id="${analysisId}"]`).forEach(other => {
+          other.checked = this.checked;
+        });
+      });
+      document.querySelectorAll('.combo-all-cb').forEach(other => {
+        if (other !== this) updateComboAllState(other.dataset.comboId);
+      });
+      updateAnalysesCount();
+    });
+  });
+
+  document.querySelectorAll('.combo-toggle-btn').forEach(btn => {
+    const target = document.querySelector(btn.dataset.bsTarget);
+    if (!target) return;
+    target.addEventListener('show.bs.collapse', () => {
+      btn.querySelector('.combo-chevron').style.transform = 'rotate(180deg)';
+    });
+    target.addEventListener('hide.bs.collapse', () => {
+      btn.querySelector('.combo-chevron').style.transform = 'rotate(0deg)';
+    });
+  });
+
+  document.querySelectorAll('.analysis-cb').forEach(cb => {
+    if (cb.checked) syncCombosFromReal(parseInt(cb.value), true);
+  });
+
+  const selectAll = document.getElementById('select-all-analyses');
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      document.querySelectorAll('.analysis-cb').forEach(cb => {
+        cb.checked = this.checked;
+        syncCombosFromReal(parseInt(cb.value), this.checked);
+      });
+      updateAnalysesCount();
+    });
+  }
+
   // ── Doctor selects ────────────────────────────────────────────────────────
   function filterDoctorSelect(dirId) {
     const select = document.getElementById('doctor-select-' + dirId);
@@ -283,24 +422,6 @@
       select.disabled = !this.checked;
       if (!this.checked) select.value = '';
     });
-  });
-
-  const selectAll = document.getElementById('select-all-analyses');
-  if (selectAll) {
-    selectAll.addEventListener('change', function () {
-      document.querySelectorAll('.analysis-cb').forEach(cb => cb.checked = this.checked);
-      updateAnalysesCount();
-    });
-  }
-
-  function updateAnalysesCount() {
-    const count = document.querySelectorAll('.analysis-cb:checked').length;
-    const el = document.getElementById('analyses-selected');
-    if (el) el.textContent = count;
-  }
-
-  document.querySelectorAll('.analysis-cb').forEach(cb => {
-    cb.addEventListener('change', updateAnalysesCount);
   });
 </script>
 {% endblock %}
