@@ -164,6 +164,12 @@
        class="nav-link {% if 'admin.combined_analyses' in request.endpoint %}active{% endif %}">
       <i class="bi bi-collection"></i> Kombinlenen analizler
     </a>
+
+    <div class="nav-section mt-2">Hasabatlar</div>
+    <a href="{{ url_for('admin.daily_report') }}"
+       class="nav-link {% if request.endpoint == 'admin.daily_report' %}active{% endif %}">
+      <i class="bi bi-calendar-check"></i> Günlük hasabat
+    </a>
   </nav>
 
   <div class="sidebar-footer">

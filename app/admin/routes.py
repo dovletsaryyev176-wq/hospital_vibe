@@ -5,7 +5,7 @@ from sqlalchemy import func
 from app.admin import admin_bp
 from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm
 from app.extensions import db
-from app.models import User, Analysis, DoctorDirection, CombinedAnalysis
+from app.models import User, Analysis, DoctorDirection, CombinedAnalysis, Examination
 
 
 def admin_required(f):
@@ -334,6 +334,24 @@ def directions_toggle(direction_id):
     action = 'aktiw' if direction.is_active else 'bloklanan'
     flash(f'Ugur «{direction.name}» {action}.', 'success')
     return redirect(url_for('admin.directions_list'))
+
+
+# ── Daily report ─────────────────────────────────────────────────────────────
+
+@admin_bp.route('/daily-report')
+@admin_required
+def daily_report():
+    rows = (
+        db.session.query(
+            func.date(Examination.paid_at).label('day'),
+            func.count(Examination.id).label('cnt'),
+        )
+        .filter(Examination.paid_at.isnot(None))
+        .group_by(func.date(Examination.paid_at))
+        .order_by(func.date(Examination.paid_at).desc())
+        .all()
+    )
+    return render_template('admin/reports/daily.html', rows=rows)
 
 
 # ── Combined analyses list ────────────────────────────────────────────────────
