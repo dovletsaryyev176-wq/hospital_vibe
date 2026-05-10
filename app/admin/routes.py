@@ -2,6 +2,7 @@ from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 from app.admin import admin_bp
 from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm
 from app.extensions import db
@@ -66,7 +67,7 @@ def users_list():
     if role_filter and role_filter in User.ROLES:
         query = query.filter_by(role=role_filter)
 
-    users = query.order_by(User.full_name).all()
+    users = query.options(joinedload(User.directions)).order_by(User.full_name).all()
 
     return render_template(
         'admin/users/list.html',
@@ -182,7 +183,7 @@ def analyses_list():
     elif status_filter == 'blocked':
         query = query.filter(Analysis.is_active == False)
 
-    analyses = query.order_by(Analysis.name).all()
+    analyses = query.options(joinedload(Analysis.responsible)).order_by(Analysis.name).all()
 
     return render_template(
         'admin/analyses/list.html',
@@ -372,7 +373,7 @@ def combined_analyses_list():
     elif status_filter == 'blocked':
         query = query.filter(CombinedAnalysis.is_active == False)
 
-    combined_analyses = query.order_by(CombinedAnalysis.name).all()
+    combined_analyses = query.options(joinedload(CombinedAnalysis.analyses)).order_by(CombinedAnalysis.name).all()
 
     return render_template(
         'admin/combined_analyses/list.html',

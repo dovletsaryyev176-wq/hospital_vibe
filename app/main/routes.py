@@ -213,9 +213,9 @@ def _exam_form_context():
     """Return data needed to render create/edit examination form."""
     return {
         'analyses': Analysis.query.filter_by(is_active=True).order_by(Analysis.name).all(),
-        'combined_analyses': CombinedAnalysis.query.filter_by(is_active=True).order_by(CombinedAnalysis.name).all(),
+        'combined_analyses': CombinedAnalysis.query.filter_by(is_active=True).options(joinedload(CombinedAnalysis.analyses)).order_by(CombinedAnalysis.name).all(),
         'directions': DoctorDirection.query.filter_by(is_active=True).order_by(DoctorDirection.name).all(),
-        'doctors': User.query.filter_by(role='doctor', is_active=True).order_by(User.full_name).all(),
+        'doctors': User.query.filter_by(role='doctor', is_active=True).options(joinedload(User.directions)).order_by(User.full_name).all(),
     }
 
 
@@ -238,10 +238,14 @@ def _parse_exam_form():
         errors.append('Iň bolmanda 1 analiz ýa-da ugur kesgitläň.')
 
     doctor_for = {}
+    if direction_ids:
+        directions_by_id = {d.id: d for d in DoctorDirection.query.filter(DoctorDirection.id.in_(direction_ids)).all()}
+    else:
+        directions_by_id = {}
     for did in direction_ids:
         doc_id = request.form.get(f'doctor_for_{did}', type=int)
         if not doc_id:
-            dir_obj = db.session.get(DoctorDirection, did)
+            dir_obj = directions_by_id.get(did)
             dir_name = dir_obj.name if dir_obj else f'#{did}'
             errors.append(f'Ugur «{dir_name}» üçin lukman bellenmedik.')
         else:
