@@ -82,11 +82,13 @@ def patients_list():
     elif status_filter == 'blocked':
         query = query.filter_by(is_active=False)
 
-    patients = query.order_by(Patient.full_name).all()
+    page = request.args.get('page', 1, type=int)
+    pagination = query.order_by(Patient.full_name).paginate(page=page, per_page=15, error_out=False)
 
     return render_template(
         'main/patients/list.html',
-        patients=patients,
+        patients=pagination.items,
+        pagination=pagination,
         search=search,
         status_filter=status_filter,
     )
@@ -294,7 +296,8 @@ def examinations_list():
     elif paid_filter == 'unpaid':
         query = query.filter(Examination.is_paid == False)
 
-    examinations = (query
+    page = request.args.get('page', 1, type=int)
+    pagination = (query
         .options(
             joinedload(Examination.patient),
             joinedload(Examination.created_by),
@@ -302,11 +305,12 @@ def examinations_list():
             subqueryload(Examination.exam_directions),
         )
         .order_by(Examination.created_at.desc())
-        .all())
+        .paginate(page=page, per_page=15, error_out=False))
 
     return render_template(
         'main/examinations/list.html',
-        examinations=examinations,
+        examinations=pagination.items,
+        pagination=pagination,
         search=search,
         status_filter=status_filter,
         paid_filter=paid_filter,

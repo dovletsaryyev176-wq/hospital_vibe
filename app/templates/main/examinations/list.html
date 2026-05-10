@@ -63,7 +63,7 @@
         {% if examinations %}
           {% for exam in examinations %}
           <tr>
-            <td class="ps-4 text-muted">{{ loop.index }}</td>
+            <td class="ps-4 text-muted">{{ (pagination.page - 1) * pagination.per_page + loop.index }}</td>
             <td class="fw-medium">{{ exam.patient.full_name }}</td>
             <td>
               {{ exam.created_by.full_name }}
@@ -159,9 +159,37 @@
     </table>
   </div>
 
-  {% if examinations %}
-  <div class="card-footer bg-white text-muted small px-4">
-    Tapylan: {{ examinations | length }}
+  {% if pagination.total %}
+  <div class="card-footer bg-white px-4 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="text-muted small">
+      Jemi: {{ pagination.total }}
+      ({{ (pagination.page - 1) * pagination.per_page + 1 }}–{{ [(pagination.page) * pagination.per_page, pagination.total] | min }})
+    </span>
+    {% if pagination.pages > 1 %}
+    <nav aria-label="Sahypa">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('main.examinations_list', page=pagination.prev_num, q=search, status=status_filter, paid=paid_filter) }}">
+            <i class="bi bi-chevron-left"></i>
+          </a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('main.examinations_list', page=p, q=search, status=status_filter, paid=paid_filter) }}">{{ p }}</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('main.examinations_list', page=pagination.next_num, q=search, status=status_filter, paid=paid_filter) }}">
+            <i class="bi bi-chevron-right"></i>
+          </a>
+        </li>
+      </ul>
+    </nav>
+    {% endif %}
   </div>
   {% endif %}
 </div>
