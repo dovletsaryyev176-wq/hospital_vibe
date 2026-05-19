@@ -151,12 +151,61 @@
       </div>
     </div>
 
-    <!-- Step 3: Directions + Doctors -->
+    <!-- Step 3: Analysis Tools -->
     <div class="col-12">
       <div class="card shadow-sm border-0 rounded-3">
         <div class="card-header bg-white border-bottom px-4 py-3">
           <div class="d-flex align-items-center gap-2">
             <span class="badge bg-primary rounded-pill">3</span>
+            <h6 class="mb-0 fw-semibold">Serişdeleri saýlaň</h6>
+            <span class="text-muted small ms-auto fw-normal">mejbury däl</span>
+            <span class="text-muted small">Saýlanan: <span id="tools-selected">{{ selected_tool_ids | length }}</span></span>
+          </div>
+        </div>
+        {% if all_tools %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th class="ps-4" style="width:50px">
+                  <input type="checkbox" class="form-check-input" id="select-all-tools" title="Hemmesini">
+                </th>
+                <th>Serişdäniň ady</th>
+                <th>Analiz</th>
+                <th class="text-center" style="width:80px">Mukdary</th>
+                <th class="text-end pe-4" style="width:150px">Bahasy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for tool in all_tools %}
+              <tr>
+                <td class="ps-4">
+                  <input type="checkbox" class="form-check-input tool-cb"
+                         name="tool_ids" value="{{ tool.id }}"
+                         data-analysis-id="{{ tool.analysis_id }}"
+                         {% if tool.id in selected_tool_ids %}checked{% endif %}>
+                </td>
+                <td>{{ tool.name }}</td>
+                <td class="text-muted small">{{ tool.analysis.name }}</td>
+                <td class="text-center small">{{ tool.quantity }}</td>
+                <td class="font-monospace small text-end pe-4">{{ tool.total_price_display }} manat</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+          <div class="card-body text-muted">Aktiw serişdeler tapylmady.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Step 4: Directions + Doctors -->
+    <div class="col-12">
+      <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-header bg-white border-bottom px-4 py-3">
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-primary rounded-pill">4</span>
             <h6 class="mb-0 fw-semibold">Lukmanyň ugruny saýlaň</h6>
             <span class="text-muted small ms-auto fw-normal">mejbury däl</span>
           </div>
@@ -168,7 +217,7 @@
               <tr>
                 <th class="ps-4" style="width:50px"></th>
                 <th>Ugur</th>
-                <th style="width:280px">Lukman <span class="text-danger">*</span></th>
+                <th style="width:280px">Lukman / hünärmen <span class="text-danger">*</span></th>
               </tr>
             </thead>
             <tbody>
@@ -194,7 +243,7 @@
                       <option value="{{ doc.id }}"
                         data-dir-ids="{{ doc.directions | map(attribute='id') | list | tojson }}"
                         {% if doctor_for.get(d.id) == doc.id %}selected{% endif %}>
-                        {{ doc.full_name }}
+                        {{ doc.full_name }}{% if doc.role == 'analysis_responsible' %} (Analiz jogapkäri){% endif %}
                       </option>
                     {% endfor %}
                   </select>
@@ -312,6 +361,36 @@
     clearBtn.addEventListener('click', clearSelection);
   })();
 
+  // ── Analysis tools sync ───────────────────────────────────────────────────
+  const analysisToolsMap = {{ analysis_tools_map | tojson }};
+
+  function updateToolsCount() {
+    const count = document.querySelectorAll('.tool-cb:checked').length;
+    const el = document.getElementById('tools-selected');
+    if (el) el.textContent = count;
+  }
+
+  function syncToolsFromAnalysis(analysisId, checked) {
+    const toolIds = analysisToolsMap[analysisId] || [];
+    toolIds.forEach(toolId => {
+      const cb = document.querySelector(`.tool-cb[value="${toolId}"]`);
+      if (cb) cb.checked = checked;
+    });
+    updateToolsCount();
+  }
+
+  document.querySelectorAll('.tool-cb').forEach(cb => {
+    cb.addEventListener('change', updateToolsCount);
+  });
+
+  const selectAllTools = document.getElementById('select-all-tools');
+  if (selectAllTools) {
+    selectAllTools.addEventListener('change', function () {
+      document.querySelectorAll('.tool-cb').forEach(cb => { cb.checked = this.checked; });
+      updateToolsCount();
+    });
+  }
+
   // ── Combined analyses sync ────────────────────────────────────────────────
   function updateAnalysesCount() {
     const count = document.querySelectorAll('.analysis-cb:checked').length;
@@ -338,6 +417,7 @@
   document.querySelectorAll('.analysis-cb').forEach(cb => {
     cb.addEventListener('change', function () {
       syncCombosFromReal(parseInt(this.value), this.checked);
+      syncToolsFromAnalysis(parseInt(this.value), this.checked);
       updateAnalysesCount();
     });
   });
@@ -350,6 +430,7 @@
       document.querySelectorAll(`.combo-item-cb[data-analysis-id="${analysisId}"]`).forEach(other => {
         other.checked = this.checked;
       });
+      syncToolsFromAnalysis(analysisId, this.checked);
       updateComboAllState(this.dataset.comboId);
       updateAnalysesCount();
     });
@@ -366,6 +447,7 @@
         document.querySelectorAll(`.combo-item-cb[data-analysis-id="${analysisId}"]`).forEach(other => {
           other.checked = this.checked;
         });
+        syncToolsFromAnalysis(analysisId, this.checked);
       });
       document.querySelectorAll('.combo-all-cb').forEach(other => {
         if (other !== this) updateComboAllState(other.dataset.comboId);
@@ -395,6 +477,7 @@
       document.querySelectorAll('.analysis-cb').forEach(cb => {
         cb.checked = this.checked;
         syncCombosFromReal(parseInt(cb.value), this.checked);
+        syncToolsFromAnalysis(parseInt(cb.value), this.checked);
       });
       updateAnalysesCount();
     });

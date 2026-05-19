@@ -164,6 +164,10 @@
        class="nav-link {% if 'admin.combined_analyses' in request.endpoint %}active{% endif %}">
       <i class="bi bi-collection"></i> Kombinlenen analizler
     </a>
+    <a href="{{ url_for('admin.analysis_tools_list') }}"
+       class="nav-link {% if 'admin.analysis_tools' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-box-seam"></i> Serişdeler
+    </a>
 
     <div class="nav-section mt-2">Hasabatlar</div>
     <a href="{{ url_for('admin.daily_report') }}"

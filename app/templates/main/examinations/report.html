@@ -115,6 +115,20 @@
   <td>&nbsp;</td>
 </tr>
 {% endfor %}
+{% for et in exam.exam_tools %}
+{% set row.n = row.n + 1 %}
+<tr>
+  <td>{{ row.n }}</td>
+  <td>&nbsp;</td>
+  <td>{{ et.tool.name }}</td>
+  <td>&nbsp;</td>
+  <td>&nbsp;</td>
+  <td>{{ et.snapshot_price_display }}</td>
+  <td>{% if et.examination.patient_has_insurance and et.snapshot_is_insurance %}{{ et.effective_price_display }}{% else %}&nbsp;{% endif %}</td>
+  <td>{{ et.effective_price_display }}</td>
+  <td>&nbsp;</td>
+</tr>
+{% endfor %}
 </tbody>
 </table>
 
@@ -123,11 +137,15 @@
 {% for ea in exam.exam_analyses %}
   {% set analyses_total.val = analyses_total.val + ea.effective_price %}
 {% endfor %}
+{% set tools_total = namespace(val=0) %}
+{% for et in exam.exam_tools %}
+  {% set tools_total.val = tools_total.val + et.effective_price %}
+{% endfor %}
 {% set dir_total = namespace(val=0) %}
 {% for ed in exam.exam_directions %}
   {% set dir_total.val = dir_total.val + ed.effective_price %}
 {% endfor %}
-{% set grand_total = analyses_total.val + dir_total.val %}
+{% set grand_total = analyses_total.val + tools_total.val + dir_total.val %}
 
 <table width="100%">
   <tr>

@@ -33,6 +33,15 @@
               <i class="bi bi-hourglass-split me-1"></i>Tölenmedik
             </span>
           {% endif %}
+          {% if exam.patient_has_insurance %}
+            <span class="badge bg-info-subtle text-info">
+              <i class="bi bi-shield-check me-1"></i>Ätiýaçlandyryş: açyk
+            </span>
+          {% else %}
+            <span class="badge bg-secondary-subtle text-secondary">
+              <i class="bi bi-shield-slash me-1"></i>Ätiýaçlandyryş: ýapyk
+            </span>
+          {% endif %}
         </div>
       </div>
       <div class="card-body px-4 py-4">
@@ -90,6 +99,23 @@
           </button>
         {% endif %}
         {% if current_user.role == 'cashier' and not exam.is_paid %}
+          <form id="insurance-form" method="POST"
+                action="{{ url_for('main.examinations_toggle_insurance', exam_id=exam.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          </form>
+          {% if exam.patient_has_insurance %}
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    title="Ätiýaçlandyryş arzanladyşyny öçürmek"
+                    onclick="confirmInsurance('Ätiýaçlandyryş arzanladyşyny öçürmek? Bahalar gaýtadan hasaplanar.')">
+              <i class="bi bi-shield-slash me-1"></i>Ätiýaçlandyryşy öçürmek
+            </button>
+          {% else %}
+            <button type="button" class="btn btn-sm btn-outline-info"
+                    title="Ätiýaçlandyryş arzanladyşyny açmak"
+                    onclick="confirmInsurance('Ätiýaçlandyryş arzanladyşyny açmak? Bahalar gaýtadan hasaplanar.')">
+              <i class="bi bi-shield-check me-1"></i>Ätiýaçlandyryşy açmak
+            </button>
+          {% endif %}
           <form id="pay-form" method="POST"
                 action="{{ url_for('main.examinations_pay', exam_id=exam.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -195,6 +221,65 @@
       {% endif %}
     </div>
   </div>
+
+  <!-- Analysis Tools -->
+  {% if exam.exam_tools %}
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-tools me-2 text-primary"></i>
+          Serişdeler
+          <span class="badge bg-light text-dark border ms-1">{{ exam.exam_tools | length }}</span>
+        </h6>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4">#</th>
+              <th>Serişdäniň ady</th>
+              <th>Analiz</th>
+              <th class="text-center" style="width:80px">Mukdary</th>
+              <th class="text-end pe-4">Bahasy</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for et in exam.exam_tools %}
+            <tr>
+              <td class="ps-4 text-muted small">{{ loop.index }}</td>
+              <td>{{ et.tool.name }}</td>
+              <td class="text-muted small">{{ et.tool.analysis.name }}</td>
+              <td class="text-center small">{{ et.tool.quantity }}</td>
+              <td class="text-end pe-4 font-monospace small">
+                {% if et.examination.patient_has_insurance and et.snapshot_is_insurance %}
+                  <span class="text-decoration-line-through text-muted">{{ et.snapshot_price_display }}</span><br>
+                  <span class="text-success fw-semibold">{{ et.effective_price_display }} manat</span>
+                  <span class="badge bg-success-subtle text-success ms-1" style="font-size:.65rem">−50%</span>
+                {% else %}
+                  {{ et.effective_price_display }} manat
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="border-top">
+            <tr>
+              <td colspan="4" class="ps-4 fw-semibold small">Hemmesi</td>
+              <td class="text-end pe-4 fw-semibold font-monospace small">
+                {% set tools_total = namespace(val=0) %}
+                {% for et in exam.exam_tools %}
+                  {% set tools_total.val = tools_total.val + et.effective_price %}
+                {% endfor %}
+                {{ '%.2f' | format(tools_total.val) }} manat
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Directions -->
   <div class="col-12">
@@ -313,6 +398,23 @@
   </div>
 </div>
 
+<!-- Insurance toggle confirmation modal -->
+<div class="modal fade" id="insuranceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body text-center py-4">
+        <i class="bi bi-shield-exclamation text-info" style="font-size:2.5rem"></i>
+        <p class="mt-2 mb-0 fw-semibold" id="insuranceModalMessage"></p>
+      </div>
+      <div class="modal-footer justify-content-center border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+        <button type="button" class="btn btn-info btn-sm"
+                onclick="document.getElementById('insurance-form').submit()">Tassyklamak</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Pay confirmation modal -->
 <div class="modal fade" id="payModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-sm modal-dialog-centered">
@@ -324,17 +426,27 @@
         {% for ea in exam.exam_analyses %}
           {% set analyses_total.val = analyses_total.val + ea.effective_price %}
         {% endfor %}
+        {% set tools_total = namespace(val=0) %}
+        {% for et in exam.exam_tools %}
+          {% set tools_total.val = tools_total.val + et.effective_price %}
+        {% endfor %}
         {% set dir_total = namespace(val=0) %}
         {% for ed in exam.exam_directions %}
           {% set dir_total.val = dir_total.val + ed.effective_price %}
         {% endfor %}
-        {% set grand_total = analyses_total.val + dir_total.val %}
+        {% set grand_total = analyses_total.val + tools_total.val + dir_total.val %}
         {% if grand_total > 0 %}
         <div class="mt-2 text-start px-2">
           {% if analyses_total.val > 0 %}
           <div class="d-flex justify-content-between small text-muted">
             <span>Analizler</span>
             <span class="font-monospace">{{ '%.2f' | format(analyses_total.val) }} manat</span>
+          </div>
+          {% endif %}
+          {% if tools_total.val > 0 %}
+          <div class="d-flex justify-content-between small text-muted">
+            <span>Serişdeler</span>
+            <span class="font-monospace">{{ '%.2f' | format(tools_total.val) }} manat</span>
           </div>
           {% endif %}
           {% if dir_total.val > 0 %}
@@ -364,6 +476,14 @@
 <script>
   const closeModal = new bootstrap.Modal(document.getElementById('closeModal'));
   function confirmClose() { closeModal.show(); }
+
+  const insuranceModalEl = document.getElementById('insuranceModal');
+  const insuranceModal = insuranceModalEl ? new bootstrap.Modal(insuranceModalEl) : null;
+  function confirmInsurance(msg) {
+    if (!insuranceModal) return;
+    document.getElementById('insuranceModalMessage').textContent = msg;
+    insuranceModal.show();
+  }
 
   const payModalEl = document.getElementById('payModal');
   const payModal = payModalEl ? new bootstrap.Modal(payModalEl) : null;

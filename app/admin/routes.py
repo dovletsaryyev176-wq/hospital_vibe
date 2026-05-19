@@ -4,9 +4,9 @@ from flask_login import current_user
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 from app.admin import admin_bp
-from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm
+from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm, AnalysisToolForm
 from app.extensions import db
-from app.models import User, Analysis, DoctorDirection, CombinedAnalysis, Examination
+from app.models import User, Analysis, DoctorDirection, CombinedAnalysis, Examination, AnalysisTool
 
 
 def admin_required(f):
@@ -335,6 +335,103 @@ def directions_toggle(direction_id):
     action = 'aktiw' if direction.is_active else 'bloklanan'
     flash(f'Ugur «{direction.name}» {action}.', 'success')
     return redirect(url_for('admin.directions_list'))
+
+
+# ── Analysis tools (Serişdeler) list ─────────────────────────────────────────
+
+@admin_bp.route('/analysis-tools')
+@admin_required
+def analysis_tools_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+
+    query = AnalysisTool.query.join(AnalysisTool.analysis)
+
+    if search:
+        like = f'%{search}%'
+        query = query.filter(
+            db.or_(
+                AnalysisTool.name.ilike(like),
+                Analysis.name.ilike(like),
+            )
+        )
+
+    if status_filter == 'active':
+        query = query.filter(AnalysisTool.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(AnalysisTool.is_active == False)
+
+    tools = query.options(joinedload(AnalysisTool.analysis)).order_by(AnalysisTool.name).all()
+
+    return render_template(
+        'admin/analysis_tools/list.html',
+        tools=tools,
+        search=search,
+        status_filter=status_filter,
+    )
+
+
+# ── Create analysis tool ──────────────────────────────────────────────────────
+
+@admin_bp.route('/analysis-tools/create', methods=['GET', 'POST'])
+@admin_required
+def analysis_tools_create():
+    form = AnalysisToolForm()
+    if form.validate_on_submit():
+        tool = AnalysisTool(
+            name=form.name.data.strip(),
+            quantity=form.quantity.data,
+            is_insurance=form.is_insurance.data,
+            total_price=form.total_price.data,
+            analysis_id=form.analysis_id.data,
+        )
+        db.session.add(tool)
+        db.session.commit()
+        flash(f'Serişde «{tool.name}» döredilen.', 'success')
+        return redirect(url_for('admin.analysis_tools_list'))
+
+    return render_template('admin/analysis_tools/create.html', form=form)
+
+
+# ── Edit analysis tool ────────────────────────────────────────────────────────
+
+@admin_bp.route('/analysis-tools/<int:tool_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def analysis_tools_edit(tool_id):
+    tool = db.session.get(AnalysisTool, tool_id)
+    if tool is None:
+        abort(404)
+
+    form = AnalysisToolForm(obj=tool, editing_tool=tool)
+
+    if form.validate_on_submit():
+        tool.name = form.name.data.strip()
+        tool.quantity = form.quantity.data
+        tool.is_insurance = form.is_insurance.data
+        tool.total_price = form.total_price.data
+        tool.analysis_id = form.analysis_id.data
+        db.session.commit()
+        flash(f'Serişde «{tool.name}» maglumatlary täzelenen.', 'success')
+        return redirect(url_for('admin.analysis_tools_list'))
+
+    return render_template('admin/analysis_tools/edit.html', form=form, tool=tool)
+
+
+# ── Toggle analysis tool ──────────────────────────────────────────────────────
+
+@admin_bp.route('/analysis-tools/<int:tool_id>/toggle', methods=['POST'])
+@admin_required
+def analysis_tools_toggle(tool_id):
+    tool = db.session.get(AnalysisTool, tool_id)
+    if tool is None:
+        abort(404)
+
+    tool.is_active = not tool.is_active
+    db.session.commit()
+
+    action = 'aktiw' if tool.is_active else 'bloklanan'
+    flash(f'Serişde «{tool.name}» {action}.', 'success')
+    return redirect(url_for('admin.analysis_tools_list'))
 
 
 # ── Daily report ─────────────────────────────────────────────────────────────

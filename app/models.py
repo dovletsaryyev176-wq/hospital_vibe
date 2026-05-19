@@ -197,6 +197,8 @@ class Examination(db.Model):
                                     cascade='all, delete-orphan')
     exam_directions = db.relationship('ExaminationDirection', back_populates='examination',
                                       cascade='all, delete-orphan')
+    exam_tools = db.relationship('ExaminationAnalysisTool', back_populates='examination',
+                                 cascade='all, delete-orphan')
 
     @property
     def is_open(self):
@@ -225,6 +227,49 @@ class ExaminationAnalysis(PricingSnapshotMixin, db.Model):
     @property
     def _source(self):
         return self.analysis
+
+
+class ExaminationAnalysisTool(PricingSnapshotMixin, db.Model):
+    __tablename__ = 'examination_analysis_tools'
+
+    id = db.Column(db.Integer, primary_key=True)
+    examination_id = db.Column(db.Integer, db.ForeignKey('examinations.id'), nullable=False)
+    tool_id = db.Column(db.Integer, db.ForeignKey('analysis_tools.id'), nullable=False)
+    price = db.Column(db.Numeric(10, 2), nullable=True)
+    is_insurance = db.Column(db.Boolean, nullable=True)
+
+    examination = db.relationship('Examination', back_populates='exam_tools')
+    tool = db.relationship('AnalysisTool')
+
+    @property
+    def _source(self):
+        return self.tool
+
+
+class AnalysisTool(db.Model):
+    __tablename__ = 'analysis_tools'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    is_insurance = db.Column(db.Boolean, default=False, nullable=False)
+    total_price = db.Column(db.Numeric(10, 2), nullable=False)
+    analysis_id = db.Column(db.Integer, db.ForeignKey('analyses.id'), nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    analysis = db.relationship('Analysis', backref=db.backref('tools', lazy='dynamic'))
+
+    @property
+    def price(self):
+        return self.total_price
+
+    @property
+    def total_price_display(self) -> str:
+        return f'{self.total_price:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<AnalysisTool {self.name}>'
 
 
 class ExaminationDirection(PricingSnapshotMixin, db.Model):

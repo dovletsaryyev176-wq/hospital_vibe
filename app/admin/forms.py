@@ -1,8 +1,8 @@
 import re
 from flask_wtf import FlaskForm
-from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, BooleanField, SubmitField
+from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, IntegerField, BooleanField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional, NumberRange, ValidationError, Regexp
-from app.models import User, Analysis
+from app.models import User, Analysis, AnalysisTool
 
 
 PHONE_RE = re.compile(r'^\+?[\d\s\-\(\)]{7,20}$')
@@ -248,3 +248,66 @@ class CombinedAnalysisForm(FlaskForm):
     def validate_analysis_ids(self, field):
         if not field.data:
             raise ValidationError('Iň az bir analiz saýlaň.')
+
+
+class AnalysisToolForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Serişdäniň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Serişdäniň ady'},
+    )
+    quantity = IntegerField(
+        'Mukdary',
+        validators=[
+            DataRequired(message='Mukdary giriziň'),
+            NumberRange(min=1, message='Mukdar iň az 1 bolmaly'),
+        ],
+        render_kw={'placeholder': '1', 'min': '1'},
+    )
+    is_insurance = BooleanField('Ätiýaçlandyryş')
+    total_price = DecimalField(
+        'Jemi bahasy (manat)',
+        validators=[
+            DataRequired(message='Jemi bahany giriziň'),
+            NumberRange(min=0, message='Baha otrisatel bolup bilmeýär'),
+        ],
+        places=2,
+        render_kw={'placeholder': '0.00', 'step': '0.01', 'min': '0'},
+    )
+    analysis_id = SelectField(
+        'Analiz',
+        coerce=int,
+        validators=[DataRequired(message='Analizi saýlaň')],
+    )
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_tool=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_tool = editing_tool
+        self._build_analysis_choices()
+
+    def _build_analysis_choices(self):
+        active = (
+            Analysis.query
+            .filter_by(is_active=True)
+            .order_by(Analysis.name)
+            .all()
+        )
+        choices = [(0, '— Analizi saýlaň —')]
+
+        if self._editing_tool and self._editing_tool.analysis:
+            current = self._editing_tool.analysis
+            if not current.is_active:
+                choices.append((current.id, f'{current.name} [bloklanan]'))
+            choices += [(a.id, a.name) for a in active]
+        else:
+            choices += [(a.id, a.name) for a in active]
+
+        self.analysis_id.choices = choices
+
+    def validate_analysis_id(self, field):
+        if not field.data:
+            raise ValidationError('Analizi saýlaň.')

@@ -7,7 +7,8 @@ from app.main import main_bp
 from app.main.forms import PatientForm
 from app.extensions import db
 from app.models import (Patient, Examination, ExaminationAnalysis,
-                        ExaminationDirection, DoctorDirection, Analysis,
+                        ExaminationDirection, ExaminationAnalysisTool,
+                        DoctorDirection, Analysis, AnalysisTool,
                         CombinedAnalysis, User)
 
 
@@ -174,6 +175,7 @@ def patients_history(patient_id):
             subqueryload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
+            subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool),
             joinedload(Examination.created_by),
             joinedload(Examination.paid_by),
         )
@@ -211,11 +213,24 @@ def patients_search():
 
 def _exam_form_context():
     """Return data needed to render create/edit examination form."""
+    all_tools = (AnalysisTool.query
+                 .filter_by(is_active=True)
+                 .options(joinedload(AnalysisTool.analysis))
+                 .order_by(AnalysisTool.name)
+                 .all())
+    analysis_tools_map = {}
+    for t in all_tools:
+        analysis_tools_map.setdefault(t.analysis_id, []).append(t.id)
     return {
         'analyses': Analysis.query.filter_by(is_active=True).order_by(Analysis.name).all(),
         'combined_analyses': CombinedAnalysis.query.filter_by(is_active=True).options(joinedload(CombinedAnalysis.analyses)).order_by(CombinedAnalysis.name).all(),
         'directions': DoctorDirection.query.filter_by(is_active=True).order_by(DoctorDirection.name).all(),
-        'doctors': User.query.filter_by(role='doctor', is_active=True).options(joinedload(User.directions)).order_by(User.full_name).all(),
+        'doctors': User.query.filter(
+            User.role.in_(['doctor', 'analysis_responsible']),
+            User.is_active == True,
+        ).options(joinedload(User.directions)).order_by(User.full_name).all(),
+        'all_tools': all_tools,
+        'analysis_tools_map': analysis_tools_map,
     }
 
 
@@ -224,6 +239,7 @@ def _parse_exam_form():
     patient_id = request.form.get('patient_id', type=int)
     analysis_ids = list(dict.fromkeys(request.form.getlist('analysis_ids', type=int)))
     direction_ids = request.form.getlist('direction_ids', type=int)
+    tool_ids = list(dict.fromkeys(request.form.getlist('tool_ids', type=int)))
 
     errors = []
 
@@ -255,10 +271,12 @@ def _parse_exam_form():
         'patient_id': patient_id,
         'analysis_ids': analysis_ids,
         'direction_ids': direction_ids,
+        'tool_ids': tool_ids,
         'doctor_for': doctor_for,
         'selected_patient_id': patient_id,
         'selected_analysis_ids': set(analysis_ids),
         'selected_direction_ids': set(direction_ids),
+        'selected_tool_ids': set(tool_ids),
     }
     return data, errors
 
@@ -367,6 +385,16 @@ def examinations_create():
                 price=d.price,
                 is_insurance=d.is_insurance,
             ))
+        tools_by_id = {t.id: t for t in AnalysisTool.query.filter(
+            AnalysisTool.id.in_(data['tool_ids'])).all()} if data['tool_ids'] else {}
+        for tid in data['tool_ids']:
+            t = tools_by_id[tid]
+            db.session.add(ExaminationAnalysisTool(
+                examination_id=exam.id,
+                tool_id=tid,
+                price=t.total_price,
+                is_insurance=t.is_insurance,
+            ))
 
         db.session.commit()
         flash(f'Barlag №{exam.id} döredilen.', 'success')
@@ -377,6 +405,7 @@ def examinations_create():
         'selected_patient': None,
         'selected_analysis_ids': set(),
         'selected_direction_ids': set(),
+        'selected_tool_ids': set(),
         'doctor_for': {},
     }
     return render_template('main/examinations/create.html', **ctx, **defaults)
@@ -397,6 +426,7 @@ def examinations_detail(exam_id):
             subqueryload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
+            subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool).joinedload(AnalysisTool.analysis),
         )
         .first()
     )
@@ -440,6 +470,7 @@ def examinations_report(exam_id):
             subqueryload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
+            subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool),
         )
         .first()
     )
@@ -469,7 +500,17 @@ def examinations_report(exam_id):
 @main_bp.route('/examinations/<int:exam_id>/edit', methods=['GET', 'POST'])
 @patients_required
 def examinations_edit(exam_id):
-    exam = db.session.get(Examination, exam_id)
+    exam = (
+        Examination.query
+        .filter_by(id=exam_id)
+        .options(
+            joinedload(Examination.patient),
+            subqueryload(Examination.exam_analyses),
+            subqueryload(Examination.exam_directions),
+            subqueryload(Examination.exam_tools),
+        )
+        .first()
+    )
     if exam is None:
         abort(404)
 
@@ -527,6 +568,19 @@ def examinations_edit(exam_id):
                 is_insurance=d.is_insurance,
             ))
 
+        for et in list(exam.exam_tools):
+            db.session.delete(et)
+        tools_by_id = {t.id: t for t in AnalysisTool.query.filter(
+            AnalysisTool.id.in_(data['tool_ids'])).all()} if data['tool_ids'] else {}
+        for tid in data['tool_ids']:
+            t = tools_by_id[tid]
+            db.session.add(ExaminationAnalysisTool(
+                examination_id=exam.id,
+                tool_id=tid,
+                price=t.total_price,
+                is_insurance=t.is_insurance,
+            ))
+
         db.session.commit()
         flash(f'Barlag №{exam.id} maglumatlary täzelenen.', 'success')
         return redirect(url_for('main.examinations_list'))
@@ -536,6 +590,7 @@ def examinations_edit(exam_id):
         'selected_patient': exam.patient,
         'selected_analysis_ids': {ea.analysis_id for ea in exam.exam_analyses},
         'selected_direction_ids': {ed.direction_id for ed in exam.exam_directions},
+        'selected_tool_ids': {et.tool_id for et in exam.exam_tools},
         'doctor_for': {ed.direction_id: ed.doctor_id for ed in exam.exam_directions},
     }
     return render_template('main/examinations/edit.html', exam=exam, **ctx, **pre)
@@ -565,6 +620,27 @@ def examinations_close(exam_id):
     return redirect(url_for('main.examinations_list'))
 
 
+# ── Toggle insurance discount ─────────────────────────────────────────────────
+
+@main_bp.route('/examinations/<int:exam_id>/toggle-insurance', methods=['POST'])
+@role_required('cashier')
+def examinations_toggle_insurance(exam_id):
+    exam = db.session.get(Examination, exam_id)
+    if exam is None:
+        abort(404)
+
+    if exam.is_paid:
+        flash('Tölenen barlagyň ätiýaçlandyryşyny üýtgedip bolmaýar.', 'warning')
+        return redirect(url_for('main.examinations_detail', exam_id=exam_id))
+
+    exam.patient_has_insurance = not exam.patient_has_insurance
+    db.session.commit()
+
+    state = 'işjeňleşdirildi' if exam.patient_has_insurance else 'öçürildi'
+    flash(f'Ätiýaçlandyryş arzanladyşy {state}.', 'success')
+    return redirect(url_for('main.examinations_detail', exam_id=exam_id))
+
+
 # ── Mark examination as paid ──────────────────────────────────────────────────
 
 @main_bp.route('/examinations/<int:exam_id>/pay', methods=['POST'])
@@ -591,7 +667,15 @@ def examinations_pay(exam_id):
 @main_bp.route('/examinations/<int:exam_id>/analyses/<int:ea_id>/submit', methods=['POST'])
 @role_required('analysis_responsible')
 def examinations_submit_analysis(exam_id, ea_id):
-    ea = db.session.get(ExaminationAnalysis, ea_id)
+    ea = (
+        ExaminationAnalysis.query
+        .filter_by(id=ea_id)
+        .options(
+            joinedload(ExaminationAnalysis.analysis),
+            joinedload(ExaminationAnalysis.examination),
+        )
+        .first()
+    )
     if ea is None or ea.examination_id != exam_id:
         abort(404)
 
@@ -620,7 +704,15 @@ def examinations_submit_analysis(exam_id, ea_id):
 @main_bp.route('/examinations/<int:exam_id>/directions/<int:ed_id>/visit', methods=['POST'])
 @role_required('doctor')
 def examinations_mark_visited(exam_id, ed_id):
-    ed = db.session.get(ExaminationDirection, ed_id)
+    ed = (
+        ExaminationDirection.query
+        .filter_by(id=ed_id)
+        .options(
+            joinedload(ExaminationDirection.examination),
+            joinedload(ExaminationDirection.direction),
+        )
+        .first()
+    )
     if ed is None or ed.examination_id != exam_id:
         abort(404)
 
