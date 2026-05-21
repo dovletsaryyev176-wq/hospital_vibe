@@ -522,7 +522,7 @@ def examinations_edit(exam_id):
         flash('Üýtgetmek mümkin däl-barlag tölenen.', 'warning')
         return redirect(url_for('main.examinations_list'))
 
-    if exam.created_by_id != current_user.id:
+    if exam.created_by_id != current_user.id and current_user.role != 'registrar':
         flash('Diňe barlagy döreden üýtgedip bilýär.', 'danger')
         return redirect(url_for('main.examinations_list'))
 
@@ -605,7 +605,7 @@ def examinations_close(exam_id):
     if exam is None:
         abort(404)
 
-    if exam.created_by_id != current_user.id:
+    if exam.created_by_id != current_user.id and current_user.role != 'registrar':
         flash('Diňe döreden barlagy ýapyp bilýär.', 'danger')
         return redirect(url_for('main.examinations_list'))
 
