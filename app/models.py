@@ -32,6 +32,20 @@ class PricingSnapshotMixin:
     def effective_price_display(self):
         return f'{self.effective_price:,.2f}'
 
+    @property
+    def effective_total(self):
+        qty = getattr(self, 'quantity', 1) or 1
+        return self.effective_price * qty
+
+    @property
+    def effective_total_display(self):
+        return f'{self.effective_total:,.2f}'
+
+    @property
+    def snapshot_total_display(self):
+        qty = getattr(self, 'quantity', 1) or 1
+        return f'{self.snapshot_price * qty:,.2f}'
+
 
 class DoctorDirection(db.Model):
     __tablename__ = 'doctor_directions'
@@ -214,6 +228,7 @@ class ExaminationAnalysis(PricingSnapshotMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     examination_id = db.Column(db.Integer, db.ForeignKey('examinations.id'), nullable=False)
     analysis_id = db.Column(db.Integer, db.ForeignKey('analyses.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
     is_submitted = db.Column(db.Boolean, default=False, nullable=False)
@@ -235,6 +250,7 @@ class ExaminationAnalysisTool(PricingSnapshotMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     examination_id = db.Column(db.Integer, db.ForeignKey('examinations.id'), nullable=False)
     tool_id = db.Column(db.Integer, db.ForeignKey('analysis_tools.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
 

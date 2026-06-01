@@ -62,7 +62,7 @@
             <span class="badge bg-primary rounded-pill">2</span>
             <h6 class="mb-0 fw-semibold">Analizleri saýlaň</h6>
             <span class="text-muted small ms-auto">
-              Saýlanan: <span id="analyses-selected">{{ selected_analysis_ids | length }}</span>
+              Saýlanan: <span id="analyses-selected">{{ selected_analysis_qtys | length }}</span>
             </span>
           </div>
         </div>
@@ -81,6 +81,12 @@
                      id="combo-all-{{ ca.id }}" data-combo-id="{{ ca.id }}">
               <label class="fw-medium mb-0 flex-grow-1 user-select-none" for="combo-all-{{ ca.id }}"
                      style="cursor:pointer">{{ ca.name }}</label>
+              <input type="number"
+                     class="form-control form-control-sm combo-qty-input"
+                     data-combo-id="{{ ca.id }}"
+                     value="1" min="1" style="width:64px;text-align:center"
+                     title="Kombinlenen analiziň sany"
+                     disabled>
               <span class="text-muted small me-1">{{ ca.analyses|length }} analiz · {{ ca.price_display }} manat</span>
               <button type="button"
                       class="btn btn-sm btn-outline-secondary py-0 px-2 combo-toggle-btn"
@@ -127,18 +133,29 @@
                   <input type="checkbox" class="form-check-input" id="select-all-analyses" title="Hemmesini">
                 </th>
                 <th>Analiziň ady</th>
+                <th class="text-center" style="width:90px">Sany</th>
                 <th class="text-end pe-4" style="width:140px">Bahasy</th>
               </tr>
             </thead>
             <tbody>
               {% for a in analyses %}
+              {% set sel_qty = selected_analysis_qtys.get(a.id) %}
               <tr>
                 <td class="ps-4">
                   <input type="checkbox" class="form-check-input analysis-cb"
                          name="analysis_ids" value="{{ a.id }}"
-                         {% if a.id in selected_analysis_ids %}checked{% endif %}>
+                         {% if sel_qty is not none %}checked{% endif %}>
                 </td>
                 <td>{{ a.name }}</td>
+                <td class="text-center">
+                  <input type="number"
+                         name="analysis_qty_{{ a.id }}"
+                         class="form-control form-control-sm analysis-qty-input"
+                         data-analysis-id="{{ a.id }}"
+                         value="{{ sel_qty if sel_qty is not none else 1 }}"
+                         min="1" style="width:64px;text-align:center"
+                         {% if sel_qty is none %}disabled{% endif %}>
+                </td>
                 <td class="font-monospace small text-end pe-4">{{ a.price_display }} manat</td>
               </tr>
               {% endfor %}
@@ -159,7 +176,7 @@
             <span class="badge bg-primary rounded-pill">3</span>
             <h6 class="mb-0 fw-semibold">Serişdeleri saýlaň</h6>
             <span class="text-muted small ms-auto fw-normal">mejbury däl</span>
-            <span class="text-muted small">Saýlanan: <span id="tools-selected">{{ selected_tool_ids | length }}</span></span>
+            <span class="text-muted small">Saýlanan: <span id="tools-selected">{{ selected_tool_qtys | length }}</span></span>
           </div>
         </div>
         {% if all_tools %}
@@ -172,22 +189,33 @@
                 </th>
                 <th>Serişdäniň ady</th>
                 <th>Analiz</th>
-                <th class="text-center" style="width:80px">Mukdary</th>
+                <th class="text-center" style="width:90px">Sany</th>
                 <th class="text-end pe-4" style="width:150px">Bahasy</th>
               </tr>
             </thead>
             <tbody>
               {% for tool in all_tools %}
+              {% set sel_tool_qty = selected_tool_qtys.get(tool.id) %}
               <tr>
                 <td class="ps-4">
                   <input type="checkbox" class="form-check-input tool-cb"
                          name="tool_ids" value="{{ tool.id }}"
                          data-analysis-id="{{ tool.analysis_id }}"
-                         {% if tool.id in selected_tool_ids %}checked{% endif %}>
+                         {% if sel_tool_qty is not none %}checked{% endif %}>
                 </td>
                 <td>{{ tool.name }}</td>
                 <td class="text-muted small">{{ tool.analysis.name }}</td>
-                <td class="text-center small">{{ tool.quantity }}</td>
+                <td class="text-center">
+                  <input type="number"
+                         name="tool_qty_{{ tool.id }}"
+                         class="form-control form-control-sm tool-qty-input"
+                         data-tool-id="{{ tool.id }}"
+                         data-analysis-id="{{ tool.analysis_id }}"
+                         data-base-qty="{{ tool.quantity }}"
+                         value="{{ sel_tool_qty if sel_tool_qty is not none else tool.quantity }}"
+                         min="1" style="width:64px;text-align:center"
+                         {% if sel_tool_qty is none %}disabled{% endif %}>
+                </td>
                 <td class="font-monospace small text-end pe-4">{{ tool.total_price_display }} manat</td>
               </tr>
               {% endfor %}
@@ -361,50 +389,87 @@
     clearBtn.addEventListener('click', clearSelection);
   })();
 
-  // ── Analysis tools sync ───────────────────────────────────────────────────
+  // ── Quantity helpers ──────────────────────────────────────────────────────
   const analysisToolsMap = {{ analysis_tools_map | tojson }};
 
+  function getAnalysisQty(analysisId) {
+    const inp = document.querySelector(`.analysis-qty-input[data-analysis-id="${analysisId}"]`);
+    return inp ? Math.max(1, parseInt(inp.value) || 1) : 1;
+  }
+
+  function updateToolQtysFromAnalysis(analysisId) {
+    const qty = getAnalysisQty(analysisId);
+    (analysisToolsMap[analysisId] || []).forEach(toolId => {
+      const inp = document.querySelector(`.tool-qty-input[data-tool-id="${toolId}"]`);
+      if (inp && !inp.disabled) {
+        inp.value = qty * (parseInt(inp.dataset.baseQty) || 1);
+      }
+    });
+  }
+
+  // ── Tools count ───────────────────────────────────────────────────────────
   function updateToolsCount() {
-    const count = document.querySelectorAll('.tool-cb:checked').length;
     const el = document.getElementById('tools-selected');
-    if (el) el.textContent = count;
+    if (el) el.textContent = document.querySelectorAll('.tool-cb:checked').length;
   }
 
   function syncToolsFromAnalysis(analysisId, checked) {
-    const toolIds = analysisToolsMap[analysisId] || [];
-    toolIds.forEach(toolId => {
-      const cb = document.querySelector(`.tool-cb[value="${toolId}"]`);
-      if (cb) cb.checked = checked;
+    const qty = checked ? getAnalysisQty(analysisId) : 1;
+    (analysisToolsMap[analysisId] || []).forEach(toolId => {
+      const cb  = document.querySelector(`.tool-cb[value="${toolId}"]`);
+      const inp = document.querySelector(`.tool-qty-input[data-tool-id="${toolId}"]`);
+      if (cb)  cb.checked   = checked;
+      if (inp) {
+        inp.disabled = !checked;
+        inp.value    = qty * (parseInt(inp.dataset.baseQty) || 1);
+      }
     });
     updateToolsCount();
   }
 
+  // Tool checkbox changed manually
   document.querySelectorAll('.tool-cb').forEach(cb => {
-    cb.addEventListener('change', updateToolsCount);
+    cb.addEventListener('change', function () {
+      const inp = document.querySelector(`.tool-qty-input[data-tool-id="${this.value}"]`);
+      if (inp) inp.disabled = !this.checked;
+      updateToolsCount();
+    });
   });
 
   const selectAllTools = document.getElementById('select-all-tools');
   if (selectAllTools) {
     selectAllTools.addEventListener('change', function () {
-      document.querySelectorAll('.tool-cb').forEach(cb => { cb.checked = this.checked; });
+      document.querySelectorAll('.tool-cb').forEach(cb => {
+        cb.checked = this.checked;
+        const inp = document.querySelector(`.tool-qty-input[data-tool-id="${cb.value}"]`);
+        if (inp) inp.disabled = !this.checked;
+      });
       updateToolsCount();
     });
   }
 
-  // ── Combined analyses sync ────────────────────────────────────────────────
+  // Analysis qty input changed → propagate to tools
+  document.querySelectorAll('.analysis-qty-input').forEach(inp => {
+    inp.addEventListener('input', function () {
+      updateToolQtysFromAnalysis(parseInt(this.dataset.analysisId));
+    });
+  });
+
+  // ── Analyses count ────────────────────────────────────────────────────────
   function updateAnalysesCount() {
-    const count = document.querySelectorAll('.analysis-cb:checked').length;
     const el = document.getElementById('analyses-selected');
-    if (el) el.textContent = count;
+    if (el) el.textContent = document.querySelectorAll('.analysis-cb:checked').length;
   }
 
   function updateComboAllState(comboId) {
     const allCb = document.getElementById('combo-all-' + comboId);
     if (!allCb) return;
     const items   = document.querySelectorAll(`.combo-item-cb[data-combo-id="${comboId}"]`);
-    const checked = Array.from(items).filter(cb => cb.checked).length;
+    const checked = Array.from(items).filter(c => c.checked).length;
     allCb.checked       = checked === items.length && items.length > 0;
     allCb.indeterminate = checked > 0 && checked < items.length;
+    const qtyInp = document.querySelector(`.combo-qty-input[data-combo-id="${comboId}"]`);
+    if (qtyInp) qtyInp.disabled = !(checked === items.length && items.length > 0);
   }
 
   function syncCombosFromReal(analysisId, checked) {
@@ -414,21 +479,36 @@
     });
   }
 
+  // Real analysis-cb changed
   document.querySelectorAll('.analysis-cb').forEach(cb => {
     cb.addEventListener('change', function () {
-      syncCombosFromReal(parseInt(this.value), this.checked);
-      syncToolsFromAnalysis(parseInt(this.value), this.checked);
+      const analysisId = parseInt(this.value);
+      const qtyInp = document.querySelector(`.analysis-qty-input[data-analysis-id="${analysisId}"]`);
+      if (qtyInp) {
+        qtyInp.disabled = !this.checked;
+        if (!this.checked) qtyInp.value = 1;
+      }
+      syncCombosFromReal(analysisId, this.checked);
+      syncToolsFromAnalysis(analysisId, this.checked);
       updateAnalysesCount();
     });
   });
 
+  // combo-item-cb changed
   document.querySelectorAll('.combo-item-cb').forEach(cb => {
     cb.addEventListener('change', function () {
       const analysisId = parseInt(this.dataset.analysisId);
       const realCb = document.querySelector(`.analysis-cb[value="${analysisId}"]`);
-      if (realCb) realCb.checked = this.checked;
-      document.querySelectorAll(`.combo-item-cb[data-analysis-id="${analysisId}"]`).forEach(other => {
-        other.checked = this.checked;
+      if (realCb) {
+        realCb.checked = this.checked;
+        const qtyInp = document.querySelector(`.analysis-qty-input[data-analysis-id="${analysisId}"]`);
+        if (qtyInp) {
+          qtyInp.disabled = !this.checked;
+          if (!this.checked) qtyInp.value = 1;
+        }
+      }
+      document.querySelectorAll(`.combo-item-cb[data-analysis-id="${analysisId}"]`).forEach(o => {
+        o.checked = this.checked;
       });
       syncToolsFromAnalysis(analysisId, this.checked);
       updateComboAllState(this.dataset.comboId);
@@ -436,26 +516,56 @@
     });
   });
 
+  // combo-all-cb changed
   document.querySelectorAll('.combo-all-cb').forEach(cb => {
     cb.addEventListener('change', function () {
-      const comboId = this.dataset.comboId;
+      const comboId  = this.dataset.comboId;
+      const qtyInp   = document.querySelector(`.combo-qty-input[data-combo-id="${comboId}"]`);
+      const comboQty = qtyInp ? (Math.max(1, parseInt(qtyInp.value) || 1)) : 1;
+
       document.querySelectorAll(`.combo-item-cb[data-combo-id="${comboId}"]`).forEach(item => {
         item.checked = this.checked;
         const analysisId = parseInt(item.dataset.analysisId);
         const realCb = document.querySelector(`.analysis-cb[value="${analysisId}"]`);
-        if (realCb) realCb.checked = this.checked;
-        document.querySelectorAll(`.combo-item-cb[data-analysis-id="${analysisId}"]`).forEach(other => {
-          other.checked = this.checked;
+        if (realCb) {
+          realCb.checked = this.checked;
+          const aQtyInp = document.querySelector(`.analysis-qty-input[data-analysis-id="${analysisId}"]`);
+          if (aQtyInp) {
+            aQtyInp.disabled = !this.checked;
+            aQtyInp.value    = this.checked ? comboQty : 1;
+          }
+        }
+        document.querySelectorAll(`.combo-item-cb[data-analysis-id="${analysisId}"]`).forEach(o => {
+          o.checked = this.checked;
         });
         syncToolsFromAnalysis(analysisId, this.checked);
       });
-      document.querySelectorAll('.combo-all-cb').forEach(other => {
-        if (other !== this) updateComboAllState(other.dataset.comboId);
+      if (qtyInp) qtyInp.disabled = !this.checked;
+      document.querySelectorAll('.combo-all-cb').forEach(o => {
+        if (o !== this) updateComboAllState(o.dataset.comboId);
       });
       updateAnalysesCount();
     });
   });
 
+  // combo-qty-input changed → propagate to all analyses in combo
+  document.querySelectorAll('.combo-qty-input').forEach(inp => {
+    inp.addEventListener('input', function () {
+      const comboId = this.dataset.comboId;
+      const qty = Math.max(1, parseInt(this.value) || 1);
+      document.querySelectorAll(`.combo-item-cb[data-combo-id="${comboId}"]`).forEach(item => {
+        if (!item.checked) return;
+        const analysisId = parseInt(item.dataset.analysisId);
+        const aQtyInp = document.querySelector(`.analysis-qty-input[data-analysis-id="${analysisId}"]`);
+        if (aQtyInp && !aQtyInp.disabled) {
+          aQtyInp.value = qty;
+          updateToolQtysFromAnalysis(analysisId);
+        }
+      });
+    });
+  });
+
+  // Chevron rotation
   document.querySelectorAll('.combo-toggle-btn').forEach(btn => {
     const target = document.querySelector(btn.dataset.bsTarget);
     if (!target) return;
@@ -467,17 +577,28 @@
     });
   });
 
+  // Init on page load
   document.querySelectorAll('.analysis-cb').forEach(cb => {
     if (cb.checked) syncCombosFromReal(parseInt(cb.value), true);
   });
+  document.querySelectorAll('.combo-all-cb').forEach(cb => {
+    updateComboAllState(cb.dataset.comboId);
+  });
 
+  // ── Select-all analyses ───────────────────────────────────────────────────
   const selectAll = document.getElementById('select-all-analyses');
   if (selectAll) {
     selectAll.addEventListener('change', function () {
       document.querySelectorAll('.analysis-cb').forEach(cb => {
         cb.checked = this.checked;
-        syncCombosFromReal(parseInt(cb.value), this.checked);
-        syncToolsFromAnalysis(parseInt(cb.value), this.checked);
+        const analysisId = parseInt(cb.value);
+        const qtyInp = document.querySelector(`.analysis-qty-input[data-analysis-id="${analysisId}"]`);
+        if (qtyInp) {
+          qtyInp.disabled = !this.checked;
+          if (!this.checked) qtyInp.value = 1;
+        }
+        syncCombosFromReal(analysisId, this.checked);
+        syncToolsFromAnalysis(analysisId, this.checked);
       });
       updateAnalysesCount();
     });
@@ -498,11 +619,11 @@
   document.querySelectorAll('.dir-cb').forEach(cb => {
     filterDoctorSelect(parseInt(cb.value));
     cb.addEventListener('change', function () {
-      const dirId = parseInt(this.value);
-      const row = document.getElementById('dir-row-' + dirId);
+      const dirId  = parseInt(this.value);
+      const row    = document.getElementById('dir-row-' + dirId);
       const select = document.getElementById('doctor-select-' + dirId);
       row.style.opacity = this.checked ? '1' : '0.45';
-      select.disabled = !this.checked;
+      select.disabled   = !this.checked;
       if (!this.checked) select.value = '';
     });
   });

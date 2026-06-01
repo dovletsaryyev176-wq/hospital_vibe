@@ -51,11 +51,11 @@
   {% if examinations %}
   {% for exam in examinations %}
   {% set a_total = namespace(val=0) %}
-  {% for ea in exam.exam_analyses %}{% set a_total.val = a_total.val + ea.effective_price %}{% endfor %}
+  {% for ea in exam.exam_analyses %}{% set a_total.val = a_total.val + ea.effective_total %}{% endfor %}
   {% set t_total = namespace(val=0) %}
-  {% for et in exam.exam_tools %}{% set t_total.val = t_total.val + et.effective_price %}{% endfor %}
+  {% for et in exam.exam_tools %}{% set t_total.val = t_total.val + et.effective_total %}{% endfor %}
   {% set d_total = namespace(val=0) %}
-  {% for ed in exam.exam_directions %}{% set d_total.val = d_total.val + ed.effective_price %}{% endfor %}
+  {% for ed in exam.exam_directions %}{% set d_total.val = d_total.val + ed.effective_total %}{% endfor %}
   {% set grand = a_total.val + t_total.val + d_total.val %}
 
   <div class="col-12">
@@ -131,11 +131,11 @@
                 <div class="text-end font-monospace small ms-3 flex-shrink-0">
                   {% if ea.examination.patient_has_insurance and ea.snapshot_is_insurance %}
                     <span class="text-decoration-line-through text-muted" style="font-size:.75rem">
-                      {{ ea.snapshot_price_display }}
+                      {{ ea.snapshot_total_display }}
                     </span>
-                    <span class="text-success fw-semibold d-block">{{ ea.effective_price_display }}</span>
+                    <span class="text-success fw-semibold d-block">{{ ea.effective_total_display }}</span>
                   {% else %}
-                    {{ ea.effective_price_display }}
+                    {{ ea.effective_total_display }}
                   {% endif %}
                 </div>
               </li>

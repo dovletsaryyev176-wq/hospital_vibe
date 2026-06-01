@@ -253,6 +253,11 @@ def _parse_exam_form():
     if not analysis_ids and not direction_ids:
         errors.append('Iň bolmanda 1 analiz ýa-da ugur kesgitläň.')
 
+    analysis_qtys = {aid: max(1, request.form.get(f'analysis_qty_{aid}', 1, type=int))
+                     for aid in analysis_ids}
+    tool_qtys = {tid: max(1, request.form.get(f'tool_qty_{tid}', 1, type=int))
+                 for tid in tool_ids}
+
     doctor_for = {}
     if direction_ids:
         directions_by_id = {d.id: d for d in DoctorDirection.query.filter(DoctorDirection.id.in_(direction_ids)).all()}
@@ -270,13 +275,15 @@ def _parse_exam_form():
     data = {
         'patient_id': patient_id,
         'analysis_ids': analysis_ids,
+        'analysis_qtys': analysis_qtys,
         'direction_ids': direction_ids,
         'tool_ids': tool_ids,
+        'tool_qtys': tool_qtys,
         'doctor_for': doctor_for,
         'selected_patient_id': patient_id,
-        'selected_analysis_ids': set(analysis_ids),
+        'selected_analysis_qtys': analysis_qtys,
         'selected_direction_ids': set(direction_ids),
-        'selected_tool_ids': set(tool_ids),
+        'selected_tool_qtys': tool_qtys,
     }
     return data, errors
 
@@ -371,6 +378,7 @@ def examinations_create():
             db.session.add(ExaminationAnalysis(
                 examination_id=exam.id,
                 analysis_id=aid,
+                quantity=data['analysis_qtys'].get(aid, 1),
                 price=a.price,
                 is_insurance=a.is_insurance,
             ))
@@ -392,6 +400,7 @@ def examinations_create():
             db.session.add(ExaminationAnalysisTool(
                 examination_id=exam.id,
                 tool_id=tid,
+                quantity=data['tool_qtys'].get(tid, 1),
                 price=t.total_price,
                 is_insurance=t.is_insurance,
             ))
@@ -403,9 +412,9 @@ def examinations_create():
     defaults = {
         'selected_patient_id': None,
         'selected_patient': None,
-        'selected_analysis_ids': set(),
+        'selected_analysis_qtys': {},
         'selected_direction_ids': set(),
-        'selected_tool_ids': set(),
+        'selected_tool_qtys': {},
         'doctor_for': {},
     }
     return render_template('main/examinations/create.html', **ctx, **defaults)
@@ -550,6 +559,7 @@ def examinations_edit(exam_id):
             db.session.add(ExaminationAnalysis(
                 examination_id=exam.id,
                 analysis_id=aid,
+                quantity=data['analysis_qtys'].get(aid, 1),
                 price=a.price,
                 is_insurance=a.is_insurance,
             ))
@@ -577,6 +587,7 @@ def examinations_edit(exam_id):
             db.session.add(ExaminationAnalysisTool(
                 examination_id=exam.id,
                 tool_id=tid,
+                quantity=data['tool_qtys'].get(tid, 1),
                 price=t.total_price,
                 is_insurance=t.is_insurance,
             ))
@@ -588,9 +599,9 @@ def examinations_edit(exam_id):
     pre = {
         'selected_patient_id': exam.patient_id,
         'selected_patient': exam.patient,
-        'selected_analysis_ids': {ea.analysis_id for ea in exam.exam_analyses},
+        'selected_analysis_qtys': {ea.analysis_id: ea.quantity for ea in exam.exam_analyses},
         'selected_direction_ids': {ed.direction_id for ed in exam.exam_directions},
-        'selected_tool_ids': {et.tool_id for et in exam.exam_tools},
+        'selected_tool_qtys': {et.tool_id: et.quantity for et in exam.exam_tools},
         'doctor_for': {ed.direction_id: ed.doctor_id for ed in exam.exam_directions},
     }
     return render_template('main/examinations/edit.html', exam=exam, **ctx, **pre)
