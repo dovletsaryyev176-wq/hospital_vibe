@@ -238,7 +238,7 @@ def _parse_exam_form():
     """Parse and validate POST data for examination form. Returns (data_dict, errors)."""
     patient_id = request.form.get('patient_id', type=int)
     analysis_ids = list(dict.fromkeys(request.form.getlist('analysis_ids', type=int)))
-    direction_ids = request.form.getlist('direction_ids', type=int)
+    direction_ids = list(dict.fromkeys(request.form.getlist('direction_ids', type=int)))
     tool_ids = list(dict.fromkeys(request.form.getlist('tool_ids', type=int)))
 
     errors = []
@@ -479,7 +479,7 @@ def examinations_report(exam_id):
             subqueryload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
-            subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool),
+            subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool).joinedload(AnalysisTool.analysis),
         )
         .first()
     )
@@ -547,8 +547,9 @@ def examinations_edit(exam_id):
                                    selected_patient=selected_patient)
 
         patient = db.session.get(Patient, data['patient_id'])
+        if exam.patient_id != data['patient_id']:
+            exam.patient_has_insurance = bool(patient.insurance_number)
         exam.patient_id = data['patient_id']
-        exam.patient_has_insurance = bool(patient.insurance_number)
 
         for ea in list(exam.exam_analyses):
             db.session.delete(ea)

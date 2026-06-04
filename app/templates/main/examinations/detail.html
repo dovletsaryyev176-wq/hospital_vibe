@@ -82,7 +82,7 @@
            target="_blank" class="btn btn-sm btn-outline-secondary">
           <i class="bi bi-printer me-1"></i>Hasabat
         </a>
-        {% if exam.is_open and exam.created_by_id == current_user.id %}
+        {% if exam.is_open and (exam.created_by_id == current_user.id or current_user.role == 'registrar') %}
           {% if not exam.is_paid %}
           <a href="{{ url_for('main.examinations_edit', exam_id=exam.id) }}"
              class="btn btn-sm btn-outline-secondary">

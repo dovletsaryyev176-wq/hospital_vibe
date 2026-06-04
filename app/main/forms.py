@@ -62,7 +62,10 @@ class PatientForm(FlaskForm):
         self._editing_patient = editing_patient
 
     def validate_passport_number(self, field):
-        existing = Patient.query.filter_by(passport_number=field.data.strip()).first()
+        value = field.data.strip() if field.data else ''
+        if not value:
+            raise ValidationError('Pasport belgisini giriziň.')
+        existing = Patient.query.filter_by(passport_number=value).first()
         if existing and (self._editing_patient is None or existing.id != self._editing_patient.id):
             raise ValidationError('Bu pasport belgili syrkaw eýýäm hasaba alnan.')
 

@@ -7,8 +7,10 @@ from app.models import User
 
 
 def _safe_next(next_url: str | None, fallback: str) -> str:
-    if next_url and not urlparse(next_url).netloc:
-        return next_url
+    if next_url:
+        parsed = urlparse(next_url)
+        if not parsed.netloc and not parsed.scheme:
+            return next_url
     return fallback
 
 
