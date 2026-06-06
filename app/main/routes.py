@@ -215,12 +215,12 @@ def _exam_form_context():
     """Return data needed to render create/edit examination form."""
     all_tools = (AnalysisTool.query
                  .filter_by(is_active=True)
-                 .options(joinedload(AnalysisTool.analysis))
                  .order_by(AnalysisTool.name)
                  .all())
     analysis_tools_map = {}
     for t in all_tools:
-        analysis_tools_map.setdefault(t.analysis_id, []).append(t.id)
+        for a in t.analyses:
+            analysis_tools_map.setdefault(a.id, []).append(t.id)
     return {
         'analyses': Analysis.query.filter_by(is_active=True).order_by(Analysis.name).all(),
         'combined_analyses': CombinedAnalysis.query.filter_by(is_active=True).options(joinedload(CombinedAnalysis.analyses)).order_by(CombinedAnalysis.name).all(),
@@ -435,7 +435,7 @@ def examinations_detail(exam_id):
             subqueryload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
-            subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool).joinedload(AnalysisTool.analysis),
+            subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool).subqueryload(AnalysisTool.analyses),
         )
         .first()
     )
@@ -479,7 +479,7 @@ def examinations_report(exam_id):
             subqueryload(Examination.exam_analyses).joinedload(ExaminationAnalysis.analysis),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
-            subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool).joinedload(AnalysisTool.analysis),
+            subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool).subqueryload(AnalysisTool.analyses),
         )
         .first()
     )

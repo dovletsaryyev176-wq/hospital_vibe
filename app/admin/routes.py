@@ -2,7 +2,7 @@ from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, contains_eager
 from app.admin import admin_bp
 from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm, AnalysisToolForm
 from app.extensions import db
@@ -183,7 +183,7 @@ def analyses_list():
     elif status_filter == 'blocked':
         query = query.filter(Analysis.is_active == False)
 
-    analyses = query.options(joinedload(Analysis.responsible)).order_by(Analysis.name).all()
+    analyses = query.options(contains_eager(Analysis.responsible)).order_by(Analysis.name).all()
 
     return render_template(
         'admin/analyses/list.html',
@@ -345,14 +345,14 @@ def analysis_tools_list():
     search = request.args.get('q', '').strip()
     status_filter = request.args.get('status', '').strip()
 
-    query = AnalysisTool.query.join(AnalysisTool.analysis)
+    query = AnalysisTool.query
 
     if search:
         like = f'%{search}%'
         query = query.filter(
             db.or_(
                 AnalysisTool.name.ilike(like),
-                Analysis.name.ilike(like),
+                AnalysisTool.analyses.any(Analysis.name.ilike(like)),
             )
         )
 
@@ -361,7 +361,7 @@ def analysis_tools_list():
     elif status_filter == 'blocked':
         query = query.filter(AnalysisTool.is_active == False)
 
-    tools = query.options(joinedload(AnalysisTool.analysis)).order_by(AnalysisTool.name).all()
+    tools = query.order_by(AnalysisTool.name).all()
 
     return render_template(
         'admin/analysis_tools/list.html',
@@ -378,12 +378,13 @@ def analysis_tools_list():
 def analysis_tools_create():
     form = AnalysisToolForm()
     if form.validate_on_submit():
+        analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
         tool = AnalysisTool(
             name=form.name.data.strip(),
             quantity=form.quantity.data,
             is_insurance=form.is_insurance.data,
             total_price=form.total_price.data,
-            analysis_id=form.analysis_id.data,
+            analyses=analyses,
         )
         db.session.add(tool)
         db.session.commit()
@@ -402,14 +403,20 @@ def analysis_tools_edit(tool_id):
     if tool is None:
         abort(404)
 
-    form = AnalysisToolForm(obj=tool, editing_tool=tool)
+    form = AnalysisToolForm(editing_tool=tool)
+    if not form.is_submitted():
+        form.name.data = tool.name
+        form.quantity.data = tool.quantity
+        form.is_insurance.data = tool.is_insurance
+        form.total_price.data = tool.total_price
+        form.analysis_ids.data = [a.id for a in tool.analyses]
 
     if form.validate_on_submit():
         tool.name = form.name.data.strip()
         tool.quantity = form.quantity.data
         tool.is_insurance = form.is_insurance.data
         tool.total_price = form.total_price.data
-        tool.analysis_id = form.analysis_id.data
+        tool.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
         db.session.commit()
         flash(f'Serişde «{tool.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.analysis_tools_list'))

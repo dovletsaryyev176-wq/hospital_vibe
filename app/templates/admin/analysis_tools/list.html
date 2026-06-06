@@ -70,11 +70,10 @@
             </td>
             <td class="text-end font-monospace">{{ tool.total_price_display }}</td>
             <td>
-              <span class="d-flex align-items-center gap-1">
-                {{ tool.analysis.name }}
-                {% if not tool.analysis.is_active %}
-                  <span class="badge bg-danger-subtle text-danger" style="font-size:.65rem">bloklanan</span>
-                {% endif %}
+              <span class="d-flex flex-wrap align-items-center gap-1">
+                {% for a in tool.analyses %}
+                  <span>{{ a.name }}{% if not a.is_active %} <span class="badge bg-danger-subtle text-danger" style="font-size:.65rem">bloklanan</span>{% endif %}</span>{% if not loop.last %},{% endif %}
+                {% endfor %}
               </span>
             </td>
             <td class="text-center">

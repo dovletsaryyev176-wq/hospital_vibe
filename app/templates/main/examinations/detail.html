@@ -251,7 +251,7 @@
             <tr>
               <td class="ps-4 text-muted small">{{ loop.index }}</td>
               <td>{{ et.tool.name }}</td>
-              <td class="text-muted small">{{ et.tool.analysis.name }}</td>
+              <td class="text-muted small">{{ et.tool.analyses | map(attribute='name') | join(', ') }}</td>
               <td class="text-center small">{{ et.quantity }}</td>
               <td class="text-end pe-4 font-monospace small">
                 {% if et.examination.patient_has_insurance and et.snapshot_is_insurance %}

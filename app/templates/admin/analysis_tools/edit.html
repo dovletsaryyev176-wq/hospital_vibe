@@ -45,9 +45,18 @@
             </div>
 
             <div class="col-12">
-              {{ form.analysis_id.label(class='form-label fw-medium') }}
-              {{ form.analysis_id(class='form-select' + (' is-invalid' if form.analysis_id.errors else '')) }}
-              {% for e in form.analysis_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              {{ form.analysis_ids.label(class='form-label fw-medium') }}
+              <div class="border rounded p-2{% if form.analysis_ids.errors %} border-danger{% endif %}" style="max-height:180px;overflow-y:auto">
+                {% for val, label in form.analysis_ids.choices %}
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox"
+                           name="analysis_ids" value="{{ val }}" id="aid_e_{{ val }}"
+                           {% if val in (form.analysis_ids.data or []) %}checked{% endif %}>
+                    <label class="form-check-label" for="aid_e_{{ val }}">{{ label }}</label>
+                  </div>
+                {% endfor %}
+              </div>
+              {% for e in form.analysis_ids.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
             </div>
 
             <div class="col-12">

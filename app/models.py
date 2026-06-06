@@ -262,6 +262,13 @@ class ExaminationAnalysisTool(PricingSnapshotMixin, db.Model):
         return self.tool
 
 
+analysis_tool_analyses = db.Table(
+    'analysis_tool_analyses',
+    db.Column('tool_id', db.Integer, db.ForeignKey('analysis_tools.id'), primary_key=True),
+    db.Column('analysis_id', db.Integer, db.ForeignKey('analyses.id'), primary_key=True),
+)
+
+
 class AnalysisTool(db.Model):
     __tablename__ = 'analysis_tools'
 
@@ -270,11 +277,17 @@ class AnalysisTool(db.Model):
     quantity = db.Column(db.Integer, nullable=False, default=1)
     is_insurance = db.Column(db.Boolean, default=False, nullable=False)
     total_price = db.Column(db.Numeric(10, 2), nullable=False)
-    analysis_id = db.Column(db.Integer, db.ForeignKey('analyses.id'), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
-    analysis = db.relationship('Analysis', backref=db.backref('tools', lazy='dynamic'))
+    analyses = db.relationship(
+        'Analysis', secondary=analysis_tool_analyses, lazy='subquery',
+        backref=db.backref('tools', lazy='dynamic'),
+    )
+
+    @property
+    def analysis(self):
+        return self.analyses[0] if self.analyses else None
 
     @property
     def price(self):

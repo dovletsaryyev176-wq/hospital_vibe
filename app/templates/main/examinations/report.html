@@ -211,7 +211,7 @@
 <tr>
   <td>{{ tools_row.n }}</td>
   <td>{{ et.tool.name }}</td>
-  <td>{{ et.tool.analysis.name }}</td>
+  <td>{{ et.tool.analyses | map(attribute='name') | join(', ') }}</td>
   <td style="text-align:center">{{ et.quantity }}</td>
   <td>{{ et.snapshot_price_display }}</td>
   <td>{{ et.effective_total_display }}</td>

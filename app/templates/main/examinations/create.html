@@ -199,17 +199,15 @@
                 <td class="ps-4">
                   <input type="checkbox" class="form-check-input tool-cb"
                          name="tool_ids" value="{{ tool.id }}"
-                         data-analysis-id="{{ tool.analysis_id }}"
                          {% if sel_tool_qty is not none %}checked{% endif %}>
                 </td>
                 <td>{{ tool.name }}</td>
-                <td class="text-muted small">{{ tool.analysis.name }}</td>
+                <td class="text-muted small">{{ tool.analyses | map(attribute='name') | join(', ') }}</td>
                 <td class="text-center">
                   <input type="number"
                          name="tool_qty_{{ tool.id }}"
                          class="form-control form-control-sm tool-qty-input"
                          data-tool-id="{{ tool.id }}"
-                         data-analysis-id="{{ tool.analysis_id }}"
                          data-base-qty="{{ tool.quantity }}"
                          value="{{ sel_tool_qty if sel_tool_qty is not none else tool.quantity }}"
                          min="1" style="width:64px;text-align:center"
@@ -395,13 +393,38 @@
     return inp ? Math.max(1, parseInt(inp.value) || 1) : 1;
   }
 
+  // Recalculate a tool's quantity as the sum of contributions from all selected analyses.
+  // If no selected analysis uses this tool, uncheck it automatically.
+  function recalcToolFromAllAnalyses(toolId) {
+    const cb  = document.querySelector(`.tool-cb[value="${toolId}"]`);
+    const inp = document.querySelector(`.tool-qty-input[data-tool-id="${toolId}"]`);
+    if (!cb || !inp) return;
+
+    const baseQty = parseInt(inp.dataset.baseQty) || 1;
+    let total = 0;
+
+    for (const [aIdStr, tIds] of Object.entries(analysisToolsMap)) {
+      if (!tIds.includes(toolId)) continue;
+      const aCb = document.querySelector(`.analysis-cb[value="${aIdStr}"]`);
+      if (!aCb || !aCb.checked) continue;
+      total += getAnalysisQty(parseInt(aIdStr)) * baseQty;
+    }
+
+    if (total > 0) {
+      cb.checked    = true;
+      inp.disabled  = false;
+      inp.value     = total;
+    } else {
+      cb.checked    = false;
+      inp.disabled  = true;
+      inp.value     = baseQty;
+    }
+  }
+
   function updateToolQtysFromAnalysis(analysisId) {
-    const qty = getAnalysisQty(analysisId);
     (analysisToolsMap[analysisId] || []).forEach(toolId => {
       const inp = document.querySelector(`.tool-qty-input[data-tool-id="${toolId}"]`);
-      if (inp && !inp.disabled) {
-        inp.value = qty * (parseInt(inp.dataset.baseQty) || 1);
-      }
+      if (inp && !inp.disabled) recalcToolFromAllAnalyses(toolId);
     });
   }
 
@@ -412,15 +435,8 @@
   }
 
   function syncToolsFromAnalysis(analysisId, checked) {
-    const qty = checked ? getAnalysisQty(analysisId) : 1;
     (analysisToolsMap[analysisId] || []).forEach(toolId => {
-      const cb  = document.querySelector(`.tool-cb[value="${toolId}"]`);
-      const inp = document.querySelector(`.tool-qty-input[data-tool-id="${toolId}"]`);
-      if (cb)  cb.checked   = checked;
-      if (inp) {
-        inp.disabled = !checked;
-        inp.value    = qty * (parseInt(inp.dataset.baseQty) || 1);
-      }
+      recalcToolFromAllAnalyses(toolId);
     });
     updateToolsCount();
   }

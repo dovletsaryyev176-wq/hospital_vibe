@@ -277,10 +277,9 @@ class AnalysisToolForm(FlaskForm):
         places=2,
         render_kw={'placeholder': '0.00', 'step': '0.01', 'min': '0'},
     )
-    analysis_id = SelectField(
-        'Analiz',
+    analysis_ids = SelectMultipleField(
+        'Analizler',
         coerce=int,
-        validators=[DataRequired(message='Analizi saýlaň')],
     )
     submit = SubmitField('Ýatda saklamak')
 
@@ -296,18 +295,17 @@ class AnalysisToolForm(FlaskForm):
             .order_by(Analysis.name)
             .all()
         )
-        choices = [(0, '— Analizi saýlaň —')]
+        choices = [(a.id, a.name) for a in active]
 
-        if self._editing_tool and self._editing_tool.analysis:
-            current = self._editing_tool.analysis
-            if not current.is_active:
-                choices.append((current.id, f'{current.name} [bloklanan]'))
-            choices += [(a.id, a.name) for a in active]
-        else:
-            choices += [(a.id, a.name) for a in active]
+        if self._editing_tool:
+            blocked = [
+                a for a in self._editing_tool.analyses
+                if not a.is_active
+            ]
+            choices = [(a.id, f'{a.name} [bloklanan]') for a in blocked] + choices
 
-        self.analysis_id.choices = choices
+        self.analysis_ids.choices = choices
 
-    def validate_analysis_id(self, field):
+    def validate_analysis_ids(self, field):
         if not field.data:
-            raise ValidationError('Analizi saýlaň.')
+            raise ValidationError('Iň bolmanda 1 analizi saýlaň.')
