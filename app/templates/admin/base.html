@@ -67,6 +67,18 @@
       color: #fff;
     }
     .sidebar-nav .nav-link .bi { font-size: 1rem; flex-shrink: 0; }
+    .sidebar-nav .nav-link.nav-link-sub {
+      padding-left: 2.25rem;
+      font-size: .82rem;
+    }
+    .sidebar-nav .nav-link-toggle .toggle-arrow {
+      transition: transform .2s;
+      font-size: .7rem;
+      margin-left: auto;
+    }
+    .sidebar-nav .nav-link-toggle[aria-expanded="true"] .toggle-arrow {
+      transform: rotate(180deg);
+    }
 
     .sidebar-footer {
       border-top: 1px solid rgba(255,255,255,.1);
@@ -164,9 +176,31 @@
        class="nav-link {% if 'admin.combined_analyses' in request.endpoint %}active{% endif %}">
       <i class="bi bi-collection"></i> Kombinlenen analizler
     </a>
-    <a href="{{ url_for('admin.analysis_tools_list') }}"
-       class="nav-link {% if 'admin.analysis_tools' in request.endpoint %}active{% endif %}">
+    {% set serisde_active = 'admin.analysis_tools' in request.endpoint or 'admin.tool_categories' in request.endpoint or 'admin.tool_subcategories' in request.endpoint %}
+    <a class="nav-link nav-link-toggle {% if serisde_active %}active{% endif %}"
+       data-bs-toggle="collapse" href="#serisde-menu" role="button"
+       aria-expanded="{{ 'true' if serisde_active else 'false' }}"
+       aria-controls="serisde-menu">
       <i class="bi bi-box-seam"></i> Serişdeler
+      <i class="bi bi-chevron-down toggle-arrow"></i>
+    </a>
+    <div class="collapse {% if serisde_active %}show{% endif %}" id="serisde-menu">
+      <a href="{{ url_for('admin.analysis_tools_list') }}"
+         class="nav-link nav-link-sub {% if 'admin.analysis_tools' in request.endpoint %}active{% endif %}">
+        <i class="bi bi-list-ul"></i> Ähli serişdeler
+      </a>
+      <a href="{{ url_for('admin.tool_categories_list') }}"
+         class="nav-link nav-link-sub {% if 'admin.tool_categories' in request.endpoint %}active{% endif %}">
+        <i class="bi bi-folder"></i> Kategoriýalar
+      </a>
+      <a href="{{ url_for('admin.tool_subcategories_list') }}"
+         class="nav-link nav-link-sub {% if 'admin.tool_subcategories' in request.endpoint %}active{% endif %}">
+        <i class="bi bi-folder2-open"></i> Kiçi kategoriýalar
+      </a>
+    </div>
+    <a href="{{ url_for('admin.blanks_list') }}"
+       class="nav-link {% if 'admin.blanks' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-file-earmark-text"></i> Blanklar
     </a>
 
     <div class="nav-section mt-2">Hasabatlar</div>

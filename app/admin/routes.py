@@ -1,12 +1,13 @@
 from functools import wraps
+import json
 from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, contains_eager
 from app.admin import admin_bp
-from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm, AnalysisToolForm
+from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm, AnalysisToolForm, BlankForm, AnalysisToolCategoryForm, AnalysisToolSubcategoryForm
 from app.extensions import db
-from app.models import User, Analysis, DoctorDirection, CombinedAnalysis, Examination, AnalysisTool
+from app.models import User, Analysis, DoctorDirection, CombinedAnalysis, Examination, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory
 
 
 def admin_required(f):
@@ -361,7 +362,10 @@ def analysis_tools_list():
     elif status_filter == 'blocked':
         query = query.filter(AnalysisTool.is_active == False)
 
-    tools = query.order_by(AnalysisTool.name).all()
+    tools = query.options(
+        joinedload(AnalysisTool.category),
+        joinedload(AnalysisTool.subcategory).joinedload(AnalysisToolSubcategory.category),
+    ).order_by(AnalysisTool.name).all()
 
     return render_template(
         'admin/analysis_tools/list.html',
@@ -385,13 +389,16 @@ def analysis_tools_create():
             is_insurance=form.is_insurance.data,
             total_price=form.total_price.data,
             analyses=analyses,
+            category_id=form.category_id.data or None,
+            subcategory_id=form.subcategory_id.data or None,
         )
         db.session.add(tool)
         db.session.commit()
         flash(f'Serişde «{tool.name}» döredilen.', 'success')
         return redirect(url_for('admin.analysis_tools_list'))
 
-    return render_template('admin/analysis_tools/create.html', form=form)
+    subcats_json = _subcats_as_json()
+    return render_template('admin/analysis_tools/create.html', form=form, subcats_json=subcats_json)
 
 
 # ── Edit analysis tool ────────────────────────────────────────────────────────
@@ -410,6 +417,8 @@ def analysis_tools_edit(tool_id):
         form.is_insurance.data = tool.is_insurance
         form.total_price.data = tool.total_price
         form.analysis_ids.data = [a.id for a in tool.analyses]
+        form.category_id.data = tool.category_id or 0
+        form.subcategory_id.data = tool.subcategory_id or 0
 
     if form.validate_on_submit():
         tool.name = form.name.data.strip()
@@ -417,11 +426,14 @@ def analysis_tools_edit(tool_id):
         tool.is_insurance = form.is_insurance.data
         tool.total_price = form.total_price.data
         tool.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
+        tool.category_id = form.category_id.data or None
+        tool.subcategory_id = form.subcategory_id.data or None
         db.session.commit()
         flash(f'Serişde «{tool.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.analysis_tools_list'))
 
-    return render_template('admin/analysis_tools/edit.html', form=form, tool=tool)
+    subcats_json = _subcats_as_json()
+    return render_template('admin/analysis_tools/edit.html', form=form, tool=tool, subcats_json=subcats_json)
 
 
 # ── Toggle analysis tool ──────────────────────────────────────────────────────
@@ -439,6 +451,274 @@ def analysis_tools_toggle(tool_id):
     action = 'aktiw' if tool.is_active else 'bloklanan'
     flash(f'Serişde «{tool.name}» {action}.', 'success')
     return redirect(url_for('admin.analysis_tools_list'))
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _subcats_as_json():
+    subs = AnalysisToolSubcategory.query.filter_by(is_active=True).order_by(AnalysisToolSubcategory.name).all()
+    return json.dumps([{'id': s.id, 'name': s.name, 'category_id': s.category_id or 0} for s in subs])
+
+
+# ── Analysis tool categories ──────────────────────────────────────────────────
+
+@admin_bp.route('/tool-categories')
+@admin_required
+def tool_categories_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+
+    query = AnalysisToolCategory.query
+    if search:
+        query = query.filter(AnalysisToolCategory.name.ilike(f'%{search}%'))
+    if status_filter == 'active':
+        query = query.filter(AnalysisToolCategory.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(AnalysisToolCategory.is_active == False)
+
+    categories = query.order_by(AnalysisToolCategory.name).all()
+    sub_counts = dict(
+        db.session.query(
+            AnalysisToolSubcategory.category_id,
+            func.count(AnalysisToolSubcategory.id),
+        )
+        .filter(AnalysisToolSubcategory.category_id.isnot(None))
+        .group_by(AnalysisToolSubcategory.category_id)
+        .all()
+    )
+    return render_template(
+        'admin/analysis_tool_categories/list.html',
+        categories=categories,
+        sub_counts=sub_counts,
+        search=search,
+        status_filter=status_filter,
+    )
+
+
+@admin_bp.route('/tool-categories/create', methods=['GET', 'POST'])
+@admin_required
+def tool_categories_create():
+    form = AnalysisToolCategoryForm()
+    if form.validate_on_submit():
+        cat = AnalysisToolCategory(name=form.name.data.strip())
+        db.session.add(cat)
+        db.session.commit()
+        flash(f'Kategoriýa «{cat.name}» döredilen.', 'success')
+        return redirect(url_for('admin.tool_categories_list'))
+    return render_template('admin/analysis_tool_categories/create.html', form=form)
+
+
+@admin_bp.route('/tool-categories/<int:cat_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def tool_categories_edit(cat_id):
+    cat = db.session.get(AnalysisToolCategory, cat_id)
+    if cat is None:
+        abort(404)
+    form = AnalysisToolCategoryForm(editing_category=cat)
+    if not form.is_submitted():
+        form.name.data = cat.name
+    if form.validate_on_submit():
+        cat.name = form.name.data.strip()
+        db.session.commit()
+        flash(f'Kategoriýa «{cat.name}» täzelenen.', 'success')
+        return redirect(url_for('admin.tool_categories_list'))
+    return render_template('admin/analysis_tool_categories/edit.html', form=form, cat=cat)
+
+
+@admin_bp.route('/tool-categories/<int:cat_id>/toggle', methods=['POST'])
+@admin_required
+def tool_categories_toggle(cat_id):
+    cat = db.session.get(AnalysisToolCategory, cat_id)
+    if cat is None:
+        abort(404)
+    cat.is_active = not cat.is_active
+    db.session.commit()
+    action = 'aktiw' if cat.is_active else 'bloklanan'
+    flash(f'Kategoriýa «{cat.name}» {action}.', 'success')
+    return redirect(url_for('admin.tool_categories_list'))
+
+
+# ── Analysis tool subcategories ───────────────────────────────────────────────
+
+@admin_bp.route('/tool-subcategories')
+@admin_required
+def tool_subcategories_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+    cat_filter = request.args.get('cat', 0, type=int)
+
+    query = AnalysisToolSubcategory.query
+    if search:
+        query = query.filter(AnalysisToolSubcategory.name.ilike(f'%{search}%'))
+    if status_filter == 'active':
+        query = query.filter(AnalysisToolSubcategory.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(AnalysisToolSubcategory.is_active == False)
+    if cat_filter:
+        query = query.filter(AnalysisToolSubcategory.category_id == cat_filter)
+
+    subcategories = query.options(joinedload(AnalysisToolSubcategory.category)).order_by(AnalysisToolSubcategory.name).all()
+    all_categories = AnalysisToolCategory.query.filter_by(is_active=True).order_by(AnalysisToolCategory.name).all()
+    return render_template(
+        'admin/analysis_tool_subcategories/list.html',
+        subcategories=subcategories,
+        search=search,
+        status_filter=status_filter,
+        cat_filter=cat_filter,
+        all_categories=all_categories,
+    )
+
+
+@admin_bp.route('/tool-subcategories/create', methods=['GET', 'POST'])
+@admin_required
+def tool_subcategories_create():
+    form = AnalysisToolSubcategoryForm()
+    if form.validate_on_submit():
+        sub = AnalysisToolSubcategory(
+            name=form.name.data.strip(),
+            category_id=form.category_id.data or None,
+        )
+        db.session.add(sub)
+        db.session.commit()
+        flash(f'Kiçi kategoriýa «{sub.name}» döredilen.', 'success')
+        return redirect(url_for('admin.tool_subcategories_list'))
+    return render_template('admin/analysis_tool_subcategories/create.html', form=form)
+
+
+@admin_bp.route('/tool-subcategories/<int:sub_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def tool_subcategories_edit(sub_id):
+    sub = db.session.get(AnalysisToolSubcategory, sub_id)
+    if sub is None:
+        abort(404)
+    form = AnalysisToolSubcategoryForm(editing_subcategory=sub)
+    if not form.is_submitted():
+        form.name.data = sub.name
+        form.category_id.data = sub.category_id or 0
+    if form.validate_on_submit():
+        sub.name = form.name.data.strip()
+        sub.category_id = form.category_id.data or None
+        db.session.commit()
+        flash(f'Kiçi kategoriýa «{sub.name}» täzelenen.', 'success')
+        return redirect(url_for('admin.tool_subcategories_list'))
+    return render_template('admin/analysis_tool_subcategories/edit.html', form=form, sub=sub)
+
+
+@admin_bp.route('/tool-subcategories/<int:sub_id>/toggle', methods=['POST'])
+@admin_required
+def tool_subcategories_toggle(sub_id):
+    sub = db.session.get(AnalysisToolSubcategory, sub_id)
+    if sub is None:
+        abort(404)
+    sub.is_active = not sub.is_active
+    db.session.commit()
+    action = 'aktiw' if sub.is_active else 'bloklanan'
+    flash(f'Kiçi kategoriýa «{sub.name}» {action}.', 'success')
+    return redirect(url_for('admin.tool_subcategories_list'))
+
+
+# ── Blanks (Blanklar) list ────────────────────────────────────────────────────
+
+@admin_bp.route('/blanks')
+@admin_required
+def blanks_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+
+    query = Blank.query
+
+    if search:
+        like = f'%{search}%'
+        query = query.filter(
+            db.or_(
+                Blank.name.ilike(like),
+                Blank.analyses.any(Analysis.name.ilike(like)),
+            )
+        )
+
+    if status_filter == 'active':
+        query = query.filter(Blank.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(Blank.is_active == False)
+
+    blanks = query.order_by(Blank.name).all()
+
+    return render_template(
+        'admin/blanks/list.html',
+        blanks=blanks,
+        search=search,
+        status_filter=status_filter,
+    )
+
+
+# ── Create blank ──────────────────────────────────────────────────────────────
+
+@admin_bp.route('/blanks/create', methods=['GET', 'POST'])
+@admin_required
+def blanks_create():
+    form = BlankForm()
+    if form.validate_on_submit():
+        analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
+        blank = Blank(
+            name=form.name.data.strip(),
+            quantity=form.quantity.data,
+            is_insurance=form.is_insurance.data,
+            total_price=form.total_price.data,
+            analyses=analyses,
+        )
+        db.session.add(blank)
+        db.session.commit()
+        flash(f'Blank «{blank.name}» döredilen.', 'success')
+        return redirect(url_for('admin.blanks_list'))
+
+    return render_template('admin/blanks/create.html', form=form)
+
+
+# ── Edit blank ────────────────────────────────────────────────────────────────
+
+@admin_bp.route('/blanks/<int:blank_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def blanks_edit(blank_id):
+    blank = db.session.get(Blank, blank_id)
+    if blank is None:
+        abort(404)
+
+    form = BlankForm(editing_blank=blank)
+    if not form.is_submitted():
+        form.name.data = blank.name
+        form.quantity.data = blank.quantity
+        form.is_insurance.data = blank.is_insurance
+        form.total_price.data = blank.total_price
+        form.analysis_ids.data = [a.id for a in blank.analyses]
+
+    if form.validate_on_submit():
+        blank.name = form.name.data.strip()
+        blank.quantity = form.quantity.data
+        blank.is_insurance = form.is_insurance.data
+        blank.total_price = form.total_price.data
+        blank.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
+        db.session.commit()
+        flash(f'Blank «{blank.name}» maglumatlary täzelenen.', 'success')
+        return redirect(url_for('admin.blanks_list'))
+
+    return render_template('admin/blanks/edit.html', form=form, blank=blank)
+
+
+# ── Toggle blank ──────────────────────────────────────────────────────────────
+
+@admin_bp.route('/blanks/<int:blank_id>/toggle', methods=['POST'])
+@admin_required
+def blanks_toggle(blank_id):
+    blank = db.session.get(Blank, blank_id)
+    if blank is None:
+        abort(404)
+
+    blank.is_active = not blank.is_active
+    db.session.commit()
+
+    action = 'aktiw' if blank.is_active else 'bloklanan'
+    flash(f'Blank «{blank.name}» {action}.', 'success')
+    return redirect(url_for('admin.blanks_list'))
 
 
 # ── Daily report ─────────────────────────────────────────────────────────────

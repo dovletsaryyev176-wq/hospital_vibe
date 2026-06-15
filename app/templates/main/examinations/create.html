@@ -225,12 +225,70 @@
       </div>
     </div>
 
-    <!-- Step 4: Directions + Doctors -->
+    <!-- Step 4: Blanks -->
     <div class="col-12">
       <div class="card shadow-sm border-0 rounded-3">
         <div class="card-header bg-white border-bottom px-4 py-3">
           <div class="d-flex align-items-center gap-2">
             <span class="badge bg-primary rounded-pill">4</span>
+            <h6 class="mb-0 fw-semibold">Blanklary saýlaň</h6>
+            <span class="text-muted small ms-auto fw-normal">mejbury däl</span>
+            <span class="text-muted small">Saýlanan: <span id="blanks-selected">{{ selected_blank_qtys | length }}</span></span>
+          </div>
+        </div>
+        {% if all_blanks %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th class="ps-4" style="width:50px">
+                  <input type="checkbox" class="form-check-input" id="select-all-blanks" title="Hemmesini">
+                </th>
+                <th>Blankyň ady</th>
+                <th>Analiz</th>
+                <th class="text-center" style="width:90px">Sany</th>
+                <th class="text-end pe-4" style="width:150px">Bahasy</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for blank in all_blanks %}
+              {% set sel_blank_qty = selected_blank_qtys.get(blank.id) %}
+              <tr>
+                <td class="ps-4">
+                  <input type="checkbox" class="form-check-input blank-cb"
+                         name="blank_ids" value="{{ blank.id }}"
+                         {% if sel_blank_qty is not none %}checked{% endif %}>
+                </td>
+                <td>{{ blank.name }}</td>
+                <td class="text-muted small">{{ blank.analyses | map(attribute='name') | join(', ') }}</td>
+                <td class="text-center">
+                  <input type="number"
+                         name="blank_qty_{{ blank.id }}"
+                         class="form-control form-control-sm blank-qty-input"
+                         data-blank-id="{{ blank.id }}"
+                         data-base-qty="{{ blank.quantity }}"
+                         value="{{ sel_blank_qty if sel_blank_qty is not none else blank.quantity }}"
+                         min="1" style="width:64px;text-align:center"
+                         {% if sel_blank_qty is none %}disabled{% endif %}>
+                </td>
+                <td class="font-monospace small text-end pe-4">{{ blank.total_price_display }} manat</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+          <div class="card-body text-muted">Aktiw blanklar tapylmady.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Step 5: Directions + Doctors -->
+    <div class="col-12">
+      <div class="card shadow-sm border-0 rounded-3">
+        <div class="card-header bg-white border-bottom px-4 py-3">
+          <div class="d-flex align-items-center gap-2">
+            <span class="badge bg-primary rounded-pill">5</span>
             <h6 class="mb-0 fw-semibold">Lukmanyň ugruny saýlaň</h6>
             <span class="text-muted small ms-auto fw-normal">mejbury däl</span>
           </div>
@@ -387,6 +445,7 @@
 
   // ── Quantity helpers ──────────────────────────────────────────────────────
   const analysisToolsMap = {{ analysis_tools_map | tojson }};
+  const analysisBlanksMap = {{ analysis_blanks_map | tojson }};
 
   function getAnalysisQty(analysisId) {
     const inp = document.querySelector(`.analysis-qty-input[data-analysis-id="${analysisId}"]`);
@@ -462,10 +521,77 @@
     });
   }
 
-  // Analysis qty input changed → propagate to tools
+  // ── Blanks ────────────────────────────────────────────────────────────────
+  function recalcBlankFromAllAnalyses(blankId) {
+    const cb  = document.querySelector(`.blank-cb[value="${blankId}"]`);
+    const inp = document.querySelector(`.blank-qty-input[data-blank-id="${blankId}"]`);
+    if (!cb || !inp) return;
+
+    const baseQty = parseInt(inp.dataset.baseQty) || 1;
+    let total = 0;
+
+    for (const [aIdStr, bIds] of Object.entries(analysisBlanksMap)) {
+      if (!bIds.includes(blankId)) continue;
+      const aCb = document.querySelector(`.analysis-cb[value="${aIdStr}"]`);
+      if (!aCb || !aCb.checked) continue;
+      total += getAnalysisQty(parseInt(aIdStr)) * baseQty;
+    }
+
+    if (total > 0) {
+      cb.checked    = true;
+      inp.disabled  = false;
+      inp.value     = total;
+    } else {
+      cb.checked    = false;
+      inp.disabled  = true;
+      inp.value     = baseQty;
+    }
+  }
+
+  function updateBlanksCount() {
+    const el = document.getElementById('blanks-selected');
+    if (el) el.textContent = document.querySelectorAll('.blank-cb:checked').length;
+  }
+
+  function syncBlanksFromAnalysis(analysisId) {
+    (analysisBlanksMap[analysisId] || []).forEach(blankId => {
+      recalcBlankFromAllAnalyses(blankId);
+    });
+    updateBlanksCount();
+  }
+
+  function updateBlankQtysFromAnalysis(analysisId) {
+    (analysisBlanksMap[analysisId] || []).forEach(blankId => {
+      const inp = document.querySelector(`.blank-qty-input[data-blank-id="${blankId}"]`);
+      if (inp && !inp.disabled) recalcBlankFromAllAnalyses(blankId);
+    });
+  }
+
+  document.querySelectorAll('.blank-cb').forEach(cb => {
+    cb.addEventListener('change', function () {
+      const inp = document.querySelector(`.blank-qty-input[data-blank-id="${this.value}"]`);
+      if (inp) inp.disabled = !this.checked;
+      updateBlanksCount();
+    });
+  });
+
+  const selectAllBlanks = document.getElementById('select-all-blanks');
+  if (selectAllBlanks) {
+    selectAllBlanks.addEventListener('change', function () {
+      document.querySelectorAll('.blank-cb').forEach(cb => {
+        cb.checked = this.checked;
+        const inp = document.querySelector(`.blank-qty-input[data-blank-id="${cb.value}"]`);
+        if (inp) inp.disabled = !this.checked;
+      });
+      updateBlanksCount();
+    });
+  }
+
+  // Analysis qty input changed → propagate to tools and blanks
   document.querySelectorAll('.analysis-qty-input').forEach(inp => {
     inp.addEventListener('input', function () {
       updateToolQtysFromAnalysis(parseInt(this.dataset.analysisId));
+      updateBlankQtysFromAnalysis(parseInt(this.dataset.analysisId));
     });
   });
 
@@ -504,6 +630,7 @@
       }
       syncCombosFromReal(analysisId, this.checked);
       syncToolsFromAnalysis(analysisId, this.checked);
+      syncBlanksFromAnalysis(analysisId);
       updateAnalysesCount();
     });
   });
@@ -525,6 +652,7 @@
         o.checked = this.checked;
       });
       syncToolsFromAnalysis(analysisId, this.checked);
+      syncBlanksFromAnalysis(analysisId);
       updateComboAllState(this.dataset.comboId);
       updateAnalysesCount();
     });
@@ -553,6 +681,7 @@
           o.checked = this.checked;
         });
         syncToolsFromAnalysis(analysisId, this.checked);
+        syncBlanksFromAnalysis(analysisId);
       });
       if (qtyInp) qtyInp.disabled = !this.checked;
       document.querySelectorAll('.combo-all-cb').forEach(o => {
@@ -574,6 +703,7 @@
         if (aQtyInp && !aQtyInp.disabled) {
           aQtyInp.value = qty;
           updateToolQtysFromAnalysis(analysisId);
+          updateBlankQtysFromAnalysis(analysisId);
         }
       });
     });
@@ -613,6 +743,7 @@
         }
         syncCombosFromReal(analysisId, this.checked);
         syncToolsFromAnalysis(analysisId, this.checked);
+        syncBlanksFromAnalysis(analysisId);
       });
       updateAnalysesCount();
     });

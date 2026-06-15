@@ -237,5 +237,74 @@
 </div>
 {% endif %}
 
+{# ══════════════════════════ PAGE 3 — Blanks ══════════════════════════════════ #}
+
+{% if exam.exam_blanks %}
+<div class="page-break">
+
+{{ institution_header() }}
+
+<br>
+<center><h2>Blanklaryň sanawy (Barlag №{{ exam.id }})</h2></center>
+<br>
+
+{{ patient_info() }}
+<br>
+
+{% set blanks_row = namespace(n=0) %}
+{% set blanks_pg_total = namespace(val=0) %}
+
+<table width="100%" border="1">
+<colgroup>
+  <col width="5%">
+  <col width="35%">
+  <col width="30%">
+  <col width="8%">
+  <col width="12%">
+  <col width="10%">
+</colgroup>
+<thead>
+<tr>
+  <th>T/b</th>
+  <th>Blankyň ady</th>
+  <th>Analiz</th>
+  <th style="text-align:center">Sany</th>
+  <th>Bir birligiň bahasy</th>
+  <th>Jemi bahasy</th>
+</tr>
+</thead>
+<tbody>
+{% for eb in exam.exam_blanks %}
+{% set blanks_row.n = blanks_row.n + 1 %}
+{% set blanks_pg_total.val = blanks_pg_total.val + eb.effective_total %}
+<tr>
+  <td>{{ blanks_row.n }}</td>
+  <td>{{ eb.blank.name }}</td>
+  <td>{{ eb.blank.analyses | map(attribute='name') | join(', ') }}</td>
+  <td style="text-align:center">{{ eb.quantity }}</td>
+  <td>{{ eb.snapshot_price_display }}</td>
+  <td>{{ eb.effective_total_display }}</td>
+</tr>
+{% endfor %}
+</tbody>
+<tfoot>
+<tr>
+  <th colspan="5" style="text-align:right">Jemi:</th>
+  <th>{{ '%.2f' | format(blanks_pg_total.val) }}</th>
+</tr>
+</tfoot>
+</table>
+
+<br><br>
+<table width="100%">
+  <tr>
+    <td>Jogapkäriň goly____________________________</td>
+    <td align="right">Blanklaryň jemi: <strong>{{ '%.2f' | format(blanks_pg_total.val) }}</strong></td>
+  </tr>
+</table>
+
+</div>
+{% endif %}
+
 </body>
 </html>

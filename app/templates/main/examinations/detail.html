@@ -283,6 +283,65 @@
   </div>
   {% endif %}
 
+  <!-- Blanks -->
+  {% if exam.exam_blanks %}
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-file-earmark-text me-2 text-primary"></i>
+          Blanklar
+          <span class="badge bg-light text-dark border ms-1">{{ exam.exam_blanks | length }}</span>
+        </h6>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4">#</th>
+              <th>Blankyň ady</th>
+              <th>Analiz</th>
+              <th class="text-center" style="width:80px">Mukdary</th>
+              <th class="text-end pe-4">Bahasy</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for eb in exam.exam_blanks %}
+            <tr>
+              <td class="ps-4 text-muted small">{{ loop.index }}</td>
+              <td>{{ eb.blank.name }}</td>
+              <td class="text-muted small">{{ eb.blank.analyses | map(attribute='name') | join(', ') }}</td>
+              <td class="text-center small">{{ eb.quantity }}</td>
+              <td class="text-end pe-4 font-monospace small">
+                {% if eb.examination.patient_has_insurance and eb.snapshot_is_insurance %}
+                  <span class="text-decoration-line-through text-muted">{{ eb.snapshot_total_display }}</span><br>
+                  <span class="text-success fw-semibold">{{ eb.effective_total_display }} manat</span>
+                  <span class="badge bg-success-subtle text-success ms-1" style="font-size:.65rem">−50%</span>
+                {% else %}
+                  {{ eb.effective_total_display }} manat
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="border-top">
+            <tr>
+              <td colspan="4" class="ps-4 fw-semibold small">Hemmesi</td>
+              <td class="text-end pe-4 fw-semibold font-monospace small">
+                {% set blanks_total = namespace(val=0) %}
+                {% for eb in exam.exam_blanks %}
+                  {% set blanks_total.val = blanks_total.val + eb.effective_total %}
+                {% endfor %}
+                {{ '%.2f' | format(blanks_total.val) }} manat
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Directions -->
   <div class="col-12">
     <div class="card shadow-sm border-0 rounded-3">
@@ -432,11 +491,15 @@
         {% for et in exam.exam_tools %}
           {% set tools_total.val = tools_total.val + et.effective_total %}
         {% endfor %}
+        {% set blanks_total = namespace(val=0) %}
+        {% for eb in exam.exam_blanks %}
+          {% set blanks_total.val = blanks_total.val + eb.effective_total %}
+        {% endfor %}
         {% set dir_total = namespace(val=0) %}
         {% for ed in exam.exam_directions %}
           {% set dir_total.val = dir_total.val + ed.effective_total %}
         {% endfor %}
-        {% set grand_total = analyses_total.val + tools_total.val + dir_total.val %}
+        {% set grand_total = analyses_total.val + tools_total.val + blanks_total.val + dir_total.val %}
         {% if grand_total > 0 %}
         <div class="mt-2 text-start px-2">
           {% if analyses_total.val > 0 %}
@@ -449,6 +512,12 @@
           <div class="d-flex justify-content-between small text-muted">
             <span>Serişdeler</span>
             <span class="font-monospace">{{ '%.2f' | format(tools_total.val) }} manat</span>
+          </div>
+          {% endif %}
+          {% if blanks_total.val > 0 %}
+          <div class="d-flex justify-content-between small text-muted">
+            <span>Blanklar</span>
+            <span class="font-monospace">{{ '%.2f' | format(blanks_total.val) }} manat</span>
           </div>
           {% endif %}
           {% if dir_total.val > 0 %}

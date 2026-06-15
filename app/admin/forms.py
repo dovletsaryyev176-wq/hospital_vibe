@@ -2,7 +2,7 @@ import re
 from flask_wtf import FlaskForm
 from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, IntegerField, BooleanField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional, NumberRange, ValidationError, Regexp
-from app.models import User, Analysis, AnalysisTool
+from app.models import User, Analysis, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory
 
 
 PHONE_RE = re.compile(r'^\+?[\d\s\-\(\)]{7,20}$')
@@ -281,12 +281,16 @@ class AnalysisToolForm(FlaskForm):
         'Analizler',
         coerce=int,
     )
+    category_id = SelectField('Kategoriýa (islege görä)', coerce=int, validators=[Optional()])
+    subcategory_id = SelectField('Kiçi kategoriýa (islege görä)', coerce=int, validators=[Optional()])
     submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_tool=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._editing_tool = editing_tool
         self._build_analysis_choices()
+        self._build_category_choices()
+        self._build_subcategory_choices()
 
     def _build_analysis_choices(self):
         active = (
@@ -300,6 +304,126 @@ class AnalysisToolForm(FlaskForm):
         if self._editing_tool:
             blocked = [
                 a for a in self._editing_tool.analyses
+                if not a.is_active
+            ]
+            choices = [(a.id, f'{a.name} [bloklanan]') for a in blocked] + choices
+
+        self.analysis_ids.choices = choices
+
+    def validate_analysis_ids(self, field):
+        if not field.data:
+            raise ValidationError('Iň bolmanda 1 analizi saýlaň.')
+
+    def _build_category_choices(self):
+        cats = AnalysisToolCategory.query.filter_by(is_active=True).order_by(AnalysisToolCategory.name).all()
+        self.category_id.choices = [(0, '— Kategoriýa saýlaň (islege görä) —')] + [(c.id, c.name) for c in cats]
+
+    def _build_subcategory_choices(self):
+        subs = AnalysisToolSubcategory.query.filter_by(is_active=True).order_by(AnalysisToolSubcategory.name).all()
+        self.subcategory_id.choices = [(0, '— Kiçi kategoriýa saýlaň (islege görä) —')] + [(s.id, s.name) for s in subs]
+
+
+class AnalysisToolCategoryForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Kategoriýanyň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Kategoriýanyň ady'},
+    )
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_category=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_category = editing_category
+
+    def validate_name(self, field):
+        existing = AnalysisToolCategory.query.filter(
+            AnalysisToolCategory.name.ilike(field.data.strip())
+        ).first()
+        if existing and (self._editing_category is None or existing.id != self._editing_category.id):
+            raise ValidationError('Bu atly kategoriýa eýýäm hasaba alnan.')
+
+
+class AnalysisToolSubcategoryForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Kiçi kategoriýanyň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Kiçi kategoriýanyň ady'},
+    )
+    category_id = SelectField('Kategoriýa (islege görä)', coerce=int, validators=[Optional()])
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_subcategory=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_subcategory = editing_subcategory
+        self._build_category_choices()
+
+    def _build_category_choices(self):
+        cats = AnalysisToolCategory.query.filter_by(is_active=True).order_by(AnalysisToolCategory.name).all()
+        choices = [(0, '— Kategoriýa saýlaň (islege görä) —')]
+        if self._editing_subcategory and self._editing_subcategory.category_id:
+            current = self._editing_subcategory.category
+            if current and not current.is_active:
+                choices.append((current.id, f'{current.name} [bloklanan]'))
+        choices += [(c.id, c.name) for c in cats]
+        self.category_id.choices = choices
+
+
+class BlankForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Blankyň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Blankyň ady'},
+    )
+    quantity = IntegerField(
+        'Mukdary',
+        validators=[
+            DataRequired(message='Mukdary giriziň'),
+            NumberRange(min=1, message='Mukdar iň az 1 bolmaly'),
+        ],
+        render_kw={'placeholder': '1', 'min': '1'},
+    )
+    is_insurance = BooleanField('Ätiýaçlandyryş')
+    total_price = DecimalField(
+        'Jemi bahasy (manat)',
+        validators=[
+            DataRequired(message='Jemi bahany giriziň'),
+            NumberRange(min=0, message='Baha otrisatel bolup bilmeýär'),
+        ],
+        places=2,
+        render_kw={'placeholder': '0.00', 'step': '0.01', 'min': '0'},
+    )
+    analysis_ids = SelectMultipleField(
+        'Analizler',
+        coerce=int,
+    )
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_blank=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_blank = editing_blank
+        self._build_analysis_choices()
+
+    def _build_analysis_choices(self):
+        active = (
+            Analysis.query
+            .filter_by(is_active=True)
+            .order_by(Analysis.name)
+            .all()
+        )
+        choices = [(a.id, a.name) for a in active]
+
+        if self._editing_blank:
+            blocked = [
+                a for a in self._editing_blank.analyses
                 if not a.is_active
             ]
             choices = [(a.id, f'{a.name} [bloklanan]') for a in blocked] + choices

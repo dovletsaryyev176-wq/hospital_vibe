@@ -213,6 +213,8 @@ class Examination(db.Model):
                                       cascade='all, delete-orphan')
     exam_tools = db.relationship('ExaminationAnalysisTool', back_populates='examination',
                                  cascade='all, delete-orphan')
+    exam_blanks = db.relationship('ExaminationBlank', back_populates='examination',
+                                  cascade='all, delete-orphan')
 
     @property
     def is_open(self):
@@ -269,6 +271,35 @@ analysis_tool_analyses = db.Table(
 )
 
 
+class AnalysisToolCategory(db.Model):
+    __tablename__ = 'analysis_tool_categories'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    subcategories = db.relationship('AnalysisToolSubcategory', back_populates='category', lazy='dynamic')
+
+    def __repr__(self) -> str:
+        return f'<AnalysisToolCategory {self.name}>'
+
+
+class AnalysisToolSubcategory(db.Model):
+    __tablename__ = 'analysis_tool_subcategories'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('analysis_tool_categories.id'), nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    category = db.relationship('AnalysisToolCategory', back_populates='subcategories')
+
+    def __repr__(self) -> str:
+        return f'<AnalysisToolSubcategory {self.name}>'
+
+
 class AnalysisTool(db.Model):
     __tablename__ = 'analysis_tools'
 
@@ -279,11 +310,15 @@ class AnalysisTool(db.Model):
     total_price = db.Column(db.Numeric(10, 2), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('analysis_tool_categories.id'), nullable=True)
+    subcategory_id = db.Column(db.Integer, db.ForeignKey('analysis_tool_subcategories.id'), nullable=True)
 
     analyses = db.relationship(
         'Analysis', secondary=analysis_tool_analyses, lazy='subquery',
         backref=db.backref('tools', lazy='dynamic'),
     )
+    category = db.relationship('AnalysisToolCategory')
+    subcategory = db.relationship('AnalysisToolSubcategory')
 
     @property
     def analysis(self):
@@ -299,6 +334,63 @@ class AnalysisTool(db.Model):
 
     def __repr__(self) -> str:
         return f'<AnalysisTool {self.name}>'
+
+
+blank_analyses = db.Table(
+    'blank_analyses',
+    db.Column('blank_id', db.Integer, db.ForeignKey('blanks.id'), primary_key=True),
+    db.Column('analysis_id', db.Integer, db.ForeignKey('analyses.id'), primary_key=True),
+)
+
+
+class Blank(db.Model):
+    __tablename__ = 'blanks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    is_insurance = db.Column(db.Boolean, default=False, nullable=False)
+    total_price = db.Column(db.Numeric(10, 2), nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    analyses = db.relationship(
+        'Analysis', secondary=blank_analyses, lazy='subquery',
+        backref=db.backref('blanks', lazy='dynamic'),
+    )
+
+    @property
+    def analysis(self):
+        return self.analyses[0] if self.analyses else None
+
+    @property
+    def price(self):
+        return self.total_price
+
+    @property
+    def total_price_display(self) -> str:
+        return f'{self.total_price:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<Blank {self.name}>'
+
+
+class ExaminationBlank(PricingSnapshotMixin, db.Model):
+    __tablename__ = 'examination_blanks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    examination_id = db.Column(db.Integer, db.ForeignKey('examinations.id'), nullable=False)
+    blank_id = db.Column(db.Integer, db.ForeignKey('blanks.id'), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    price = db.Column(db.Numeric(10, 2), nullable=True)
+    is_insurance = db.Column(db.Boolean, nullable=True)
+
+    examination = db.relationship('Examination', back_populates='exam_blanks')
+    blank = db.relationship('Blank')
+
+    @property
+    def _source(self):
+        return self.blank
 
 
 class ExaminationDirection(PricingSnapshotMixin, db.Model):

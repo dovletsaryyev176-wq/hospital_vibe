@@ -1,0 +1,119 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}Serişde kategoriýalary{% endblock %}
+{% block page_title %}Serişde kategoriýalary{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm table-card">
+
+  <!-- Toolbar -->
+  <div class="card-header bg-white border-bottom px-4 py-3">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <form class="d-flex gap-2 flex-grow-1" method="GET" action="{{ url_for('admin.tool_categories_list') }}">
+        <div class="input-group" style="max-width:300px">
+          <span class="input-group-text bg-white border-end-0">
+            <i class="bi bi-search text-muted"></i>
+          </span>
+          <input type="text" class="form-control border-start-0 ps-0"
+                 name="q" value="{{ search }}" placeholder="Adyna görä gözleg">
+        </div>
+        <select name="status" class="form-select" style="max-width:160px">
+          <option value="">Hemme statuslar</option>
+          <option value="active"  {% if status_filter == 'active'  %}selected{% endif %}>Aktiwler</option>
+          <option value="blocked" {% if status_filter == 'blocked' %}selected{% endif %}>Bloklananlar</option>
+        </select>
+        <button type="submit" class="btn btn-outline-primary">Tapmak</button>
+        {% if search or status_filter %}
+          <a href="{{ url_for('admin.tool_categories_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-x-lg"></i>
+          </a>
+        {% endif %}
+      </form>
+
+      <a href="{{ url_for('admin.tool_categories_create') }}" class="btn btn-primary ms-auto">
+        <i class="bi bi-plus-lg me-1"></i>Kategoriýa goşmak
+      </a>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:50px">#</th>
+          <th>Ady</th>
+          <th class="text-center" style="width:150px">Kiçi kategoriýalar</th>
+          <th class="text-center" style="width:130px">Ýagdaýy</th>
+          <th class="text-center pe-4" style="width:110px">Amallar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if categories %}
+          {% for cat in categories %}
+          <tr>
+            <td class="ps-4 text-muted">{{ loop.index }}</td>
+            <td class="fw-medium">{{ cat.name }}</td>
+            <td class="text-center text-muted small">{{ sub_counts.get(cat.id, 0) }}</td>
+            <td class="text-center">
+              {% if cat.is_active %}
+                <span class="badge bg-success-subtle text-success">
+                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Aktiw
+                </span>
+              {% else %}
+                <span class="badge bg-secondary-subtle text-secondary">
+                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Bloklanan
+                </span>
+              {% endif %}
+            </td>
+            <td class="text-center pe-4">
+              <div class="d-flex justify-content-center gap-1">
+                <a href="{{ url_for('admin.tool_categories_edit', cat_id=cat.id) }}"
+                   class="btn btn-sm btn-outline-secondary" title="Üýtgetmek">
+                  <i class="bi bi-pencil"></i>
+                </a>
+
+                <form id="toggle-cat-{{ cat.id }}" method="POST"
+                      action="{{ url_for('admin.tool_categories_toggle', cat_id=cat.id) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                </form>
+
+                {% if cat.is_active %}
+                  <button type="button" class="btn btn-sm btn-outline-danger" title="Bloklamak"
+                          onclick="confirmAction('toggle-cat-{{ cat.id }}', 'Kategoriýany bloklamak «{{ cat.name }}»?')">
+                    <i class="bi bi-slash-circle"></i>
+                  </button>
+                {% else %}
+                  <button type="button" class="btn btn-sm btn-outline-success" title="Aktiwleşdirmek"
+                          onclick="confirmAction('toggle-cat-{{ cat.id }}', 'Kategoriýany aktiwleşdirmek «{{ cat.name }}»?')">
+                    <i class="bi bi-check-circle"></i>
+                  </button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="5" class="text-center text-muted py-5">
+              <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
+              {% if search or status_filter %}
+                Kategoriýalar tapylmady. <a href="{{ url_for('admin.tool_categories_list') }}">Filtri aýyrmak</a>
+              {% else %}
+                Heniz kategoriýa ýok.
+                <a href="{{ url_for('admin.tool_categories_create') }}">Ilki kategoriýa goşmak</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if categories %}
+  <div class="card-footer bg-white text-muted small px-4">
+    Tapylanlar: {{ categories | length }}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

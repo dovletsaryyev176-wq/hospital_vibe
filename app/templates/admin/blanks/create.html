@@ -1,17 +1,17 @@
 {% extends 'admin/base.html' %}
 
-{% block title %}Täze serişde{% endblock %}
-{% block page_title %}Täze serişde{% endblock %}
+{% block title %}Täze blank{% endblock %}
+{% block page_title %}Täze blank{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-lg-6">
     <div class="card shadow-sm table-card">
       <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
-        <a href="{{ url_for('admin.analysis_tools_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+        <a href="{{ url_for('admin.blanks_list') }}" class="btn btn-sm btn-outline-secondary me-1">
           <i class="bi bi-arrow-left"></i>
         </a>
-        <h6 class="mb-0 fw-semibold">Serişde goşmak</h6>
+        <h6 class="mb-0 fw-semibold">Blank goşmak</h6>
       </div>
       <div class="card-body px-4 py-4">
         <form method="POST" novalidate>
@@ -46,9 +46,9 @@
                   {% for val, label in form.analysis_ids.choices %}
                     <div class="form-check">
                       <input class="form-check-input" type="checkbox"
-                             name="analysis_ids" value="{{ val }}" id="aid_c_{{ val }}"
+                             name="analysis_ids" value="{{ val }}" id="bid_c_{{ val }}"
                              {% if val in (form.analysis_ids.data or []) %}checked{% endif %}>
-                      <label class="form-check-label" for="aid_c_{{ val }}">{{ label }}</label>
+                      <label class="form-check-label" for="bid_c_{{ val }}">{{ label }}</label>
                     </div>
                   {% endfor %}
                 {% else %}
@@ -68,24 +68,11 @@
                 {{ form.is_insurance.label(class='form-check-label') }}
               </div>
             </div>
-
-            <div class="col-12">
-              <label class="form-label fw-medium">Kategoriýa we kiçi kategoriýa</label>
-              <div class="row g-2">
-                <div class="col-sm-6">
-                  {{ form.category_id(class='form-select', id='cat_sel_c') }}
-                </div>
-                <div class="col-sm-6">
-                  {{ form.subcategory_id(class='form-select', id='sub_sel_c') }}
-                </div>
-              </div>
-              <div class="form-text text-muted">Serişde kategoriýa ýa-da kiçi kategoriýa görä berkidilip bilner (islege görä).</div>
-            </div>
           </div>
 
           <hr class="my-4">
           <div class="d-flex justify-content-end gap-2">
-            <a href="{{ url_for('admin.analysis_tools_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            <a href="{{ url_for('admin.blanks_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
             {{ form.submit(class='btn btn-primary px-4') }}
           </div>
         </form>
@@ -93,31 +80,4 @@
     </div>
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-(function () {
-  const allSubs = {{ subcats_json | safe }};
-  const catSel = document.getElementById('cat_sel_c');
-  const subSel = document.getElementById('sub_sel_c');
-
-  function filterSubs() {
-    const catId = parseInt(catSel.value) || 0;
-    const current = parseInt(subSel.value) || 0;
-    subSel.innerHTML = '';
-    subSel.appendChild(new Option('— Kiçi kategoriýa saýlaň (islege görä) —', '0'));
-    allSubs.forEach(function (s) {
-      if (catId === 0 || s.category_id === catId || s.category_id === 0) {
-        const opt = new Option(s.name, s.id);
-        if (s.id === current) opt.selected = true;
-        subSel.appendChild(opt);
-      }
-    });
-  }
-
-  catSel.addEventListener('change', filterSubs);
-  filterSubs();
-})();
-</script>
 {% endblock %}

@@ -54,9 +54,11 @@
   {% for ea in exam.exam_analyses %}{% set a_total.val = a_total.val + ea.effective_total %}{% endfor %}
   {% set t_total = namespace(val=0) %}
   {% for et in exam.exam_tools %}{% set t_total.val = t_total.val + et.effective_total %}{% endfor %}
+  {% set b_total = namespace(val=0) %}
+  {% for eb in exam.exam_blanks %}{% set b_total.val = b_total.val + eb.effective_total %}{% endfor %}
   {% set d_total = namespace(val=0) %}
   {% for ed in exam.exam_directions %}{% set d_total.val = d_total.val + ed.effective_total %}{% endfor %}
-  {% set grand = a_total.val + t_total.val + d_total.val %}
+  {% set grand = a_total.val + t_total.val + b_total.val + d_total.val %}
 
   <div class="col-12">
     <div class="card shadow-sm border-0 rounded-3">

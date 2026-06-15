@@ -1,7 +1,7 @@
 {% extends 'admin/base.html' %}
 
-{% block title %}Serişdeler{% endblock %}
-{% block page_title %}Serişdeler{% endblock %}
+{% block title %}Blanklar{% endblock %}
+{% block page_title %}Blanklar{% endblock %}
 
 {% block content %}
 <div class="card shadow-sm table-card">
@@ -9,7 +9,7 @@
   <!-- Toolbar -->
   <div class="card-header bg-white border-bottom px-4 py-3">
     <div class="d-flex flex-wrap align-items-center gap-2">
-      <form class="d-flex gap-2 flex-grow-1" method="GET" action="{{ url_for('admin.analysis_tools_list') }}">
+      <form class="d-flex gap-2 flex-grow-1" method="GET" action="{{ url_for('admin.blanks_list') }}">
         <div class="input-group" style="max-width:320px">
           <span class="input-group-text bg-white border-end-0">
             <i class="bi bi-search text-muted"></i>
@@ -25,14 +25,14 @@
         </select>
         <button type="submit" class="btn btn-outline-primary">Tapmak</button>
         {% if search or status_filter %}
-          <a href="{{ url_for('admin.analysis_tools_list') }}" class="btn btn-outline-secondary">
+          <a href="{{ url_for('admin.blanks_list') }}" class="btn btn-outline-secondary">
             <i class="bi bi-x-lg"></i>
           </a>
         {% endif %}
       </form>
 
-      <a href="{{ url_for('admin.analysis_tools_create') }}" class="btn btn-primary ms-auto">
-        <i class="bi bi-plus-lg me-1"></i>Serişde goşmak
+      <a href="{{ url_for('admin.blanks_create') }}" class="btn btn-primary ms-auto">
+        <i class="bi bi-plus-lg me-1"></i>Blank goşmak
       </a>
     </div>
   </div>
@@ -48,20 +48,19 @@
           <th class="text-center" style="width:120px">Ätiýaçlandyryş</th>
           <th class="text-end" style="width:140px">Jemi bahasy</th>
           <th>Analiz</th>
-          <th>Kategoriýa</th>
           <th class="text-center" style="width:130px">Ýagdaýy</th>
           <th class="text-center pe-4" style="width:110px">Amallar</th>
         </tr>
       </thead>
       <tbody>
-        {% if tools %}
-          {% for tool in tools %}
+        {% if blanks %}
+          {% for blank in blanks %}
           <tr>
             <td class="ps-4 text-muted">{{ loop.index }}</td>
-            <td class="fw-medium">{{ tool.name }}</td>
-            <td class="text-center">{{ tool.quantity }}</td>
+            <td class="fw-medium">{{ blank.name }}</td>
+            <td class="text-center">{{ blank.quantity }}</td>
             <td class="text-center">
-              {% if tool.is_insurance %}
+              {% if blank.is_insurance %}
                 <span class="badge bg-info-subtle text-info">
                   <i class="bi bi-shield-check me-1"></i>Hawa
                 </span>
@@ -69,27 +68,16 @@
                 <span class="text-muted">—</span>
               {% endif %}
             </td>
-            <td class="text-end font-monospace">{{ tool.total_price_display }}</td>
+            <td class="text-end font-monospace">{{ blank.total_price_display }}</td>
             <td>
               <span class="d-flex flex-wrap align-items-center gap-1">
-                {% for a in tool.analyses %}
+                {% for a in blank.analyses %}
                   <span>{{ a.name }}{% if not a.is_active %} <span class="badge bg-danger-subtle text-danger" style="font-size:.65rem">bloklanan</span>{% endif %}</span>{% if not loop.last %},{% endif %}
                 {% endfor %}
               </span>
             </td>
-            <td class="small">
-              {% if tool.subcategory %}
-                <span class="text-muted" style="font-size:.7rem">{{ tool.subcategory.category.name if tool.subcategory.category else '' }}</span>
-                {% if tool.subcategory.category %}<br>{% endif %}
-                <span class="badge bg-info-subtle text-info">{{ tool.subcategory.name }}</span>
-              {% elif tool.category %}
-                <span class="badge bg-primary-subtle text-primary">{{ tool.category.name }}</span>
-              {% else %}
-                <span class="text-muted">—</span>
-              {% endif %}
-            </td>
             <td class="text-center">
-              {% if tool.is_active %}
+              {% if blank.is_active %}
                 <span class="badge bg-success-subtle text-success">
                   <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Aktiw
                 </span>
@@ -101,24 +89,24 @@
             </td>
             <td class="text-center pe-4">
               <div class="d-flex justify-content-center gap-1">
-                <a href="{{ url_for('admin.analysis_tools_edit', tool_id=tool.id) }}"
+                <a href="{{ url_for('admin.blanks_edit', blank_id=blank.id) }}"
                    class="btn btn-sm btn-outline-secondary" title="Üýtgetmek">
                   <i class="bi bi-pencil"></i>
                 </a>
 
-                <form id="toggle-t-{{ tool.id }}" method="POST"
-                      action="{{ url_for('admin.analysis_tools_toggle', tool_id=tool.id) }}" class="d-inline">
+                <form id="toggle-b-{{ blank.id }}" method="POST"
+                      action="{{ url_for('admin.blanks_toggle', blank_id=blank.id) }}" class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 </form>
 
-                {% if tool.is_active %}
+                {% if blank.is_active %}
                   <button type="button" class="btn btn-sm btn-outline-danger" title="Bloklamak"
-                          onclick="confirmAction('toggle-t-{{ tool.id }}', 'Serişdäni bloklamak «{{ tool.name }}»?')">
+                          onclick="confirmAction('toggle-b-{{ blank.id }}', 'Blanky bloklamak «{{ blank.name }}»?')">
                     <i class="bi bi-slash-circle"></i>
                   </button>
                 {% else %}
                   <button type="button" class="btn btn-sm btn-outline-success" title="Aktiwleşdirmek"
-                          onclick="confirmAction('toggle-t-{{ tool.id }}', 'Serişdäni aktiwleşdirmek «{{ tool.name }}»?')">
+                          onclick="confirmAction('toggle-b-{{ blank.id }}', 'Blanky aktiwleşdirmek «{{ blank.name }}»?')">
                     <i class="bi bi-check-circle"></i>
                   </button>
                 {% endif %}
@@ -128,13 +116,13 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="9" class="text-center text-muted py-5">
+            <td colspan="8" class="text-center text-muted py-5">
               <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
               {% if search or status_filter %}
-                Serişdeler tapylmady. <a href="{{ url_for('admin.analysis_tools_list') }}">Filtri aýyrmak</a>
+                Blanklar tapylmady. <a href="{{ url_for('admin.blanks_list') }}">Filtri aýyrmak</a>
               {% else %}
-                Heniz serişde ýok.
-                <a href="{{ url_for('admin.analysis_tools_create') }}">Ilki serişde goşmak</a>
+                Heniz blank ýok.
+                <a href="{{ url_for('admin.blanks_create') }}">Ilki blank goşmak</a>
               {% endif %}
             </td>
           </tr>
@@ -143,9 +131,9 @@
     </table>
   </div>
 
-  {% if tools %}
+  {% if blanks %}
   <div class="card-footer bg-white text-muted small px-4">
-    Tapylanlar: {{ tools | length }}
+    Tapylanlar: {{ blanks | length }}
   </div>
   {% endif %}
 </div>

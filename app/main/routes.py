@@ -7,8 +7,8 @@ from app.main import main_bp
 from app.main.forms import PatientForm
 from app.extensions import db
 from app.models import (Patient, Examination, ExaminationAnalysis,
-                        ExaminationDirection, ExaminationAnalysisTool,
-                        DoctorDirection, Analysis, AnalysisTool,
+                        ExaminationDirection, ExaminationAnalysisTool, ExaminationBlank,
+                        DoctorDirection, Analysis, AnalysisTool, Blank,
                         CombinedAnalysis, User)
 
 
@@ -176,6 +176,7 @@ def patients_history(patient_id):
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
             subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool),
+            subqueryload(Examination.exam_blanks).joinedload(ExaminationBlank.blank),
             joinedload(Examination.created_by),
             joinedload(Examination.paid_by),
         )
@@ -221,6 +222,16 @@ def _exam_form_context():
     for t in all_tools:
         for a in t.analyses:
             analysis_tools_map.setdefault(a.id, []).append(t.id)
+
+    all_blanks = (Blank.query
+                  .filter_by(is_active=True)
+                  .order_by(Blank.name)
+                  .all())
+    analysis_blanks_map = {}
+    for b in all_blanks:
+        for a in b.analyses:
+            analysis_blanks_map.setdefault(a.id, []).append(b.id)
+
     return {
         'analyses': Analysis.query.filter_by(is_active=True).order_by(Analysis.name).all(),
         'combined_analyses': CombinedAnalysis.query.filter_by(is_active=True).options(joinedload(CombinedAnalysis.analyses)).order_by(CombinedAnalysis.name).all(),
@@ -231,6 +242,8 @@ def _exam_form_context():
         ).options(joinedload(User.directions)).order_by(User.full_name).all(),
         'all_tools': all_tools,
         'analysis_tools_map': analysis_tools_map,
+        'all_blanks': all_blanks,
+        'analysis_blanks_map': analysis_blanks_map,
     }
 
 
@@ -240,6 +253,7 @@ def _parse_exam_form():
     analysis_ids = list(dict.fromkeys(request.form.getlist('analysis_ids', type=int)))
     direction_ids = list(dict.fromkeys(request.form.getlist('direction_ids', type=int)))
     tool_ids = list(dict.fromkeys(request.form.getlist('tool_ids', type=int)))
+    blank_ids = list(dict.fromkeys(request.form.getlist('blank_ids', type=int)))
 
     errors = []
 
@@ -257,6 +271,8 @@ def _parse_exam_form():
                      for aid in analysis_ids}
     tool_qtys = {tid: max(1, request.form.get(f'tool_qty_{tid}', 1, type=int))
                  for tid in tool_ids}
+    blank_qtys = {bid: max(1, request.form.get(f'blank_qty_{bid}', 1, type=int))
+                  for bid in blank_ids}
 
     doctor_for = {}
     if direction_ids:
@@ -279,11 +295,14 @@ def _parse_exam_form():
         'direction_ids': direction_ids,
         'tool_ids': tool_ids,
         'tool_qtys': tool_qtys,
+        'blank_ids': blank_ids,
+        'blank_qtys': blank_qtys,
         'doctor_for': doctor_for,
         'selected_patient_id': patient_id,
         'selected_analysis_qtys': analysis_qtys,
         'selected_direction_ids': set(direction_ids),
         'selected_tool_qtys': tool_qtys,
+        'selected_blank_qtys': blank_qtys,
     }
     return data, errors
 
@@ -404,6 +423,17 @@ def examinations_create():
                 price=t.total_price,
                 is_insurance=t.is_insurance,
             ))
+        blanks_by_id = {b.id: b for b in Blank.query.filter(
+            Blank.id.in_(data['blank_ids'])).all()} if data['blank_ids'] else {}
+        for bid in data['blank_ids']:
+            b = blanks_by_id[bid]
+            db.session.add(ExaminationBlank(
+                examination_id=exam.id,
+                blank_id=bid,
+                quantity=data['blank_qtys'].get(bid, 1),
+                price=b.total_price,
+                is_insurance=b.is_insurance,
+            ))
 
         db.session.commit()
         flash(f'Barlag №{exam.id} döredilen.', 'success')
@@ -415,6 +445,7 @@ def examinations_create():
         'selected_analysis_qtys': {},
         'selected_direction_ids': set(),
         'selected_tool_qtys': {},
+        'selected_blank_qtys': {},
         'doctor_for': {},
     }
     return render_template('main/examinations/create.html', **ctx, **defaults)
@@ -436,6 +467,7 @@ def examinations_detail(exam_id):
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
             subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool).subqueryload(AnalysisTool.analyses),
+            subqueryload(Examination.exam_blanks).joinedload(ExaminationBlank.blank).subqueryload(Blank.analyses),
         )
         .first()
     )
@@ -480,6 +512,7 @@ def examinations_report(exam_id):
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.direction),
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
             subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool).subqueryload(AnalysisTool.analyses),
+            subqueryload(Examination.exam_blanks).joinedload(ExaminationBlank.blank).subqueryload(Blank.analyses),
         )
         .first()
     )
@@ -517,6 +550,7 @@ def examinations_edit(exam_id):
             subqueryload(Examination.exam_analyses),
             subqueryload(Examination.exam_directions),
             subqueryload(Examination.exam_tools),
+            subqueryload(Examination.exam_blanks),
         )
         .first()
     )
@@ -593,6 +627,20 @@ def examinations_edit(exam_id):
                 is_insurance=t.is_insurance,
             ))
 
+        for eb in list(exam.exam_blanks):
+            db.session.delete(eb)
+        blanks_by_id = {b.id: b for b in Blank.query.filter(
+            Blank.id.in_(data['blank_ids'])).all()} if data['blank_ids'] else {}
+        for bid in data['blank_ids']:
+            b = blanks_by_id[bid]
+            db.session.add(ExaminationBlank(
+                examination_id=exam.id,
+                blank_id=bid,
+                quantity=data['blank_qtys'].get(bid, 1),
+                price=b.total_price,
+                is_insurance=b.is_insurance,
+            ))
+
         db.session.commit()
         flash(f'Barlag №{exam.id} maglumatlary täzelenen.', 'success')
         return redirect(url_for('main.examinations_list'))
@@ -603,6 +651,7 @@ def examinations_edit(exam_id):
         'selected_analysis_qtys': {ea.analysis_id: ea.quantity for ea in exam.exam_analyses},
         'selected_direction_ids': {ed.direction_id for ed in exam.exam_directions},
         'selected_tool_qtys': {et.tool_id: et.quantity for et in exam.exam_tools},
+        'selected_blank_qtys': {eb.blank_id: eb.quantity for eb in exam.exam_blanks},
         'doctor_for': {ed.direction_id: ed.doctor_id for ed in exam.exam_directions},
     }
     return render_template('main/examinations/edit.html', exam=exam, **ctx, **pre)
