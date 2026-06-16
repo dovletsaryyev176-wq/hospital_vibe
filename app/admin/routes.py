@@ -576,7 +576,7 @@ def tool_subcategories_create():
     if form.validate_on_submit():
         sub = AnalysisToolSubcategory(
             name=form.name.data.strip(),
-            category_id=form.category_id.data or None,
+            category_id=form.category_id.data,
         )
         db.session.add(sub)
         db.session.commit()
@@ -597,7 +597,7 @@ def tool_subcategories_edit(sub_id):
         form.category_id.data = sub.category_id or 0
     if form.validate_on_submit():
         sub.name = form.name.data.strip()
-        sub.category_id = form.category_id.data or None
+        sub.category_id = form.category_id.data
         db.session.commit()
         flash(f'Kiçi kategoriýa «{sub.name}» täzelenen.', 'success')
         return redirect(url_for('admin.tool_subcategories_list'))

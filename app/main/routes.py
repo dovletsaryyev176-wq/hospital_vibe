@@ -1,4 +1,6 @@
-from datetime import datetime
+from collections import OrderedDict
+from datetime import datetime, timedelta
+from decimal import Decimal
 from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort, jsonify
 from flask_login import current_user, logout_user
@@ -9,6 +11,7 @@ from app.extensions import db
 from app.models import (Patient, Examination, ExaminationAnalysis,
                         ExaminationDirection, ExaminationAnalysisTool, ExaminationBlank,
                         DoctorDirection, Analysis, AnalysisTool, Blank,
+                        AnalysisToolSubcategory,
                         CombinedAnalysis, User)
 
 
@@ -39,6 +42,7 @@ def role_required(*roles):
 main_required = role_required()
 patients_required = role_required('registrar', 'doctor')
 examinations_view_required = role_required('registrar', 'doctor', 'cashier', 'analysis_responsible')
+reports_required = role_required('cashier')
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -794,3 +798,137 @@ def examinations_mark_visited(exam_id, ed_id):
     db.session.commit()
     flash(f'Syrkaw bu ugur geçilen diýip bellenilen «{ed.direction.name}» .', 'success')
     return redirect(url_for('main.examinations_detail', exam_id=exam_id))
+
+
+# ── Reports (cashier) ─────────────────────────────────────────────────────────
+
+@main_bp.route('/reports')
+@reports_required
+def reports_index():
+    return render_template('main/reports/index.html')
+
+
+@main_bp.route('/reports/tools')
+@reports_required
+def reports_tools():
+    date_from = request.args.get('from', '').strip()
+    date_to = request.args.get('to', '').strip()
+
+    query = Examination.query.filter(Examination.is_paid == True)
+
+    if date_from:
+        try:
+            parsed_from = datetime.strptime(date_from, '%Y-%m-%d')
+            query = query.filter(Examination.created_at >= parsed_from)
+        except ValueError:
+            date_from = ''
+    if date_to:
+        try:
+            parsed_to = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
+            query = query.filter(Examination.created_at < parsed_to)
+        except ValueError:
+            date_to = ''
+
+    exams = (
+        query
+        .options(
+            joinedload(Examination.patient),
+            joinedload(Examination.created_by),
+            subqueryload(Examination.exam_analyses),
+            subqueryload(Examination.exam_directions),
+            subqueryload(Examination.exam_blanks),
+            subqueryload(Examination.exam_tools)
+                .joinedload(ExaminationAnalysisTool.tool)
+                .joinedload(AnalysisTool.category),
+            subqueryload(Examination.exam_tools)
+                .joinedload(ExaminationAnalysisTool.tool)
+                .joinedload(AnalysisTool.subcategory)
+                .joinedload(AnalysisToolSubcategory.category),
+        )
+        .order_by(Examination.created_at.desc())
+        .all()
+    )
+
+    rows = []
+    grand = {
+        'analyses': Decimal('0'), 'directions': Decimal('0'),
+        'blanks': Decimal('0'), 'tools': Decimal('0'), 'total': Decimal('0'),
+        'full_total': Decimal('0'), 'discount_total': Decimal('0'),
+    }
+
+    for exam in exams:
+        analyses_total = sum((ea.effective_total for ea in exam.exam_analyses), Decimal('0'))
+        directions_total = sum((ed.effective_total for ed in exam.exam_directions), Decimal('0'))
+        blanks_total = sum((eb.effective_total for eb in exam.exam_blanks), Decimal('0'))
+
+        analyses_full = sum((ea.snapshot_total for ea in exam.exam_analyses), Decimal('0'))
+        directions_full = sum((ed.snapshot_total for ed in exam.exam_directions), Decimal('0'))
+        blanks_full = sum((eb.snapshot_total for eb in exam.exam_blanks), Decimal('0'))
+
+        tools_total = Decimal('0')
+        tools_full = Decimal('0')
+        uncategorized_total = Decimal('0')
+        uncategorized_full = Decimal('0')
+        categories = OrderedDict()
+
+        def _new_cat_entry():
+            return {'total': Decimal('0'), 'full': Decimal('0'), 'subcategories': OrderedDict()}
+
+        for et in exam.exam_tools:
+            amount = et.effective_total
+            full_amount = et.snapshot_total
+            tools_total += amount
+            tools_full += full_amount
+            tool = et.tool
+
+            if tool.subcategory:
+                cat = tool.subcategory.category
+                cat_name = cat.name if cat else 'Beleli däl'
+                entry = categories.setdefault(cat_name, _new_cat_entry())
+                entry['total'] += amount
+                entry['full'] += full_amount
+                sub_name = tool.subcategory.name
+                sub = entry['subcategories'].setdefault(sub_name, {'total': Decimal('0'), 'full': Decimal('0')})
+                sub['total'] += amount
+                sub['full'] += full_amount
+            elif tool.category:
+                entry = categories.setdefault(tool.category.name, _new_cat_entry())
+                entry['total'] += amount
+                entry['full'] += full_amount
+            else:
+                uncategorized_total += amount
+                uncategorized_full += full_amount
+
+        exam_total = analyses_total + directions_total + blanks_total + tools_total
+        full_total = analyses_full + directions_full + blanks_full + tools_full
+        discount_total = full_total - exam_total
+
+        grand['analyses'] += analyses_total
+        grand['directions'] += directions_total
+        grand['blanks'] += blanks_total
+        grand['tools'] += tools_total
+        grand['total'] += exam_total
+        grand['full_total'] += full_total
+        grand['discount_total'] += discount_total
+
+        rows.append({
+            'exam': exam,
+            'analyses_total': analyses_total,
+            'directions_total': directions_total,
+            'blanks_total': blanks_total,
+            'full_total': full_total,
+            'discount_total': discount_total,
+            'tools_total': tools_total,
+            'exam_total': exam_total,
+            'categories': categories,
+            'uncategorized_total': uncategorized_total,
+            'uncategorized_full': uncategorized_full,
+        })
+
+    return render_template(
+        'main/reports/tools_report.html',
+        rows=rows,
+        grand=grand,
+        date_from=date_from,
+        date_to=date_to,
+    )

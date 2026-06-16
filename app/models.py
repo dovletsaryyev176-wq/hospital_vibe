@@ -42,9 +42,13 @@ class PricingSnapshotMixin:
         return f'{self.effective_total:,.2f}'
 
     @property
-    def snapshot_total_display(self):
+    def snapshot_total(self):
         qty = getattr(self, 'quantity', 1) or 1
-        return f'{self.snapshot_price * qty:,.2f}'
+        return self.snapshot_price * qty
+
+    @property
+    def snapshot_total_display(self):
+        return f'{self.snapshot_total:,.2f}'
 
 
 class DoctorDirection(db.Model):
@@ -290,7 +294,7 @@ class AnalysisToolSubcategory(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
-    category_id = db.Column(db.Integer, db.ForeignKey('analysis_tool_categories.id'), nullable=True)
+    category_id = db.Column(db.Integer, db.ForeignKey('analysis_tool_categories.id'), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 

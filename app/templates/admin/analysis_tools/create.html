@@ -79,7 +79,7 @@
                   {{ form.subcategory_id(class='form-select', id='sub_sel_c') }}
                 </div>
               </div>
-              <div class="form-text text-muted">Serişde kategoriýa ýa-da kiçi kategoriýa görä berkidilip bilner (islege görä).</div>
+              <div class="form-text text-muted">Ilki kategoriýany saýlaň. Onda kiçi kategoriýalar bar bolsa, ikinji sanawda görkeziler — serişde kategoriýa ýa-da onuň kiçi kategoriýasyna berkidiler (islege görä).</div>
             </div>
           </div>
 
@@ -107,12 +107,11 @@
     const current = parseInt(subSel.value) || 0;
     subSel.innerHTML = '';
     subSel.appendChild(new Option('— Kiçi kategoriýa saýlaň (islege görä) —', '0'));
-    allSubs.forEach(function (s) {
-      if (catId === 0 || s.category_id === catId || s.category_id === 0) {
-        const opt = new Option(s.name, s.id);
-        if (s.id === current) opt.selected = true;
-        subSel.appendChild(opt);
-      }
+    const matching = allSubs.filter(function (s) { return catId !== 0 && s.category_id === catId; });
+    matching.forEach(function (s) {
+      const opt = new Option(s.name, s.id);
+      if (s.id === current) opt.selected = true;
+      subSel.appendChild(opt);
     });
   }
 

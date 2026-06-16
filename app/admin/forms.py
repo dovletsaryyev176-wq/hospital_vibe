@@ -355,7 +355,7 @@ class AnalysisToolSubcategoryForm(FlaskForm):
         ],
         render_kw={'placeholder': 'Kiçi kategoriýanyň ady'},
     )
-    category_id = SelectField('Kategoriýa (islege görä)', coerce=int, validators=[Optional()])
+    category_id = SelectField('Kategoriýa', coerce=int, validators=[Optional()])
     submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_subcategory=None, **kwargs):
@@ -365,13 +365,17 @@ class AnalysisToolSubcategoryForm(FlaskForm):
 
     def _build_category_choices(self):
         cats = AnalysisToolCategory.query.filter_by(is_active=True).order_by(AnalysisToolCategory.name).all()
-        choices = [(0, '— Kategoriýa saýlaň (islege görä) —')]
+        choices = [(0, '— Kategoriýa saýlaň —')]
         if self._editing_subcategory and self._editing_subcategory.category_id:
             current = self._editing_subcategory.category
             if current and not current.is_active:
                 choices.append((current.id, f'{current.name} [bloklanan]'))
         choices += [(c.id, c.name) for c in cats]
         self.category_id.choices = choices
+
+    def validate_category_id(self, field):
+        if not field.data:
+            raise ValidationError('Kiçi kategoriýa üçin kategoriýa saýlamak hökmany.')
 
 
 class BlankForm(FlaskForm):

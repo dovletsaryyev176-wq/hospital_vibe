@@ -1,0 +1,197 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Serişdeler boýunça hasabat{% endblock %}
+{% block page_title %}Serişdeler boýunça hasabat{% endblock %}
+
+{% block content %}
+
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-body px-4 py-3">
+    <div class="d-flex flex-wrap flex-md-nowrap align-items-center gap-2">
+      <a href="{{ url_for('main.reports_index') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <form class="d-flex flex-wrap flex-md-nowrap align-items-center gap-2" method="GET" action="{{ url_for('main.reports_tools') }}">
+        <input type="date" class="form-control form-control-sm" name="from" value="{{ date_from }}" style="width:140px">
+        <span class="text-muted small flex-shrink-0">—</span>
+        <input type="date" class="form-control form-control-sm" name="to" value="{{ date_to }}" style="width:140px">
+        <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">Görkezmek</button>
+        {% if date_from or date_to %}
+          <a href="{{ url_for('main.reports_tools') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0">
+            <i class="bi bi-x-lg"></i>
+          </a>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Grand totals -->
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-2">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Analizler</div>
+        <div class="fw-semibold">{{ '%.2f' | format(grand.analyses) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-2">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Lukmanlar</div>
+        <div class="fw-semibold">{{ '%.2f' | format(grand.directions) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-2">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Blanklar</div>
+        <div class="fw-semibold">{{ '%.2f' | format(grand.blanks) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-2">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Serişdeler</div>
+        <div class="fw-semibold">{{ '%.2f' | format(grand.tools) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="card shadow-sm border-0 h-100 bg-primary-subtle">
+      <div class="card-body py-2 px-3">
+        <div class="text-primary small">Jemi (tölenen)</div>
+        <div class="fw-bold text-primary fs-5">{{ '%.2f' | format(grand.total) }}</div>
+        <div class="text-primary-emphasis small">
+          Doly bahasy: {{ '%.2f' | format(grand.full_total) }}
+          {% if grand.discount_total %} · Ýeňillik: −{{ '%.2f' | format(grand.discount_total) }}{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% set col_count = 17 %}
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle mb-0 small">
+      <thead>
+        <tr class="text-nowrap">
+          <th>№</th>
+          <th>Senesi</th>
+          <th>Döreden</th>
+          <th>F.A.A.</th>
+          <th>Doglan ýyly</th>
+          <th>Ýaşy</th>
+          <th>Raýatlygy</th>
+          <th>Salgysy</th>
+          <th>Pasport №</th>
+          <th>Saglyk ät.№</th>
+          <th class="text-end">Analizler</th>
+          <th class="text-end">Lukmanlar</th>
+          <th class="text-end">Blanklar</th>
+          <th class="text-end">Serişdeler</th>
+          <th class="text-end">Doly bahasy</th>
+          <th class="text-end">Ýeňillik</th>
+          <th class="text-end">Tölenmeli</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rows %}
+          {% for r in rows %}
+          {% set exam = r.exam %}
+          <tr>
+            <td class="fw-semibold">{{ exam.id }}</td>
+            <td class="text-nowrap">{{ exam.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+            <td class="text-nowrap">{{ exam.created_by.full_name }}</td>
+            <td class="text-nowrap">{{ exam.patient.full_name }}</td>
+            <td>{{ exam.patient.birth_year }}</td>
+            <td>{{ exam.patient.age }}</td>
+            <td class="text-nowrap">{{ exam.patient.citizenship }}</td>
+            <td class="text-nowrap">{{ exam.patient.home_address }}</td>
+            <td class="text-nowrap">{{ exam.patient.passport_number or '—' }}</td>
+            <td class="text-nowrap">{{ exam.patient.insurance_number or '—' }}</td>
+            <td class="text-end">{{ '%.2f' | format(r.analyses_total) }}</td>
+            <td class="text-end">{{ '%.2f' | format(r.directions_total) }}</td>
+            <td class="text-end">{{ '%.2f' | format(r.blanks_total) }}</td>
+            <td class="text-end">{{ '%.2f' | format(r.tools_total) }}</td>
+            <td class="text-end">{{ '%.2f' | format(r.full_total) }}</td>
+            <td class="text-end {% if r.discount_total %}text-success fw-semibold{% endif %}">
+              {% if r.discount_total %}−{{ '%.2f' | format(r.discount_total) }}{% else %}0.00{% endif %}
+            </td>
+            <td class="text-end fw-bold">{{ '%.2f' | format(r.exam_total) }}</td>
+          </tr>
+          <tr>
+            <td colspan="{{ col_count }}" class="bg-light p-3">
+              <div class="fw-semibold small text-muted mb-2">Barlag №{{ exam.id }} — serişdeler boýunça</div>
+
+              {% if r.categories or r.uncategorized_total %}
+              <table class="table table-sm table-bordered bg-white mb-0">
+                <thead>
+                  <tr>
+                    <th>Kategoriýa / Kiçi kategoriýa</th>
+                    <th class="text-end" style="width:140px">Doly bahasy</th>
+                    <th class="text-end" style="width:140px">Ýeňillik</th>
+                    <th class="text-end" style="width:140px">Tölenmeli</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for cat_name, cat in r.categories.items() %}
+                  {% set cat_discount = cat.full - cat.total %}
+                  <tr class="table-light">
+                    <td class="fw-semibold">{{ cat_name }}</td>
+                    <td class="text-end fw-semibold">{{ '%.2f' | format(cat.full) }}</td>
+                    <td class="text-end fw-semibold {% if cat_discount %}text-success{% endif %}">
+                      {% if cat_discount %}−{{ '%.2f' | format(cat_discount) }}{% else %}0.00{% endif %}
+                    </td>
+                    <td class="text-end fw-semibold">{{ '%.2f' | format(cat.total) }}</td>
+                  </tr>
+                  {% for sub_name, sub in cat.subcategories.items() %}
+                  {% set sub_discount = sub.full - sub.total %}
+                  <tr>
+                    <td class="ps-4 text-muted">{{ sub_name }}</td>
+                    <td class="text-end">{{ '%.2f' | format(sub.full) }}</td>
+                    <td class="text-end {% if sub_discount %}text-success{% endif %}">
+                      {% if sub_discount %}−{{ '%.2f' | format(sub_discount) }}{% else %}0.00{% endif %}
+                    </td>
+                    <td class="text-end">{{ '%.2f' | format(sub.total) }}</td>
+                  </tr>
+                  {% endfor %}
+                  {% endfor %}
+                  {% if r.uncategorized_total %}
+                  {% set unc_discount = r.uncategorized_full - r.uncategorized_total %}
+                  <tr>
+                    <td class="text-muted">Kategoriýasyz serişdeler</td>
+                    <td class="text-end">{{ '%.2f' | format(r.uncategorized_full) }}</td>
+                    <td class="text-end {% if unc_discount %}text-success{% endif %}">
+                      {% if unc_discount %}−{{ '%.2f' | format(unc_discount) }}{% else %}0.00{% endif %}
+                    </td>
+                    <td class="text-end">{{ '%.2f' | format(r.uncategorized_total) }}</td>
+                  </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+              {% else %}
+                <div class="text-muted small">Serişde ulanylmadyk.</div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="{{ col_count }}" class="text-center text-muted py-5">
+              <i class="bi bi-clipboard2-x display-5 d-block mb-2 opacity-25"></i>
+              Maglumat ýok
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
