@@ -39,11 +39,35 @@ class DirectionForm(FlaskForm):
         render_kw={'placeholder': '0.00'},
     )
     is_insurance = BooleanField('Ätiýaçlandyryş')
+    analysis_ids = SelectMultipleField(
+        'Baglanyşykly analizler',
+        coerce=int,
+        validators=[Optional()],
+    )
     submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_direction=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._editing_direction = editing_direction
+        self._build_analysis_choices()
+
+    def _build_analysis_choices(self):
+        active = (
+            Analysis.query
+            .filter_by(is_active=True)
+            .order_by(Analysis.name)
+            .all()
+        )
+        choices = [(a.id, a.name) for a in active]
+
+        if self._editing_direction:
+            blocked = [
+                a for a in self._editing_direction.analyses
+                if not a.is_active
+            ]
+            choices = [(a.id, f'{a.name} [bloklanan]') for a in blocked] + choices
+
+        self.analysis_ids.choices = choices
 
     def validate_name(self, field):
         from app.models import DoctorDirection

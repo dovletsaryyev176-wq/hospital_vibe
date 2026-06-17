@@ -446,6 +446,7 @@
   // ── Quantity helpers ──────────────────────────────────────────────────────
   const analysisToolsMap = {{ analysis_tools_map | tojson }};
   const analysisBlanksMap = {{ analysis_blanks_map | tojson }};
+  const analysisDirectionsMap = {{ analysis_directions_map | tojson }};
 
   function getAnalysisQty(analysisId) {
     const inp = document.querySelector(`.analysis-qty-input[data-analysis-id="${analysisId}"]`);
@@ -587,6 +588,42 @@
     });
   }
 
+  // ── Directions auto-select from analyses ──────────────────────────────────
+  // Auto-check a direction when a linked analysis is selected; auto-uncheck it
+  // when no linked analysis stays selected — but never drop a direction whose
+  // doctor was already chosen manually.
+  function recalcDirectionFromAllAnalyses(dirId) {
+    const cb = document.querySelector(`.dir-cb[value="${dirId}"]`);
+    if (!cb) return;
+    const row    = document.getElementById('dir-row-' + dirId);
+    const select = document.getElementById('doctor-select-' + dirId);
+
+    let linked = false;
+    for (const [aIdStr, dIds] of Object.entries(analysisDirectionsMap)) {
+      if (!dIds.includes(dirId)) continue;
+      const aCb = document.querySelector(`.analysis-cb[value="${aIdStr}"]`);
+      if (aCb && aCb.checked) { linked = true; break; }
+    }
+
+    if (linked) {
+      if (!cb.checked) {
+        cb.checked = true;
+        if (row) row.style.opacity = '1';
+        if (select) select.disabled = false;
+      }
+    } else if (cb.checked && (!select || !select.value)) {
+      cb.checked = false;
+      if (row) row.style.opacity = '0.45';
+      if (select) { select.disabled = true; select.value = ''; }
+    }
+  }
+
+  function syncDirectionsFromAnalysis(analysisId) {
+    (analysisDirectionsMap[analysisId] || []).forEach(dirId => {
+      recalcDirectionFromAllAnalyses(dirId);
+    });
+  }
+
   // Analysis qty input changed → propagate to tools and blanks
   document.querySelectorAll('.analysis-qty-input').forEach(inp => {
     inp.addEventListener('input', function () {
@@ -631,6 +668,7 @@
       syncCombosFromReal(analysisId, this.checked);
       syncToolsFromAnalysis(analysisId, this.checked);
       syncBlanksFromAnalysis(analysisId);
+      syncDirectionsFromAnalysis(analysisId);
       updateAnalysesCount();
     });
   });
@@ -653,6 +691,7 @@
       });
       syncToolsFromAnalysis(analysisId, this.checked);
       syncBlanksFromAnalysis(analysisId);
+      syncDirectionsFromAnalysis(analysisId);
       updateComboAllState(this.dataset.comboId);
       updateAnalysesCount();
     });
@@ -682,6 +721,7 @@
         });
         syncToolsFromAnalysis(analysisId, this.checked);
         syncBlanksFromAnalysis(analysisId);
+        syncDirectionsFromAnalysis(analysisId);
       });
       if (qtyInp) qtyInp.disabled = !this.checked;
       document.querySelectorAll('.combo-all-cb').forEach(o => {
@@ -744,6 +784,7 @@
         syncCombosFromReal(analysisId, this.checked);
         syncToolsFromAnalysis(analysisId, this.checked);
         syncBlanksFromAnalysis(analysisId);
+        syncDirectionsFromAnalysis(analysisId);
       });
       updateAnalysesCount();
     });

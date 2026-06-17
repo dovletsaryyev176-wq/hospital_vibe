@@ -98,7 +98,7 @@
             <i class="bi bi-check2-circle me-1"></i>Barlagy ýapmak
           </button>
         {% endif %}
-        {% if current_user.role == 'cashier' and not exam.is_paid %}
+        {% if current_user.role in ['cashier', 'registrar'] and not exam.is_paid %}
           <form id="insurance-form" method="POST"
                 action="{{ url_for('main.examinations_toggle_insurance', exam_id=exam.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -116,6 +116,8 @@
               <i class="bi bi-shield-check me-1"></i>Ätiýaçlandyryşy açmak
             </button>
           {% endif %}
+        {% endif %}
+        {% if current_user.role == 'cashier' and not exam.is_paid %}
           <form id="pay-form" method="POST"
                 action="{{ url_for('main.examinations_pay', exam_id=exam.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

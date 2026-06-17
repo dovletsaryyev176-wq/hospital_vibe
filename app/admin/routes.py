@@ -291,6 +291,7 @@ def directions_create():
     form = DirectionForm()
     if form.validate_on_submit():
         direction = DoctorDirection(name=form.name.data.strip(), price=form.price.data, is_insurance=form.is_insurance.data)
+        direction.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
         db.session.add(direction)
         db.session.commit()
         flash(f'Ugur «{direction.name}» döredilen.', 'success')
@@ -310,10 +311,14 @@ def directions_edit(direction_id):
 
     form = DirectionForm(obj=direction, editing_direction=direction)
 
+    if request.method == 'GET':
+        form.analysis_ids.data = [a.id for a in direction.analyses]
+
     if form.validate_on_submit():
         direction.name = form.name.data.strip()
         direction.price = form.price.data
         direction.is_insurance = form.is_insurance.data
+        direction.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
         db.session.commit()
         flash(f'Ugur «{direction.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.directions_list'))

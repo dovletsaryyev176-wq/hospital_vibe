@@ -236,10 +236,19 @@ def _exam_form_context():
         for a in b.analyses:
             analysis_blanks_map.setdefault(a.id, []).append(b.id)
 
+    directions = (DoctorDirection.query
+                  .filter_by(is_active=True)
+                  .order_by(DoctorDirection.name)
+                  .all())
+    analysis_directions_map = {}
+    for d in directions:
+        for a in d.analyses:
+            analysis_directions_map.setdefault(a.id, []).append(d.id)
+
     return {
         'analyses': Analysis.query.filter_by(is_active=True).order_by(Analysis.name).all(),
         'combined_analyses': CombinedAnalysis.query.filter_by(is_active=True).options(joinedload(CombinedAnalysis.analyses)).order_by(CombinedAnalysis.name).all(),
-        'directions': DoctorDirection.query.filter_by(is_active=True).order_by(DoctorDirection.name).all(),
+        'directions': directions,
         'doctors': User.query.filter(
             User.role.in_(['doctor', 'analysis_responsible']),
             User.is_active == True,
@@ -248,6 +257,7 @@ def _exam_form_context():
         'analysis_tools_map': analysis_tools_map,
         'all_blanks': all_blanks,
         'analysis_blanks_map': analysis_blanks_map,
+        'analysis_directions_map': analysis_directions_map,
     }
 
 
@@ -688,7 +698,7 @@ def examinations_close(exam_id):
 # ── Toggle insurance discount ─────────────────────────────────────────────────
 
 @main_bp.route('/examinations/<int:exam_id>/toggle-insurance', methods=['POST'])
-@role_required('cashier')
+@role_required('cashier', 'registrar')
 def examinations_toggle_insurance(exam_id):
     exam = db.session.get(Examination, exam_id)
     if exam is None:
@@ -927,6 +937,195 @@ def reports_tools():
 
     return render_template(
         'main/reports/tools_report.html',
+        rows=rows,
+        grand=grand,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def _reports_date_filter():
+    """Parse from/to query params and return (query, date_from, date_to)."""
+    date_from = request.args.get('from', '').strip()
+    date_to = request.args.get('to', '').strip()
+
+    query = Examination.query.filter(Examination.is_paid == True)
+
+    if date_from:
+        try:
+            parsed_from = datetime.strptime(date_from, '%Y-%m-%d')
+            query = query.filter(Examination.created_at >= parsed_from)
+        except ValueError:
+            date_from = ''
+    if date_to:
+        try:
+            parsed_to = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
+            query = query.filter(Examination.created_at < parsed_to)
+        except ValueError:
+            date_to = ''
+
+    return query, date_from, date_to
+
+
+def _new_grand():
+    return {
+        'analyses': Decimal('0'), 'directions': Decimal('0'),
+        'blanks': Decimal('0'), 'tools': Decimal('0'), 'total': Decimal('0'),
+        'full_total': Decimal('0'), 'discount_total': Decimal('0'),
+    }
+
+
+def _exam_section_totals(exam):
+    """Return (totals, full) dicts of section sums for an examination."""
+    totals = {
+        'analyses': sum((ea.effective_total for ea in exam.exam_analyses), Decimal('0')),
+        'directions': sum((ed.effective_total for ed in exam.exam_directions), Decimal('0')),
+        'blanks': sum((eb.effective_total for eb in exam.exam_blanks), Decimal('0')),
+        'tools': sum((et.effective_total for et in exam.exam_tools), Decimal('0')),
+    }
+    full = {
+        'analyses': sum((ea.snapshot_total for ea in exam.exam_analyses), Decimal('0')),
+        'directions': sum((ed.snapshot_total for ed in exam.exam_directions), Decimal('0')),
+        'blanks': sum((eb.snapshot_total for eb in exam.exam_blanks), Decimal('0')),
+        'tools': sum((et.snapshot_total for et in exam.exam_tools), Decimal('0')),
+    }
+    return totals, full
+
+
+@main_bp.route('/reports/directions')
+@reports_required
+def reports_directions():
+    query, date_from, date_to = _reports_date_filter()
+
+    exams = (
+        query
+        .options(
+            joinedload(Examination.patient),
+            joinedload(Examination.created_by),
+            subqueryload(Examination.exam_analyses),
+            subqueryload(Examination.exam_blanks),
+            subqueryload(Examination.exam_tools),
+            subqueryload(Examination.exam_directions)
+                .joinedload(ExaminationDirection.direction),
+            subqueryload(Examination.exam_directions)
+                .joinedload(ExaminationDirection.doctor),
+        )
+        .order_by(Examination.created_at.desc())
+        .all()
+    )
+
+    rows = []
+    grand = _new_grand()
+
+    for exam in exams:
+        totals, full = _exam_section_totals(exam)
+
+        lines = []
+        for ed in exam.exam_directions:
+            lines.append({
+                'name': ed.direction.name if ed.direction else '—',
+                'doctor': ed.doctor.full_name if ed.doctor else '—',
+                'visited': ed.is_visited,
+                'full': ed.snapshot_total,
+                'discount': ed.snapshot_total - ed.effective_total,
+                'total': ed.effective_total,
+            })
+
+        exam_total = sum(totals.values(), Decimal('0'))
+        full_total = sum(full.values(), Decimal('0'))
+        discount_total = full_total - exam_total
+
+        for key in ('analyses', 'directions', 'blanks', 'tools'):
+            grand[key] += totals[key]
+        grand['total'] += exam_total
+        grand['full_total'] += full_total
+        grand['discount_total'] += discount_total
+
+        rows.append({
+            'exam': exam,
+            'analyses_total': totals['analyses'],
+            'directions_total': totals['directions'],
+            'blanks_total': totals['blanks'],
+            'tools_total': totals['tools'],
+            'full_total': full_total,
+            'discount_total': discount_total,
+            'exam_total': exam_total,
+            'lines': lines,
+        })
+
+    return render_template(
+        'main/reports/directions_report.html',
+        rows=rows,
+        grand=grand,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+@main_bp.route('/reports/analyses')
+@reports_required
+def reports_analyses():
+    query, date_from, date_to = _reports_date_filter()
+
+    exams = (
+        query
+        .options(
+            joinedload(Examination.patient),
+            joinedload(Examination.created_by),
+            subqueryload(Examination.exam_directions),
+            subqueryload(Examination.exam_blanks),
+            subqueryload(Examination.exam_tools),
+            subqueryload(Examination.exam_analyses)
+                .joinedload(ExaminationAnalysis.analysis)
+                .joinedload(Analysis.responsible),
+        )
+        .order_by(Examination.created_at.desc())
+        .all()
+    )
+
+    rows = []
+    grand = _new_grand()
+
+    for exam in exams:
+        totals, full = _exam_section_totals(exam)
+
+        lines = []
+        for ea in exam.exam_analyses:
+            responsible = ea.analysis.responsible if ea.analysis else None
+            lines.append({
+                'name': ea.analysis.name if ea.analysis else '—',
+                'responsible': responsible.full_name if responsible else '—',
+                'qty': ea.quantity,
+                'submitted': ea.is_submitted,
+                'full': ea.snapshot_total,
+                'discount': ea.snapshot_total - ea.effective_total,
+                'total': ea.effective_total,
+            })
+
+        exam_total = sum(totals.values(), Decimal('0'))
+        full_total = sum(full.values(), Decimal('0'))
+        discount_total = full_total - exam_total
+
+        for key in ('analyses', 'directions', 'blanks', 'tools'):
+            grand[key] += totals[key]
+        grand['total'] += exam_total
+        grand['full_total'] += full_total
+        grand['discount_total'] += discount_total
+
+        rows.append({
+            'exam': exam,
+            'analyses_total': totals['analyses'],
+            'directions_total': totals['directions'],
+            'blanks_total': totals['blanks'],
+            'tools_total': totals['tools'],
+            'full_total': full_total,
+            'discount_total': discount_total,
+            'exam_total': exam_total,
+            'lines': lines,
+        })
+
+    return render_template(
+        'main/reports/analyses_report.html',
         rows=rows,
         grand=grand,
         date_from=date_from,

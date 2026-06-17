@@ -51,6 +51,13 @@ class PricingSnapshotMixin:
         return f'{self.snapshot_total:,.2f}'
 
 
+direction_analyses = db.Table(
+    'direction_analyses',
+    db.Column('direction_id', db.Integer, db.ForeignKey('doctor_directions.id'), primary_key=True),
+    db.Column('analysis_id', db.Integer, db.ForeignKey('analyses.id'), primary_key=True),
+)
+
+
 class DoctorDirection(db.Model):
     __tablename__ = 'doctor_directions'
 
@@ -60,6 +67,11 @@ class DoctorDirection(db.Model):
     is_insurance = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    analyses = db.relationship(
+        'Analysis', secondary=direction_analyses, lazy='subquery',
+        backref=db.backref('directions', lazy='dynamic'),
+    )
 
     @property
     def price_display(self):
