@@ -1,8 +1,9 @@
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from decimal import Decimal
 from functools import wraps
-from flask import render_template, redirect, url_for, flash, request, abort, jsonify
+from io import BytesIO
+from flask import render_template, redirect, url_for, flash, request, abort, jsonify, Response
 from flask_login import current_user, logout_user
 from sqlalchemy.orm import joinedload, subqueryload
 from app.main import main_bp
@@ -818,14 +819,114 @@ def reports_index():
     return render_template('main/reports/index.html')
 
 
-@main_bp.route('/reports/tools')
-@reports_required
-def reports_tools():
-    date_from = request.args.get('from', '').strip()
-    date_to = request.args.get('to', '').strip()
+def _new_cat_entry():
+    return {'total': Decimal('0'), 'full': Decimal('0'), 'subcategories': OrderedDict()}
 
-    query = Examination.query.filter(Examination.is_paid == True)
 
+def _build_tools_row(exam):
+    """Build the detailed tools-report row dict (with category breakdown) for one exam."""
+    analyses_total = sum((ea.effective_total for ea in exam.exam_analyses), Decimal('0'))
+    directions_total = sum((ed.effective_total for ed in exam.exam_directions), Decimal('0'))
+    blanks_total = sum((eb.effective_total for eb in exam.exam_blanks), Decimal('0'))
+
+    analyses_full = sum((ea.snapshot_total for ea in exam.exam_analyses), Decimal('0'))
+    directions_full = sum((ed.snapshot_total for ed in exam.exam_directions), Decimal('0'))
+    blanks_full = sum((eb.snapshot_total for eb in exam.exam_blanks), Decimal('0'))
+
+    tools_total = Decimal('0')
+    tools_full = Decimal('0')
+    uncategorized_total = Decimal('0')
+    uncategorized_full = Decimal('0')
+    categories = OrderedDict()
+
+    for et in exam.exam_tools:
+        amount = et.effective_total
+        full_amount = et.snapshot_total
+        tools_total += amount
+        tools_full += full_amount
+        tool = et.tool
+
+        if tool.subcategory:
+            cat = tool.subcategory.category
+            cat_name = cat.name if cat else 'Beleli däl'
+            entry = categories.setdefault(cat_name, _new_cat_entry())
+            entry['total'] += amount
+            entry['full'] += full_amount
+            sub_name = tool.subcategory.name
+            sub = entry['subcategories'].setdefault(sub_name, {'total': Decimal('0'), 'full': Decimal('0')})
+            sub['total'] += amount
+            sub['full'] += full_amount
+        elif tool.category:
+            entry = categories.setdefault(tool.category.name, _new_cat_entry())
+            entry['total'] += amount
+            entry['full'] += full_amount
+        else:
+            uncategorized_total += amount
+            uncategorized_full += full_amount
+
+    exam_total = analyses_total + directions_total + blanks_total + tools_total
+    full_total = analyses_full + directions_full + blanks_full + tools_full
+    discount_total = full_total - exam_total
+
+    return {
+        'exam': exam,
+        'analyses_total': analyses_total,
+        'directions_total': directions_total,
+        'blanks_total': blanks_total,
+        'full_total': full_total,
+        'discount_total': discount_total,
+        'tools_total': tools_total,
+        'exam_total': exam_total,
+        'categories': categories,
+        'uncategorized_total': uncategorized_total,
+        'uncategorized_full': uncategorized_full,
+    }
+
+
+def _reports_grand_totals(query):
+    """Aggregate grand totals over the whole filtered query (all pages)."""
+    grand = {
+        'analyses': Decimal('0'), 'directions': Decimal('0'),
+        'blanks': Decimal('0'), 'tools': Decimal('0'), 'total': Decimal('0'),
+        'full_total': Decimal('0'), 'discount_total': Decimal('0'),
+    }
+    exams = (
+        query
+        .options(
+            joinedload(Examination.patient),
+            subqueryload(Examination.exam_analyses),
+            subqueryload(Examination.exam_directions),
+            subqueryload(Examination.exam_blanks),
+            subqueryload(Examination.exam_tools),
+        )
+        .all()
+    )
+    for exam in exams:
+        totals, full = _exam_section_totals(exam)
+        grand['analyses'] += totals['analyses']
+        grand['directions'] += totals['directions']
+        grand['blanks'] += totals['blanks']
+        grand['tools'] += totals['tools']
+        exam_total = sum(totals.values(), Decimal('0'))
+        full_total = sum(full.values(), Decimal('0'))
+        grand['total'] += exam_total
+        grand['full_total'] += full_total
+        grand['discount_total'] += full_total - exam_total
+    return grand
+
+
+def _report_dates_with_today():
+    """Return (date_from, date_to) from request args, defaulting both to today
+    on the very first load (when no date params are present at all)."""
+    if 'from' not in request.args and 'to' not in request.args:
+        today = date.today().isoformat()
+        return today, today
+    return request.args.get('from', '').strip(), request.args.get('to', '').strip()
+
+
+def _apply_exam_date_filter(query, date_from, date_to):
+    """Apply created_at >= from and < to+1day filters; return (query, date_from, date_to)
+    with invalid date strings cleared."""
     if date_from:
         try:
             parsed_from = datetime.strptime(date_from, '%Y-%m-%d')
@@ -838,109 +939,222 @@ def reports_tools():
             query = query.filter(Examination.created_at < parsed_to)
         except ValueError:
             date_to = ''
+    return query, date_from, date_to
 
-    exams = (
-        query
-        .options(
-            joinedload(Examination.patient),
-            joinedload(Examination.created_by),
-            subqueryload(Examination.exam_analyses),
-            subqueryload(Examination.exam_directions),
-            subqueryload(Examination.exam_blanks),
-            subqueryload(Examination.exam_tools)
-                .joinedload(ExaminationAnalysisTool.tool)
-                .joinedload(AnalysisTool.category),
-            subqueryload(Examination.exam_tools)
-                .joinedload(ExaminationAnalysisTool.tool)
-                .joinedload(AnalysisTool.subcategory)
-                .joinedload(AnalysisToolSubcategory.category),
+
+def _tools_report_query():
+    """Build the filtered Examination query for the tools report and return
+    (query, date_from, date_to, search). Dates default to today on first load."""
+    search = request.args.get('q', '').strip()
+    date_from, date_to = _report_dates_with_today()
+
+    query = Examination.query.filter(Examination.is_paid == True)
+    query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
+
+    if search:
+        like = f'%{search}%'
+        query = query.join(Examination.patient).filter(
+            db.or_(
+                Patient.full_name.ilike(like),
+                Patient.passport_number.ilike(like),
+                Patient.insurance_number.ilike(like),
+            )
         )
-        .order_by(Examination.created_at.desc())
-        .all()
-    )
 
-    rows = []
-    grand = {
-        'analyses': Decimal('0'), 'directions': Decimal('0'),
-        'blanks': Decimal('0'), 'tools': Decimal('0'), 'total': Decimal('0'),
-        'full_total': Decimal('0'), 'discount_total': Decimal('0'),
-    }
+    return query, date_from, date_to, search
 
-    for exam in exams:
-        analyses_total = sum((ea.effective_total for ea in exam.exam_analyses), Decimal('0'))
-        directions_total = sum((ed.effective_total for ed in exam.exam_directions), Decimal('0'))
-        blanks_total = sum((eb.effective_total for eb in exam.exam_blanks), Decimal('0'))
 
-        analyses_full = sum((ea.snapshot_total for ea in exam.exam_analyses), Decimal('0'))
-        directions_full = sum((ed.snapshot_total for ed in exam.exam_directions), Decimal('0'))
-        blanks_full = sum((eb.snapshot_total for eb in exam.exam_blanks), Decimal('0'))
+def _tools_report_loaded(query):
+    return query.options(
+        joinedload(Examination.patient),
+        joinedload(Examination.created_by),
+        subqueryload(Examination.exam_analyses),
+        subqueryload(Examination.exam_directions),
+        subqueryload(Examination.exam_blanks),
+        subqueryload(Examination.exam_tools)
+            .joinedload(ExaminationAnalysisTool.tool)
+            .joinedload(AnalysisTool.category),
+        subqueryload(Examination.exam_tools)
+            .joinedload(ExaminationAnalysisTool.tool)
+            .joinedload(AnalysisTool.subcategory)
+            .joinedload(AnalysisToolSubcategory.category),
+    ).order_by(Examination.created_at.desc())
 
-        tools_total = Decimal('0')
-        tools_full = Decimal('0')
-        uncategorized_total = Decimal('0')
-        uncategorized_full = Decimal('0')
-        categories = OrderedDict()
 
-        def _new_cat_entry():
-            return {'total': Decimal('0'), 'full': Decimal('0'), 'subcategories': OrderedDict()}
+@main_bp.route('/reports/tools')
+@reports_required
+def reports_tools():
+    query, date_from, date_to, search = _tools_report_query()
 
-        for et in exam.exam_tools:
-            amount = et.effective_total
-            full_amount = et.snapshot_total
-            tools_total += amount
-            tools_full += full_amount
-            tool = et.tool
+    if request.args.get('export') == 'xlsx':
+        exams = _tools_report_loaded(query).all()
+        rows = [_build_tools_row(exam) for exam in exams]
+        grand = _reports_grand_totals(query)
+        return _tools_report_xlsx(rows, grand, date_from, date_to)
 
-            if tool.subcategory:
-                cat = tool.subcategory.category
-                cat_name = cat.name if cat else 'Beleli däl'
-                entry = categories.setdefault(cat_name, _new_cat_entry())
-                entry['total'] += amount
-                entry['full'] += full_amount
-                sub_name = tool.subcategory.name
-                sub = entry['subcategories'].setdefault(sub_name, {'total': Decimal('0'), 'full': Decimal('0')})
-                sub['total'] += amount
-                sub['full'] += full_amount
-            elif tool.category:
-                entry = categories.setdefault(tool.category.name, _new_cat_entry())
-                entry['total'] += amount
-                entry['full'] += full_amount
-            else:
-                uncategorized_total += amount
-                uncategorized_full += full_amount
-
-        exam_total = analyses_total + directions_total + blanks_total + tools_total
-        full_total = analyses_full + directions_full + blanks_full + tools_full
-        discount_total = full_total - exam_total
-
-        grand['analyses'] += analyses_total
-        grand['directions'] += directions_total
-        grand['blanks'] += blanks_total
-        grand['tools'] += tools_total
-        grand['total'] += exam_total
-        grand['full_total'] += full_total
-        grand['discount_total'] += discount_total
-
-        rows.append({
-            'exam': exam,
-            'analyses_total': analyses_total,
-            'directions_total': directions_total,
-            'blanks_total': blanks_total,
-            'full_total': full_total,
-            'discount_total': discount_total,
-            'tools_total': tools_total,
-            'exam_total': exam_total,
-            'categories': categories,
-            'uncategorized_total': uncategorized_total,
-            'uncategorized_full': uncategorized_full,
-        })
+    page = request.args.get('page', 1, type=int)
+    pagination = _tools_report_loaded(query).paginate(page=page, per_page=15, error_out=False)
+    rows = [_build_tools_row(exam) for exam in pagination.items]
+    grand = _reports_grand_totals(query)
 
     return render_template(
         'main/reports/tools_report.html',
         rows=rows,
         grand=grand,
+        pagination=pagination,
         date_from=date_from,
         date_to=date_to,
+        search=search,
+    )
+
+
+def _tools_report_xlsx(rows, grand, date_from, date_to):
+    """Build an .xlsx workbook of the tools report and return it as a download."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Serişdeler'
+
+    headers = [
+        '№', 'Senesi', 'Döreden', 'F.A.A.', 'Doglan ýyly', 'Ýaşy',
+        'Raýatlygy', 'Salgysy', 'Pasport №', 'Saglyk ät.№',
+        'Analizler', 'Lukmanlar', 'Blanklar', 'Serişdeler',
+        'Doly bahasy', 'Ýeňillik', 'Tölenmeli',
+    ]
+
+    bold = Font(bold=True)
+    muted = Font(color='6C757D')
+    header_fill = PatternFill('solid', fgColor='E9ECEF')
+    cat_fill = PatternFill('solid', fgColor='F1F3F5')
+    right = Alignment(horizontal='right')
+
+    # Breakdown money columns reuse the main "Doly bahasy / Ýeňillik / Tölenmeli" columns.
+    BD_FULL, BD_DISC, BD_TOTAL = 15, 16, 17
+
+    def _style_money(row_idx, *cols, bold_cell=False):
+        for col in cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+            if bold_cell:
+                c.font = bold
+
+    def _breakdown_row(name_col, name, full, discount, total):
+        row = [''] * len(headers)
+        row[name_col - 1] = name
+        row[BD_FULL - 1] = float(full)
+        row[BD_DISC - 1] = float(discount)
+        row[BD_TOTAL - 1] = float(total)
+        ws.append(row)
+        return ws.max_row
+
+    # Title / period row
+    period = ''
+    if date_from or date_to:
+        period = f'Döwür: {date_from or "…"} — {date_to or "…"}'
+    ws.append(['Serişdeler boýunça hasabat'])
+    ws['A1'].font = Font(bold=True, size=14)
+    if period:
+        ws.append([period])
+    ws.append([])
+
+    header_row_idx = ws.max_row + 1
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=header_row_idx, column=col)
+        cell.font = bold
+        cell.fill = header_fill
+
+    num_cols = set(range(11, 18))  # money columns
+    for r in rows:
+        exam = r['exam']
+        patient = exam.patient
+        ws.append([
+            exam.id,
+            exam.created_at.strftime('%d.%m.%Y %H:%M'),
+            exam.created_by.full_name if exam.created_by else '',
+            patient.full_name if patient else '',
+            patient.birth_year if patient else '',
+            patient.age if patient else '',
+            patient.citizenship if patient else '',
+            patient.home_address if patient else '',
+            (patient.passport_number if patient else '') or '',
+            (patient.insurance_number if patient else '') or '',
+            float(r['analyses_total']),
+            float(r['directions_total']),
+            float(r['blanks_total']),
+            float(r['tools_total']),
+            float(r['full_total']),
+            float(r['discount_total']),
+            float(r['exam_total']),
+        ])
+        row_idx = ws.max_row
+        for col in num_cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+            c.font = bold
+
+        # Category / subcategory breakdown of tools for this examination.
+        if r['categories'] or r['uncategorized_total']:
+            for cat_name, cat in r['categories'].items():
+                cat_disc = cat['full'] - cat['total']
+                cidx = _breakdown_row(4, cat_name, cat['full'], cat_disc, cat['total'])
+                for col in range(1, len(headers) + 1):
+                    ws.cell(row=cidx, column=col).fill = cat_fill
+                ws.cell(row=cidx, column=4).font = bold
+                _style_money(cidx, BD_FULL, BD_DISC, BD_TOTAL, bold_cell=True)
+
+                for sub_name, sub in cat['subcategories'].items():
+                    sub_disc = sub['full'] - sub['total']
+                    sidx = _breakdown_row(5, sub_name, sub['full'], sub_disc, sub['total'])
+                    ws.cell(row=sidx, column=5).font = muted
+                    _style_money(sidx, BD_FULL, BD_DISC, BD_TOTAL)
+
+            if r['uncategorized_total']:
+                unc_disc = r['uncategorized_full'] - r['uncategorized_total']
+                uidx = _breakdown_row(4, 'Kategoriýasyz serişdeler',
+                                      r['uncategorized_full'], unc_disc, r['uncategorized_total'])
+                ws.cell(row=uidx, column=4).font = muted
+                _style_money(uidx, BD_FULL, BD_DISC, BD_TOTAL)
+
+    # Totals row
+    total_row = [
+        '', '', '', '', '', '', '', '', '', 'Jemi:',
+        float(grand['analyses']), float(grand['directions']),
+        float(grand['blanks']), float(grand['tools']),
+        float(grand['full_total']), float(grand['discount_total']),
+        float(grand['total']),
+    ]
+    ws.append(total_row)
+    total_idx = ws.max_row
+    for col in range(1, len(headers) + 1):
+        c = ws.cell(row=total_idx, column=col)
+        c.font = bold
+        if col in num_cols:
+            c.number_format = '#,##0.00'
+            c.alignment = right
+
+    widths = [6, 16, 20, 24, 10, 6, 14, 28, 14, 14, 11, 11, 11, 11, 12, 11, 12]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = 'tools_report'
+    if date_from or date_to:
+        fname += f'_{date_from or "all"}_{date_to or "all"}'
+    fname += '.xlsx'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename={fname}'},
     )
 
 
@@ -992,142 +1206,463 @@ def _exam_section_totals(exam):
     return totals, full
 
 
+def _directions_report_query():
+    """Build the filtered Examination query for the directions report and return
+    (query, date_from, date_to, direction_id). Dates default to today on first load;
+    direction_id (when given) keeps only exams that contain that doctor-direction."""
+    direction_id = request.args.get('direction_id', type=int)
+    date_from, date_to = _report_dates_with_today()
+
+    query = Examination.query.filter(Examination.is_paid == True)
+    query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
+
+    if direction_id:
+        query = (
+            query
+            .join(Examination.exam_directions)
+            .filter(ExaminationDirection.direction_id == direction_id)
+            .distinct()
+        )
+
+    return query, date_from, date_to, direction_id
+
+
+def _directions_report_loaded(query):
+    return query.options(
+        joinedload(Examination.patient),
+        joinedload(Examination.created_by),
+        subqueryload(Examination.exam_analyses),
+        subqueryload(Examination.exam_blanks),
+        subqueryload(Examination.exam_tools),
+        subqueryload(Examination.exam_directions)
+            .joinedload(ExaminationDirection.direction),
+        subqueryload(Examination.exam_directions)
+            .joinedload(ExaminationDirection.doctor),
+    ).order_by(Examination.created_at.desc())
+
+
+def _build_directions_row(exam):
+    """Build the directions-report row dict (with per-direction lines) for one exam."""
+    totals, full = _exam_section_totals(exam)
+
+    lines = []
+    for ed in exam.exam_directions:
+        lines.append({
+            'name': ed.direction.name if ed.direction else '—',
+            'doctor': ed.doctor.full_name if ed.doctor else '—',
+            'visited': ed.is_visited,
+            'full': ed.snapshot_total,
+            'discount': ed.snapshot_total - ed.effective_total,
+            'total': ed.effective_total,
+        })
+
+    exam_total = sum(totals.values(), Decimal('0'))
+    full_total = sum(full.values(), Decimal('0'))
+    discount_total = full_total - exam_total
+
+    return {
+        'exam': exam,
+        'analyses_total': totals['analyses'],
+        'directions_total': totals['directions'],
+        'blanks_total': totals['blanks'],
+        'tools_total': totals['tools'],
+        'full_total': full_total,
+        'discount_total': discount_total,
+        'exam_total': exam_total,
+        'lines': lines,
+    }
+
+
 @main_bp.route('/reports/directions')
 @reports_required
 def reports_directions():
-    query, date_from, date_to = _reports_date_filter()
+    query, date_from, date_to, direction_id = _directions_report_query()
 
-    exams = (
-        query
-        .options(
-            joinedload(Examination.patient),
-            joinedload(Examination.created_by),
-            subqueryload(Examination.exam_analyses),
-            subqueryload(Examination.exam_blanks),
-            subqueryload(Examination.exam_tools),
-            subqueryload(Examination.exam_directions)
-                .joinedload(ExaminationDirection.direction),
-            subqueryload(Examination.exam_directions)
-                .joinedload(ExaminationDirection.doctor),
-        )
-        .order_by(Examination.created_at.desc())
-        .all()
-    )
+    if request.args.get('export') == 'xlsx':
+        exams = _directions_report_loaded(query).all()
+        rows = [_build_directions_row(exam) for exam in exams]
+        grand = _reports_grand_totals(query)
+        return _directions_report_xlsx(rows, grand, date_from, date_to)
 
-    rows = []
-    grand = _new_grand()
-
-    for exam in exams:
-        totals, full = _exam_section_totals(exam)
-
-        lines = []
-        for ed in exam.exam_directions:
-            lines.append({
-                'name': ed.direction.name if ed.direction else '—',
-                'doctor': ed.doctor.full_name if ed.doctor else '—',
-                'visited': ed.is_visited,
-                'full': ed.snapshot_total,
-                'discount': ed.snapshot_total - ed.effective_total,
-                'total': ed.effective_total,
-            })
-
-        exam_total = sum(totals.values(), Decimal('0'))
-        full_total = sum(full.values(), Decimal('0'))
-        discount_total = full_total - exam_total
-
-        for key in ('analyses', 'directions', 'blanks', 'tools'):
-            grand[key] += totals[key]
-        grand['total'] += exam_total
-        grand['full_total'] += full_total
-        grand['discount_total'] += discount_total
-
-        rows.append({
-            'exam': exam,
-            'analyses_total': totals['analyses'],
-            'directions_total': totals['directions'],
-            'blanks_total': totals['blanks'],
-            'tools_total': totals['tools'],
-            'full_total': full_total,
-            'discount_total': discount_total,
-            'exam_total': exam_total,
-            'lines': lines,
-        })
+    page = request.args.get('page', 1, type=int)
+    pagination = _directions_report_loaded(query).paginate(page=page, per_page=15, error_out=False)
+    rows = [_build_directions_row(exam) for exam in pagination.items]
+    grand = _reports_grand_totals(query)
+    directions = DoctorDirection.query.order_by(DoctorDirection.name).all()
 
     return render_template(
         'main/reports/directions_report.html',
         rows=rows,
         grand=grand,
+        pagination=pagination,
         date_from=date_from,
         date_to=date_to,
+        directions=directions,
+        direction_id=direction_id,
     )
+
+
+def _directions_report_xlsx(rows, grand, date_from, date_to):
+    """Build an .xlsx workbook of the directions report and return it as a download."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Lukmanlar'
+
+    headers = [
+        '№', 'Senesi', 'Döreden', 'F.A.A.', 'Doglan ýyly', 'Ýaşy',
+        'Raýatlygy', 'Salgysy', 'Pasport №', 'Saglyk ät.№',
+        'Analizler', 'Lukmanlar', 'Blanklar', 'Serişdeler',
+        'Doly bahasy', 'Ýeňillik', 'Tölenmeli',
+    ]
+
+    bold = Font(bold=True)
+    muted = Font(color='6C757D')
+    header_fill = PatternFill('solid', fgColor='E9ECEF')
+    line_fill = PatternFill('solid', fgColor='F1F3F5')
+    right = Alignment(horizontal='right')
+
+    # Breakdown money columns reuse the main "Doly bahasy / Ýeňillik / Tölenmeli" columns.
+    BD_FULL, BD_DISC, BD_TOTAL = 15, 16, 17
+
+    def _style_money(row_idx, *cols, bold_cell=False):
+        for col in cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+            if bold_cell:
+                c.font = bold
+
+    # Title / period row
+    ws.append(['Lukmanlaryň ugurlary boýunça hasabat'])
+    ws['A1'].font = Font(bold=True, size=14)
+    if date_from or date_to:
+        ws.append([f'Döwür: {date_from or "…"} — {date_to or "…"}'])
+    ws.append([])
+
+    header_row_idx = ws.max_row + 1
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=header_row_idx, column=col)
+        cell.font = bold
+        cell.fill = header_fill
+
+    num_cols = set(range(11, 18))  # money columns
+    for r in rows:
+        exam = r['exam']
+        patient = exam.patient
+        ws.append([
+            exam.id,
+            exam.created_at.strftime('%d.%m.%Y %H:%M'),
+            exam.created_by.full_name if exam.created_by else '',
+            patient.full_name if patient else '',
+            patient.birth_year if patient else '',
+            patient.age if patient else '',
+            patient.citizenship if patient else '',
+            patient.home_address if patient else '',
+            (patient.passport_number if patient else '') or '',
+            (patient.insurance_number if patient else '') or '',
+            float(r['analyses_total']),
+            float(r['directions_total']),
+            float(r['blanks_total']),
+            float(r['tools_total']),
+            float(r['full_total']),
+            float(r['discount_total']),
+            float(r['exam_total']),
+        ])
+        row_idx = ws.max_row
+        for col in num_cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+            c.font = bold
+
+        # Per-direction breakdown lines for this examination.
+        for it in r['lines']:
+            line = [''] * len(headers)
+            line[3] = it['name']                                  # F.A.A. column → Ugur
+            line[4] = it['doctor']                                # Doglan ýyly column → Lukman
+            line[5] = 'Baryp gördi' if it['visited'] else 'Garaşylýar'
+            line[BD_FULL - 1] = float(it['full'])
+            line[BD_DISC - 1] = float(it['discount'])
+            line[BD_TOTAL - 1] = float(it['total'])
+            ws.append(line)
+            lidx = ws.max_row
+            for col in range(1, len(headers) + 1):
+                ws.cell(row=lidx, column=col).fill = line_fill
+            ws.cell(row=lidx, column=4).font = bold
+            ws.cell(row=lidx, column=5).font = muted
+            ws.cell(row=lidx, column=6).font = muted
+            _style_money(lidx, BD_FULL, BD_DISC, BD_TOTAL)
+
+    # Totals row
+    total_row = [
+        '', '', '', '', '', '', '', '', '', 'Jemi:',
+        float(grand['analyses']), float(grand['directions']),
+        float(grand['blanks']), float(grand['tools']),
+        float(grand['full_total']), float(grand['discount_total']),
+        float(grand['total']),
+    ]
+    ws.append(total_row)
+    total_idx = ws.max_row
+    for col in range(1, len(headers) + 1):
+        c = ws.cell(row=total_idx, column=col)
+        c.font = bold
+        if col in num_cols:
+            c.number_format = '#,##0.00'
+            c.alignment = right
+
+    widths = [6, 16, 20, 24, 10, 6, 14, 28, 14, 14, 11, 11, 11, 11, 12, 11, 12]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = 'directions_report'
+    if date_from or date_to:
+        fname += f'_{date_from or "all"}_{date_to or "all"}'
+    fname += '.xlsx'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename={fname}'},
+    )
+
+
+def _analyses_report_query():
+    """Build the filtered Examination query for the analyses report and return
+    (query, date_from, date_to, analysis_id). Dates default to today on first load;
+    analysis_id (when given) keeps only exams that contain that analysis."""
+    analysis_id = request.args.get('analysis_id', type=int)
+    date_from, date_to = _report_dates_with_today()
+
+    query = Examination.query.filter(Examination.is_paid == True)
+    query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
+
+    if analysis_id:
+        query = (
+            query
+            .join(Examination.exam_analyses)
+            .filter(ExaminationAnalysis.analysis_id == analysis_id)
+            .distinct()
+        )
+
+    return query, date_from, date_to, analysis_id
+
+
+def _analyses_report_loaded(query):
+    return query.options(
+        joinedload(Examination.patient),
+        joinedload(Examination.created_by),
+        subqueryload(Examination.exam_directions),
+        subqueryload(Examination.exam_blanks),
+        subqueryload(Examination.exam_tools),
+        subqueryload(Examination.exam_analyses)
+            .joinedload(ExaminationAnalysis.analysis)
+            .joinedload(Analysis.responsible),
+    ).order_by(Examination.created_at.desc())
+
+
+def _build_analyses_row(exam):
+    """Build the analyses-report row dict (with per-analysis lines) for one exam."""
+    totals, full = _exam_section_totals(exam)
+
+    lines = []
+    for ea in exam.exam_analyses:
+        responsible = ea.analysis.responsible if ea.analysis else None
+        lines.append({
+            'name': ea.analysis.name if ea.analysis else '—',
+            'responsible': responsible.full_name if responsible else '—',
+            'qty': ea.quantity,
+            'submitted': ea.is_submitted,
+            'full': ea.snapshot_total,
+            'discount': ea.snapshot_total - ea.effective_total,
+            'total': ea.effective_total,
+        })
+
+    exam_total = sum(totals.values(), Decimal('0'))
+    full_total = sum(full.values(), Decimal('0'))
+    discount_total = full_total - exam_total
+
+    return {
+        'exam': exam,
+        'analyses_total': totals['analyses'],
+        'directions_total': totals['directions'],
+        'blanks_total': totals['blanks'],
+        'tools_total': totals['tools'],
+        'full_total': full_total,
+        'discount_total': discount_total,
+        'exam_total': exam_total,
+        'lines': lines,
+    }
 
 
 @main_bp.route('/reports/analyses')
 @reports_required
 def reports_analyses():
-    query, date_from, date_to = _reports_date_filter()
+    query, date_from, date_to, analysis_id = _analyses_report_query()
 
-    exams = (
-        query
-        .options(
-            joinedload(Examination.patient),
-            joinedload(Examination.created_by),
-            subqueryload(Examination.exam_directions),
-            subqueryload(Examination.exam_blanks),
-            subqueryload(Examination.exam_tools),
-            subqueryload(Examination.exam_analyses)
-                .joinedload(ExaminationAnalysis.analysis)
-                .joinedload(Analysis.responsible),
-        )
-        .order_by(Examination.created_at.desc())
-        .all()
-    )
+    if request.args.get('export') == 'xlsx':
+        exams = _analyses_report_loaded(query).all()
+        rows = [_build_analyses_row(exam) for exam in exams]
+        grand = _reports_grand_totals(query)
+        return _analyses_report_xlsx(rows, grand, date_from, date_to)
 
-    rows = []
-    grand = _new_grand()
-
-    for exam in exams:
-        totals, full = _exam_section_totals(exam)
-
-        lines = []
-        for ea in exam.exam_analyses:
-            responsible = ea.analysis.responsible if ea.analysis else None
-            lines.append({
-                'name': ea.analysis.name if ea.analysis else '—',
-                'responsible': responsible.full_name if responsible else '—',
-                'qty': ea.quantity,
-                'submitted': ea.is_submitted,
-                'full': ea.snapshot_total,
-                'discount': ea.snapshot_total - ea.effective_total,
-                'total': ea.effective_total,
-            })
-
-        exam_total = sum(totals.values(), Decimal('0'))
-        full_total = sum(full.values(), Decimal('0'))
-        discount_total = full_total - exam_total
-
-        for key in ('analyses', 'directions', 'blanks', 'tools'):
-            grand[key] += totals[key]
-        grand['total'] += exam_total
-        grand['full_total'] += full_total
-        grand['discount_total'] += discount_total
-
-        rows.append({
-            'exam': exam,
-            'analyses_total': totals['analyses'],
-            'directions_total': totals['directions'],
-            'blanks_total': totals['blanks'],
-            'tools_total': totals['tools'],
-            'full_total': full_total,
-            'discount_total': discount_total,
-            'exam_total': exam_total,
-            'lines': lines,
-        })
+    page = request.args.get('page', 1, type=int)
+    pagination = _analyses_report_loaded(query).paginate(page=page, per_page=15, error_out=False)
+    rows = [_build_analyses_row(exam) for exam in pagination.items]
+    grand = _reports_grand_totals(query)
+    analyses = Analysis.query.order_by(Analysis.name).all()
 
     return render_template(
         'main/reports/analyses_report.html',
         rows=rows,
         grand=grand,
+        pagination=pagination,
         date_from=date_from,
         date_to=date_to,
+        analyses=analyses,
+        analysis_id=analysis_id,
+    )
+
+
+def _analyses_report_xlsx(rows, grand, date_from, date_to):
+    """Build an .xlsx workbook of the analyses report and return it as a download."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Analizler'
+
+    headers = [
+        '№', 'Senesi', 'Döreden', 'F.A.A.', 'Doglan ýyly', 'Ýaşy',
+        'Raýatlygy', 'Salgysy', 'Pasport №', 'Saglyk ät.№',
+        'Analizler', 'Lukmanlar', 'Blanklar', 'Serişdeler',
+        'Doly bahasy', 'Ýeňillik', 'Tölenmeli',
+    ]
+
+    bold = Font(bold=True)
+    muted = Font(color='6C757D')
+    header_fill = PatternFill('solid', fgColor='E9ECEF')
+    line_fill = PatternFill('solid', fgColor='F1F3F5')
+    right = Alignment(horizontal='right')
+    center = Alignment(horizontal='center')
+
+    # Breakdown money columns reuse the main "Doly bahasy / Ýeňillik / Tölenmeli" columns.
+    BD_FULL, BD_DISC, BD_TOTAL = 15, 16, 17
+
+    def _style_money(row_idx, *cols, bold_cell=False):
+        for col in cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+            if bold_cell:
+                c.font = bold
+
+    # Title / period row
+    ws.append(['Analizler boýunça hasabat'])
+    ws['A1'].font = Font(bold=True, size=14)
+    if date_from or date_to:
+        ws.append([f'Döwür: {date_from or "…"} — {date_to or "…"}'])
+    ws.append([])
+
+    header_row_idx = ws.max_row + 1
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=header_row_idx, column=col)
+        cell.font = bold
+        cell.fill = header_fill
+
+    num_cols = set(range(11, 18))  # money columns
+    for r in rows:
+        exam = r['exam']
+        patient = exam.patient
+        ws.append([
+            exam.id,
+            exam.created_at.strftime('%d.%m.%Y %H:%M'),
+            exam.created_by.full_name if exam.created_by else '',
+            patient.full_name if patient else '',
+            patient.birth_year if patient else '',
+            patient.age if patient else '',
+            patient.citizenship if patient else '',
+            patient.home_address if patient else '',
+            (patient.passport_number if patient else '') or '',
+            (patient.insurance_number if patient else '') or '',
+            float(r['analyses_total']),
+            float(r['directions_total']),
+            float(r['blanks_total']),
+            float(r['tools_total']),
+            float(r['full_total']),
+            float(r['discount_total']),
+            float(r['exam_total']),
+        ])
+        row_idx = ws.max_row
+        for col in num_cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+            c.font = bold
+
+        # Per-analysis breakdown lines for this examination.
+        for it in r['lines']:
+            line = [''] * len(headers)
+            line[3] = it['name']                                  # F.A.A. column → Analiz
+            line[4] = it['responsible']                           # Doglan ýyly column → Jogapkär
+            line[5] = it['qty']                                   # Ýaşy column → Sany
+            line[6] = 'Tabşyryldy' if it['submitted'] else 'Garaşylýar'
+            line[BD_FULL - 1] = float(it['full'])
+            line[BD_DISC - 1] = float(it['discount'])
+            line[BD_TOTAL - 1] = float(it['total'])
+            ws.append(line)
+            lidx = ws.max_row
+            for col in range(1, len(headers) + 1):
+                ws.cell(row=lidx, column=col).fill = line_fill
+            ws.cell(row=lidx, column=4).font = bold
+            ws.cell(row=lidx, column=5).font = muted
+            ws.cell(row=lidx, column=6).alignment = center
+            ws.cell(row=lidx, column=7).font = muted
+            _style_money(lidx, BD_FULL, BD_DISC, BD_TOTAL)
+
+    # Totals row
+    total_row = [
+        '', '', '', '', '', '', '', '', '', 'Jemi:',
+        float(grand['analyses']), float(grand['directions']),
+        float(grand['blanks']), float(grand['tools']),
+        float(grand['full_total']), float(grand['discount_total']),
+        float(grand['total']),
+    ]
+    ws.append(total_row)
+    total_idx = ws.max_row
+    for col in range(1, len(headers) + 1):
+        c = ws.cell(row=total_idx, column=col)
+        c.font = bold
+        if col in num_cols:
+            c.number_format = '#,##0.00'
+            c.alignment = right
+
+    widths = [6, 16, 20, 24, 10, 6, 14, 28, 14, 14, 11, 11, 11, 11, 12, 11, 12]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = 'analyses_report'
+    if date_from or date_to:
+        fname += f'_{date_from or "all"}_{date_to or "all"}'
+    fname += '.xlsx'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename={fname}'},
     )

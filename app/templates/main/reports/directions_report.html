@@ -11,16 +11,26 @@
       <a href="{{ url_for('main.reports_index') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0">
         <i class="bi bi-arrow-left"></i>
       </a>
-      <form class="d-flex flex-wrap flex-md-nowrap align-items-center gap-2" method="GET" action="{{ url_for('main.reports_directions') }}">
+      <form class="d-flex flex-wrap flex-md-nowrap align-items-center gap-2 flex-grow-1" method="GET" action="{{ url_for('main.reports_directions') }}">
         <input type="date" class="form-control form-control-sm" name="from" value="{{ date_from }}" style="width:140px">
         <span class="text-muted small flex-shrink-0">—</span>
         <input type="date" class="form-control form-control-sm" name="to" value="{{ date_to }}" style="width:140px">
+        <select name="direction_id" class="form-select form-select-sm" style="max-width:260px">
+          <option value="">Ähli ugurlar</option>
+          {% for d in directions %}
+            <option value="{{ d.id }}" {% if direction_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
         <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">Görkezmek</button>
-        {% if date_from or date_to %}
-          <a href="{{ url_for('main.reports_directions') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0">
+        {% if date_from or date_to or direction_id %}
+          <a href="{{ url_for('main.reports_directions', from='', to='') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0" title="Filtri aýyrmak">
             <i class="bi bi-x-lg"></i>
           </a>
         {% endif %}
+        <a href="{{ url_for('main.reports_directions', from=date_from, to=date_to, direction_id=direction_id, export='xlsx') }}"
+           class="btn btn-sm btn-success flex-shrink-0 ms-auto" title="Excel-e çykarmak">
+          <i class="bi bi-file-earmark-excel me-1"></i>Excel
+        </a>
       </form>
     </div>
   </div>
@@ -179,6 +189,40 @@
       </tbody>
     </table>
   </div>
+
+  {% if pagination and pagination.total %}
+  <div class="card-footer bg-white px-4 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="text-muted small">
+      Jemi: {{ pagination.total }}
+      ({{ (pagination.page - 1) * pagination.per_page + 1 }}–{{ [(pagination.page) * pagination.per_page, pagination.total] | min }})
+    </span>
+    {% if pagination.pages > 1 %}
+    <nav aria-label="Sahypa">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('main.reports_directions', page=pagination.prev_num, from=date_from, to=date_to, direction_id=direction_id) }}">
+            <i class="bi bi-chevron-left"></i>
+          </a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('main.reports_directions', page=p, from=date_from, to=date_to, direction_id=direction_id) }}">{{ p }}</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('main.reports_directions', page=pagination.next_num, from=date_from, to=date_to, direction_id=direction_id) }}">
+            <i class="bi bi-chevron-right"></i>
+          </a>
+        </li>
+      </ul>
+    </nav>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 
 {% endblock %}
