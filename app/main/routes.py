@@ -948,7 +948,10 @@ def _tools_report_query():
     search = request.args.get('q', '').strip()
     date_from, date_to = _report_dates_with_today()
 
-    query = Examination.query.filter(Examination.is_paid == True)
+    query = Examination.query.filter(
+        Examination.is_paid == True,
+        Examination.paid_by_id == current_user.id,
+    )
     query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
 
     if search:
@@ -1213,7 +1216,10 @@ def _directions_report_query():
     direction_id = request.args.get('direction_id', type=int)
     date_from, date_to = _report_dates_with_today()
 
-    query = Examination.query.filter(Examination.is_paid == True)
+    query = Examination.query.filter(
+        Examination.is_paid == True,
+        Examination.paid_by_id == current_user.id,
+    )
     query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
 
     if direction_id:
@@ -1442,7 +1448,10 @@ def _analyses_report_query():
     analysis_id = request.args.get('analysis_id', type=int)
     date_from, date_to = _report_dates_with_today()
 
-    query = Examination.query.filter(Examination.is_paid == True)
+    query = Examination.query.filter(
+        Examination.is_paid == True,
+        Examination.paid_by_id == current_user.id,
+    )
     query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
 
     if analysis_id:
