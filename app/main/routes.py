@@ -732,6 +732,22 @@ def examinations_pay(exam_id):
         flash('Barlag eýýäm tölenen.', 'warning')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
+    def _pm(field):
+        # Default to cash; only an explicit "terminal" switches the method.
+        value = request.form.get(field)
+        return (ExaminationAnalysis.PAYMENT_TERMINAL
+                if value == ExaminationAnalysis.PAYMENT_TERMINAL
+                else ExaminationAnalysis.PAYMENT_CASH)
+
+    for ea in exam.exam_analyses:
+        ea.payment_method = _pm(f'pm_analysis_{ea.id}')
+    for et in exam.exam_tools:
+        et.payment_method = _pm(f'pm_tool_{et.id}')
+    for eb in exam.exam_blanks:
+        eb.payment_method = _pm(f'pm_blank_{eb.id}')
+    for ed in exam.exam_directions:
+        ed.payment_method = _pm(f'pm_direction_{ed.id}')
+
     exam.is_paid = True
     exam.paid_at = datetime.now()
     exam.paid_by_id = current_user.id

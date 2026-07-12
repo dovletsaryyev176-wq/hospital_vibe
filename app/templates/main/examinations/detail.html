@@ -118,10 +118,6 @@
           {% endif %}
         {% endif %}
         {% if current_user.role in ['cashier', 'senior_cashier'] and not exam.is_paid %}
-          <form id="pay-form" method="POST"
-                action="{{ url_for('main.examinations_pay', exam_id=exam.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          </form>
           <button type="button" class="btn btn-sm btn-primary"
                   onclick="confirmPay()">
             <i class="bi bi-cash-coin me-1"></i>Tölegi kabul etmek
@@ -479,67 +475,90 @@
 </div>
 
 <!-- Pay confirmation modal -->
+{% macro pay_row(kind, item_id, name, amount) %}
+<tr>
+  <td class="small">{{ name }}</td>
+  <td class="text-end font-monospace small">{{ '%.2f' | format(amount) }}</td>
+  <td class="text-center">
+    <div class="btn-group btn-group-sm pay-method" role="group" data-amount="{{ '%.2f' | format(amount) }}">
+      <input type="radio" class="btn-check pay-radio" name="pm_{{ kind }}_{{ item_id }}"
+             id="pm_{{ kind }}_{{ item_id }}_cash" value="cash" autocomplete="off" checked>
+      <label class="btn btn-outline-success" for="pm_{{ kind }}_{{ item_id }}_cash">Nagt</label>
+      <input type="radio" class="btn-check pay-radio" name="pm_{{ kind }}_{{ item_id }}"
+             id="pm_{{ kind }}_{{ item_id }}_term" value="terminal" autocomplete="off">
+      <label class="btn btn-outline-primary" for="pm_{{ kind }}_{{ item_id }}_term">Terminal</label>
+    </div>
+  </td>
+</tr>
+{% endmacro %}
 <div class="modal fade" id="payModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-sm modal-dialog-centered">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
     <div class="modal-content">
-      <div class="modal-body text-center py-4">
-        <i class="bi bi-cash-coin text-primary" style="font-size:2.5rem"></i>
-        <p class="mt-2 mb-0 fw-semibold">Tölegi kabul etmek №{{ exam.id }}?</p>
-        {% set analyses_total = namespace(val=0) %}
-        {% for ea in exam.exam_analyses %}
-          {% set analyses_total.val = analyses_total.val + ea.effective_total %}
-        {% endfor %}
-        {% set tools_total = namespace(val=0) %}
-        {% for et in exam.exam_tools %}
-          {% set tools_total.val = tools_total.val + et.effective_total %}
-        {% endfor %}
-        {% set blanks_total = namespace(val=0) %}
-        {% for eb in exam.exam_blanks %}
-          {% set blanks_total.val = blanks_total.val + eb.effective_total %}
-        {% endfor %}
-        {% set dir_total = namespace(val=0) %}
-        {% for ed in exam.exam_directions %}
-          {% set dir_total.val = dir_total.val + ed.effective_total %}
-        {% endfor %}
-        {% set grand_total = analyses_total.val + tools_total.val + blanks_total.val + dir_total.val %}
-        {% if grand_total > 0 %}
-        <div class="mt-2 text-start px-2">
-          {% if analyses_total.val > 0 %}
-          <div class="d-flex justify-content-between small text-muted">
-            <span>Analizler</span>
-            <span class="font-monospace">{{ '%.2f' | format(analyses_total.val) }} manat</span>
-          </div>
-          {% endif %}
-          {% if tools_total.val > 0 %}
-          <div class="d-flex justify-content-between small text-muted">
-            <span>Serişdeler</span>
-            <span class="font-monospace">{{ '%.2f' | format(tools_total.val) }} manat</span>
-          </div>
-          {% endif %}
-          {% if blanks_total.val > 0 %}
-          <div class="d-flex justify-content-between small text-muted">
-            <span>Blanklar</span>
-            <span class="font-monospace">{{ '%.2f' | format(blanks_total.val) }} manat</span>
-          </div>
-          {% endif %}
-          {% if dir_total.val > 0 %}
-          <div class="d-flex justify-content-between small text-muted">
-            <span>Ugurlar</span>
-            <span class="font-monospace">{{ '%.2f' | format(dir_total.val) }} manat</span>
-          </div>
-          {% endif %}
-          <div class="d-flex justify-content-between fw-semibold border-top mt-1 pt-1">
-            <span>Jemi</span>
-            <span class="font-monospace">{{ '%.2f' | format(grand_total) }} manat</span>
-          </div>
+      <form id="pay-form" method="POST" action="{{ url_for('main.examinations_pay', exam_id=exam.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title mb-0">
+            <i class="bi bi-cash-coin text-primary me-2"></i>Tölegi kabul etmek №{{ exam.id }}
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Ýapmak"></button>
         </div>
-        {% endif %}
-      </div>
-      <div class="modal-footer justify-content-center border-0 pt-0">
-        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
-        <button type="button" class="btn btn-primary btn-sm"
-                onclick="document.getElementById('pay-form').submit()">Tölegi makullamak</button>
-      </div>
+        <div class="modal-body">
+          {% set has_items = exam.exam_analyses or exam.exam_tools or exam.exam_blanks or exam.exam_directions %}
+          {% if has_items %}
+          <p class="text-muted small mb-3">Her töleg üçin töleg görnüşini saýlaň: <strong>Nagt</strong> ýa-da <strong>Terminal</strong>.</p>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr class="text-muted small">
+                  <th>Töleg</th>
+                  <th class="text-end">Bahasy</th>
+                  <th class="text-center" style="width:170px">Töleg görnüşi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% if exam.exam_analyses %}
+                  <tr class="table-light"><td colspan="3" class="fw-semibold small">Analizler</td></tr>
+                  {% for ea in exam.exam_analyses %}
+                    {{ pay_row('analysis', ea.id, ea.analysis.name, ea.effective_total) }}
+                  {% endfor %}
+                {% endif %}
+                {% if exam.exam_tools %}
+                  <tr class="table-light"><td colspan="3" class="fw-semibold small">Serişdeler</td></tr>
+                  {% for et in exam.exam_tools %}
+                    {{ pay_row('tool', et.id, et.tool.name, et.effective_total) }}
+                  {% endfor %}
+                {% endif %}
+                {% if exam.exam_blanks %}
+                  <tr class="table-light"><td colspan="3" class="fw-semibold small">Blanklar</td></tr>
+                  {% for eb in exam.exam_blanks %}
+                    {{ pay_row('blank', eb.id, eb.blank.name, eb.effective_total) }}
+                  {% endfor %}
+                {% endif %}
+                {% if exam.exam_directions %}
+                  <tr class="table-light"><td colspan="3" class="fw-semibold small">Lukmanyň ugurlary</td></tr>
+                  {% for ed in exam.exam_directions %}
+                    {{ pay_row('direction', ed.id, ed.direction.name, ed.effective_total) }}
+                  {% endfor %}
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div class="d-flex flex-wrap justify-content-end gap-3 mt-3 pt-2 border-top small">
+            <span><i class="bi bi-cash text-success me-1"></i>Nagt: <span class="font-monospace fw-semibold" id="pay-cash-total">0.00</span> manat</span>
+            <span><i class="bi bi-credit-card-2-front text-primary me-1"></i>Terminal: <span class="font-monospace fw-semibold" id="pay-term-total">0.00</span> manat</span>
+            <span class="fw-semibold">Jemi: <span class="font-monospace" id="pay-grand-total">0.00</span> manat</span>
+          </div>
+          {% else %}
+          <p class="text-center text-muted py-4 mb-0">Töleg üçin pozisiýa ýok. Barlag tölenen diýip bellenýär.</p>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-check2 me-1"></i>Tölegi makullamak
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 </div>
@@ -560,6 +579,29 @@
 
   const payModalEl = document.getElementById('payModal');
   const payModal = payModalEl ? new bootstrap.Modal(payModalEl) : null;
-  function confirmPay() { if (payModal) payModal.show(); }
+
+  function recalcPayTotals() {
+    if (!payModalEl) return;
+    let cash = 0, term = 0;
+    payModalEl.querySelectorAll('.pay-method').forEach(function (grp) {
+      const amount = parseFloat(grp.getAttribute('data-amount')) || 0;
+      const checked = grp.querySelector('.pay-radio:checked');
+      if (checked && checked.value === 'terminal') { term += amount; } else { cash += amount; }
+    });
+    const cEl = document.getElementById('pay-cash-total');
+    const tEl = document.getElementById('pay-term-total');
+    const gEl = document.getElementById('pay-grand-total');
+    if (cEl) cEl.textContent = cash.toFixed(2);
+    if (tEl) tEl.textContent = term.toFixed(2);
+    if (gEl) gEl.textContent = (cash + term).toFixed(2);
+  }
+
+  if (payModalEl) {
+    payModalEl.querySelectorAll('.pay-radio').forEach(function (r) {
+      r.addEventListener('change', recalcPayTotals);
+    });
+  }
+
+  function confirmPay() { if (payModal) { recalcPayTotals(); payModal.show(); } }
 </script>
 {% endblock %}

@@ -11,6 +11,10 @@ class PricingSnapshotMixin:
     where _source is the catalogue object (Analysis or DoctorDirection).
     """
 
+    PAYMENT_CASH = 'cash'
+    PAYMENT_TERMINAL = 'terminal'
+    PAYMENT_METHODS = (PAYMENT_CASH, PAYMENT_TERMINAL)
+
     @property
     def snapshot_price(self):
         return self.price if self.price is not None else self._source.price
@@ -266,6 +270,7 @@ class ExaminationAnalysis(PricingSnapshotMixin, db.Model):
     quantity = db.Column(db.Integer, nullable=False, default=1)
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
+    payment_method = db.Column(db.String(10), nullable=True)
     is_submitted = db.Column(db.Boolean, default=False, nullable=False)
     submitted_at = db.Column(db.DateTime, nullable=True)
     submitted_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
@@ -288,6 +293,7 @@ class ExaminationAnalysisTool(PricingSnapshotMixin, db.Model):
     quantity = db.Column(db.Integer, nullable=False, default=1)
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
+    payment_method = db.Column(db.String(10), nullable=True)
 
     examination = db.relationship('Examination', back_populates='exam_tools')
     tool = db.relationship('AnalysisTool')
@@ -417,6 +423,7 @@ class ExaminationBlank(PricingSnapshotMixin, db.Model):
     quantity = db.Column(db.Integer, nullable=False, default=1)
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
+    payment_method = db.Column(db.String(10), nullable=True)
 
     examination = db.relationship('Examination', back_populates='exam_blanks')
     blank = db.relationship('Blank')
@@ -435,6 +442,7 @@ class ExaminationDirection(PricingSnapshotMixin, db.Model):
     doctor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
+    payment_method = db.Column(db.String(10), nullable=True)
     is_visited = db.Column(db.Boolean, default=False, nullable=False)
     visited_at = db.Column(db.DateTime, nullable=True)
 
