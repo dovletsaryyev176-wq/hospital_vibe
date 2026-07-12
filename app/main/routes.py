@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from datetime import datetime, timedelta, date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from functools import wraps
 from io import BytesIO
 from flask import render_template, redirect, url_for, flash, request, abort, jsonify, Response
@@ -13,7 +13,7 @@ from app.models import (Patient, Examination, ExaminationAnalysis,
                         ExaminationDirection, ExaminationAnalysisTool, ExaminationBlank,
                         DoctorDirection, Analysis, AnalysisTool, Blank,
                         AnalysisToolSubcategory,
-                        CombinedAnalysis, User)
+                        CombinedAnalysis, User, EarningPlan)
 
 
 def role_required(*roles):
@@ -1754,3 +1754,172 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         headers={'Content-Disposition': f'attachment; filename={fname}'},
     )
+
+
+# ── Earning plans (senior cashier) ────────────────────────────────────────────
+
+PLAN_MONTH_NAMES = {
+    1: 'Ýanwar', 2: 'Fewral', 3: 'Mart', 4: 'Aprel', 5: 'Maý', 6: 'Iýun',
+    7: 'Iýul', 8: 'Awgust', 9: 'Sentýabr', 10: 'Oktýabr', 11: 'Noýabr', 12: 'Dekabr',
+}
+
+
+def _plan_period():
+    """Return (year, month) from request args/form, defaulting to the current month."""
+    today = date.today()
+    year = request.values.get('year', type=int) or today.year
+    month = request.values.get('month', type=int) or today.month
+    if month < 1 or month > 12:
+        month = today.month
+    return year, month
+
+
+def _month_bounds(year, month):
+    """Return (start, next_start) datetimes covering the given calendar month."""
+    start = datetime(year, month, 1)
+    if month == 12:
+        nxt = datetime(year + 1, 1, 1)
+    else:
+        nxt = datetime(year, month + 1, 1)
+    return start, nxt
+
+
+def _direction_earnings(year, month):
+    """Return {user_id: Decimal earned} from paid doctor-directions in the month,
+    measured by effective (actually-paid) totals — same semantics as the reports."""
+    start, nxt = _month_bounds(year, month)
+    lines = (
+        ExaminationDirection.query
+        .join(ExaminationDirection.examination)
+        .filter(
+            Examination.is_paid == True,
+            Examination.paid_at.isnot(None),
+            Examination.paid_at >= start,
+            Examination.paid_at < nxt,
+        )
+        .options(
+            joinedload(ExaminationDirection.examination),
+            joinedload(ExaminationDirection.direction),
+        )
+        .all()
+    )
+    earned = {}
+    for ed in lines:
+        earned[ed.doctor_id] = earned.get(ed.doctor_id, Decimal('0')) + ed.effective_total
+    return earned
+
+
+def _plan_eligible_users():
+    """Doctors / analysis-responsibles who have at least one doctor-direction assigned."""
+    return (
+        User.query
+        .filter(User.role.in_(['doctor', 'analysis_responsible']), User.is_active == True)
+        .filter(User.directions.any())
+        .order_by(User.full_name)
+        .all()
+    )
+
+
+@main_bp.route('/reports/plans')
+@role_required('senior_cashier')
+def reports_plans():
+    year, month = _plan_period()
+
+    eligible = _plan_eligible_users()
+    earned = _direction_earnings(year, month)
+    plans = {p.user_id: p for p in EarningPlan.query.filter_by(year=year, month=month).all()}
+
+    # Show eligible users plus anyone who already has a plan or earned this month,
+    # so no earnings are hidden and past plans stay visible.
+    user_ids = set(u.id for u in eligible) | set(plans.keys()) | set(earned.keys())
+    users = {u.id: u for u in eligible}
+    missing = user_ids - set(users.keys())
+    if missing:
+        for u in User.query.filter(User.id.in_(missing)).all():
+            users[u.id] = u
+
+    rows = []
+    plan_total = Decimal('0')
+    earned_total = Decimal('0')
+    for uid in user_ids:
+        user = users.get(uid)
+        if user is None:
+            continue
+        plan = plans.get(uid)
+        plan_amount = plan.amount if plan else None
+        got = earned.get(uid, Decimal('0'))
+        if plan_amount:
+            plan_total += plan_amount
+        earned_total += got
+        pct = None
+        if plan_amount and plan_amount > 0:
+            pct = float((got / plan_amount) * 100)
+        rows.append({
+            'user': user,
+            'plan': plan_amount,
+            'earned': got,
+            'diff': got - (plan_amount or Decimal('0')),
+            'pct': pct,
+        })
+
+    rows.sort(key=lambda r: r['user'].full_name.lower())
+
+    this_year = date.today().year
+    years = list(range(this_year - 2, this_year + 2))
+    if year not in years:
+        years = sorted(set(years) | {year})
+
+    return render_template(
+        'main/reports/plans.html',
+        rows=rows,
+        year=year,
+        month=month,
+        years=years,
+        month_names=PLAN_MONTH_NAMES,
+        plan_total=plan_total,
+        earned_total=earned_total,
+        diff_total=earned_total - plan_total,
+    )
+
+
+@main_bp.route('/reports/plans', methods=['POST'])
+@role_required('senior_cashier')
+def reports_plans_save():
+    year, month = _plan_period()
+
+    for key, raw in request.form.items():
+        if not key.startswith('plan_'):
+            continue
+        try:
+            uid = int(key[len('plan_'):])
+        except ValueError:
+            continue
+
+        user = db.session.get(User, uid)
+        if user is None or user.role not in ('doctor', 'analysis_responsible'):
+            continue
+
+        plan = EarningPlan.query.filter_by(user_id=uid, year=year, month=month).first()
+        value = (raw or '').strip().replace(' ', '').replace(',', '.')
+
+        if not value:
+            if plan:
+                db.session.delete(plan)
+            continue
+        try:
+            amount = Decimal(value)
+        except InvalidOperation:
+            continue
+        if amount <= 0:
+            if plan:
+                db.session.delete(plan)
+            continue
+
+        if plan:
+            plan.amount = amount
+        else:
+            db.session.add(EarningPlan(user_id=uid, year=year, month=month, amount=amount))
+
+    db.session.commit()
+    flash(f'{PLAN_MONTH_NAMES[month]} {year} üçin meýilnama ýatda saklandy.', 'success')
+    return redirect(url_for('main.reports_plans', year=year, month=month))

@@ -453,3 +453,25 @@ class ExaminationDirection(PricingSnapshotMixin, db.Model):
     @property
     def _source(self):
         return self.direction
+
+
+class EarningPlan(db.Model):
+    """Monthly earning target for a doctor / analysis-responsible, set by the
+    senior cashier. Earnings are measured against doctor-direction income."""
+    __tablename__ = 'earning_plans'
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'year', 'month', name='uq_earning_plan_user_month'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    year = db.Column(db.Integer, nullable=False)
+    month = db.Column(db.Integer, nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    user = db.relationship('User', foreign_keys=[user_id])
+
+    def __repr__(self) -> str:
+        return f'<EarningPlan user={self.user_id} {self.year}-{self.month:02d} amount={self.amount}>'

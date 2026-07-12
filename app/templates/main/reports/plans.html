@@ -1,0 +1,152 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Aýlyk meýilnama{% endblock %}
+{% block page_title %}Aýlyk gazanç meýilnamasy{% endblock %}
+
+{% block content %}
+
+<!-- Period selector -->
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-body px-4 py-3">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <a href="{{ url_for('main.reports_index') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <form class="d-flex flex-wrap align-items-center gap-2" method="GET" action="{{ url_for('main.reports_plans') }}">
+        <select name="month" class="form-select form-select-sm" style="max-width:160px">
+          {% for m in range(1, 13) %}
+            <option value="{{ m }}" {% if month == m %}selected{% endif %}>{{ month_names[m] }}</option>
+          {% endfor %}
+        </select>
+        <select name="year" class="form-select form-select-sm" style="max-width:120px">
+          {% for y in years %}
+            <option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">Görkezmek</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Summary -->
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Jemi meýilnama</div>
+        <div class="fw-semibold">{{ '%.2f' | format(plan_total) }} manat</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm border-0 h-100 bg-primary-subtle">
+      <div class="card-body py-2 px-3">
+        <div class="text-primary small">Jemi gazanç</div>
+        <div class="fw-bold text-primary fs-5">{{ '%.2f' | format(earned_total) }} manat</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-3">
+    <div class="card shadow-sm border-0 h-100 {% if diff_total >= 0 %}bg-success-subtle{% else %}bg-danger-subtle{% endif %}">
+      <div class="card-body py-2 px-3">
+        <div class="small {% if diff_total >= 0 %}text-success{% else %}text-danger{% endif %}">Tapawut</div>
+        <div class="fw-bold {% if diff_total >= 0 %}text-success{% else %}text-danger{% endif %}">
+          {% if diff_total >= 0 %}+{% endif %}{{ '%.2f' | format(diff_total) }} manat
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Plans table -->
+<form method="POST" action="{{ url_for('main.reports_plans_save', year=year, month=month) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="year" value="{{ year }}">
+  <input type="hidden" name="month" value="{{ month }}">
+
+  <div class="card shadow-sm border-0">
+    <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center justify-content-between">
+      <h6 class="mb-0 fw-semibold">
+        <i class="bi bi-bullseye me-2 text-primary"></i>{{ month_names[month] }} {{ year }}
+        <span class="badge bg-light text-dark border ms-1">{{ rows | length }}</span>
+      </h6>
+      <button type="submit" class="btn btn-sm btn-primary">
+        <i class="bi bi-save me-1"></i>Ýatda saklamak
+      </button>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th class="ps-4" style="width:50px">#</th>
+            <th>F.A.A.</th>
+            <th>Wezipe</th>
+            <th class="text-end" style="width:180px">Meýilnama (manat)</th>
+            <th class="text-end">Gazanç</th>
+            <th class="text-end">Tapawut</th>
+            <th style="width:200px">Berjaý</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if rows %}
+            {% for row in rows %}
+            <tr>
+              <td class="ps-4 text-muted small">{{ loop.index }}</td>
+              <td>{{ row.user.full_name }}</td>
+              <td class="text-muted small">{{ row.user.get_role_display() }}</td>
+              <td>
+                <input type="number" step="0.01" min="0"
+                       name="plan_{{ row.user.id }}"
+                       class="form-control form-control-sm text-end font-monospace"
+                       value="{{ '%.2f' | format(row.plan) if row.plan is not none else '' }}"
+                       placeholder="—">
+              </td>
+              <td class="text-end font-monospace">{{ '%.2f' | format(row.earned) }}</td>
+              <td class="text-end font-monospace {% if row.plan is not none %}{% if row.diff >= 0 %}text-success{% else %}text-danger{% endif %}{% else %}text-muted{% endif %}">
+                {% if row.plan is not none %}{% if row.diff >= 0 %}+{% endif %}{{ '%.2f' | format(row.diff) }}{% else %}—{% endif %}
+              </td>
+              <td>
+                {% if row.pct is not none %}
+                  {% set width = row.pct if row.pct < 100 else 100 %}
+                  <div class="d-flex align-items-center gap-2">
+                    <div class="progress flex-grow-1" style="height:8px">
+                      <div class="progress-bar {% if row.pct >= 100 %}bg-success{% else %}bg-primary{% endif %}"
+                           role="progressbar" style="width: {{ '%.0f' | format(width) }}%"></div>
+                    </div>
+                    <span class="small text-muted" style="width:44px">{{ '%.0f' | format(row.pct) }}%</span>
+                  </div>
+                {% else %}
+                  <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="7" class="text-center text-muted py-5">
+                <i class="bi bi-people display-6 d-block mb-2 opacity-25"></i>
+                Meýilnama üçin lukman ýa-da jogapkär ýok (ugur bellenen bolmaly).
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+        {% if rows %}
+        <tfoot class="border-top">
+          <tr class="fw-semibold">
+            <td colspan="3" class="ps-4">Jemi</td>
+            <td class="text-end font-monospace">{{ '%.2f' | format(plan_total) }}</td>
+            <td class="text-end font-monospace">{{ '%.2f' | format(earned_total) }}</td>
+            <td class="text-end font-monospace {% if diff_total >= 0 %}text-success{% else %}text-danger{% endif %}">
+              {% if diff_total >= 0 %}+{% endif %}{{ '%.2f' | format(diff_total) }}
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+</form>
+
+{% endblock %}
