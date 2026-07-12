@@ -168,10 +168,24 @@
        class="nav-link {% if 'admin.analyses' in request.endpoint %}active{% endif %}">
       <i class="bi bi-eyedropper"></i> Analizler
     </a>
-    <a href="{{ url_for('admin.directions_list') }}"
-       class="nav-link {% if 'admin.directions' in request.endpoint %}active{% endif %}">
+    {% set ugur_active = 'admin.directions' in request.endpoint or 'admin.direction_categories' in request.endpoint %}
+    <a class="nav-link nav-link-toggle {% if ugur_active %}active{% endif %}"
+       data-bs-toggle="collapse" href="#ugur-menu" role="button"
+       aria-expanded="{{ 'true' if ugur_active else 'false' }}"
+       aria-controls="ugur-menu">
       <i class="bi bi-signpost-split"></i> Lukmanlaryň ugurlary
+      <i class="bi bi-chevron-down toggle-arrow"></i>
     </a>
+    <div class="collapse {% if ugur_active %}show{% endif %}" id="ugur-menu">
+      <a href="{{ url_for('admin.directions_list') }}"
+         class="nav-link nav-link-sub {% if 'admin.directions' in request.endpoint %}active{% endif %}">
+        <i class="bi bi-list-ul"></i> Ähli ugurlar
+      </a>
+      <a href="{{ url_for('admin.direction_categories_list') }}"
+         class="nav-link nav-link-sub {% if 'admin.direction_categories' in request.endpoint %}active{% endif %}">
+        <i class="bi bi-folder"></i> Kategoriýalar
+      </a>
+    </div>
     <a href="{{ url_for('admin.combined_analyses_list') }}"
        class="nav-link {% if 'admin.combined_analyses' in request.endpoint %}active{% endif %}">
       <i class="bi bi-collection"></i> Kombinlenen analizler

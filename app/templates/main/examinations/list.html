@@ -125,7 +125,7 @@
                   {% endif %}
                 {% endif %}
 
-                {% if current_user.role == 'cashier' and not exam.is_paid %}
+                {% if current_user.role in ['cashier', 'senior_cashier'] and not exam.is_paid %}
                   <form id="pay-e-{{ exam.id }}" method="POST"
                         action="{{ url_for('main.examinations_pay', exam_id=exam.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

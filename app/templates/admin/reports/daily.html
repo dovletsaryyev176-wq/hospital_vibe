@@ -17,7 +17,7 @@
         {% if rows %}
           {% for row in rows %}
           <tr>
-            <td>{{ loop.index }}</td>
+            <td>{{ (pagination.page - 1) * pagination.per_page + loop.index }}</td>
             <td>{{ row.day.strftime('%d.%m.%Y') }}</td>
             <td>
               <span class="badge bg-primary rounded-pill">{{ row.cnt }}</span>
@@ -32,5 +32,39 @@
       </tbody>
     </table>
   </div>
+
+  {% if pagination.total %}
+  <div class="card-footer bg-white px-4 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="text-muted small">
+      Jemi: {{ pagination.total }}
+      ({{ (pagination.page - 1) * pagination.per_page + 1 }}–{{ [(pagination.page) * pagination.per_page, pagination.total] | min }})
+    </span>
+    {% if pagination.pages > 1 %}
+    <nav aria-label="Sahypa">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('admin.daily_report', page=pagination.prev_num) }}">
+            <i class="bi bi-chevron-left"></i>
+          </a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('admin.daily_report', page=p) }}">{{ p }}</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('admin.daily_report', page=pagination.next_num) }}">
+            <i class="bi bi-chevron-right"></i>
+          </a>
+        </li>
+      </ul>
+    </nav>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

@@ -2,7 +2,7 @@ import re
 from flask_wtf import FlaskForm
 from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, IntegerField, BooleanField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional, NumberRange, ValidationError, Regexp
-from app.models import User, Analysis, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory
+from app.models import User, Analysis, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory, DoctorDirectionCategory
 
 
 PHONE_RE = re.compile(r'^\+?[\d\s\-\(\)]{7,20}$')
@@ -39,6 +39,7 @@ class DirectionForm(FlaskForm):
         render_kw={'placeholder': '0.00'},
     )
     is_insurance = BooleanField('Ätiýaçlandyryş')
+    category_id = SelectField('Kategoriýa (islege görä)', coerce=int, validators=[Optional()])
     analysis_ids = SelectMultipleField(
         'Baglanyşykly analizler',
         coerce=int,
@@ -50,6 +51,17 @@ class DirectionForm(FlaskForm):
         super().__init__(*args, **kwargs)
         self._editing_direction = editing_direction
         self._build_analysis_choices()
+        self._build_category_choices()
+
+    def _build_category_choices(self):
+        cats = DoctorDirectionCategory.query.filter_by(is_active=True).order_by(DoctorDirectionCategory.name).all()
+        choices = [(0, '— Kategoriýa saýlaň (islege görä) —')]
+        if self._editing_direction and self._editing_direction.category_id:
+            current = self._editing_direction.category
+            if current and not current.is_active:
+                choices.append((current.id, f'{current.name} [bloklanan]'))
+        choices += [(c.id, c.name) for c in cats]
+        self.category_id.choices = choices
 
     def _build_analysis_choices(self):
         active = (
@@ -76,6 +88,29 @@ class DirectionForm(FlaskForm):
         ).first()
         if existing and (self._editing_direction is None or existing.id != self._editing_direction.id):
             raise ValidationError('Bu atly ugur eýýäm hasaba alnan.')
+
+
+class DirectionCategoryForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Kategoriýanyň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Kategoriýanyň ady'},
+    )
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_category=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_category = editing_category
+
+    def validate_name(self, field):
+        existing = DoctorDirectionCategory.query.filter(
+            DoctorDirectionCategory.name.ilike(field.data.strip())
+        ).first()
+        if existing and (self._editing_category is None or existing.id != self._editing_category.id):
+            raise ValidationError('Bu atly kategoriýa eýýäm hasaba alnan.')
 
 
 class UserForm(FlaskForm):
@@ -105,6 +140,7 @@ class UserForm(FlaskForm):
             ('doctor', 'Lukman'),
             ('analysis_responsible', 'Analiz boýunça jogapkär'),
             ('cashier', 'Kassir'),
+            ('senior_cashier', 'Uly kassir'),
         ],
         validators=[DataRequired(message='Roly saýlaň')],
     )
@@ -457,7 +493,3 @@ class BlankForm(FlaskForm):
             choices = [(a.id, f'{a.name} [bloklanan]') for a in blocked] + choices
 
         self.analysis_ids.choices = choices
-
-    def validate_analysis_ids(self, field):
-        if not field.data:
-            raise ValidationError('Iň bolmanda 1 analizi saýlaň.')

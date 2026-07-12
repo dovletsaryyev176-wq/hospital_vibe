@@ -58,6 +58,20 @@ direction_analyses = db.Table(
 )
 
 
+class DoctorDirectionCategory(db.Model):
+    __tablename__ = 'doctor_direction_categories'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    directions = db.relationship('DoctorDirection', back_populates='category', lazy='dynamic')
+
+    def __repr__(self) -> str:
+        return f'<DoctorDirectionCategory {self.name}>'
+
+
 class DoctorDirection(db.Model):
     __tablename__ = 'doctor_directions'
 
@@ -67,11 +81,13 @@ class DoctorDirection(db.Model):
     is_insurance = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('doctor_direction_categories.id'), nullable=True)
 
     analyses = db.relationship(
         'Analysis', secondary=direction_analyses, lazy='subquery',
         backref=db.backref('directions', lazy='dynamic'),
     )
+    category = db.relationship('DoctorDirectionCategory', back_populates='directions')
 
     @property
     def price_display(self):
@@ -171,6 +187,7 @@ class User(UserMixin, db.Model):
         'doctor': 'Lukman',
         'analysis_responsible': 'Analizler boýunça jogapkär',
         'cashier': 'Kassir',
+        'senior_cashier': 'Uly kassir',
     }
 
     id = db.Column(db.Integer, primary_key=True)

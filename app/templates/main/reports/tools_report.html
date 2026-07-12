@@ -22,13 +22,21 @@
           <input type="text" class="form-control border-start-0 ps-0" name="q" value="{{ search }}"
                  placeholder="Syrkaw: FAA, pasport, ät.№">
         </div>
+        {% if show_cashier %}
+        <select name="cashier_id" class="form-select form-select-sm" style="max-width:200px">
+          <option value="">Ähli kassirler</option>
+          {% for c in cashiers %}
+            <option value="{{ c.id }}" {% if cashier_id == c.id %}selected{% endif %}>{{ c.full_name }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
         <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">Görkezmek</button>
-        {% if date_from or date_to or search %}
+        {% if date_from or date_to or search or cashier_id %}
           <a href="{{ url_for('main.reports_tools', from='', to='') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0" title="Filtri aýyrmak">
             <i class="bi bi-x-lg"></i>
           </a>
         {% endif %}
-        <a href="{{ url_for('main.reports_tools', from=date_from, to=date_to, q=search, export='xlsx') }}"
+        <a href="{{ url_for('main.reports_tools', from=date_from, to=date_to, q=search, cashier_id=cashier_id, export='xlsx') }}"
            class="btn btn-sm btn-success flex-shrink-0 ms-auto" title="Excel-e çykarmak">
           <i class="bi bi-file-earmark-excel me-1"></i>Excel
         </a>
@@ -85,7 +93,7 @@
   </div>
 </div>
 
-{% set col_count = 17 %}
+{% set col_count = 18 if show_cashier else 17 %}
 
 <div class="card shadow-sm border-0">
   <div class="table-responsive">
@@ -95,6 +103,7 @@
           <th>№</th>
           <th>Senesi</th>
           <th>Döreden</th>
+          {% if show_cashier %}<th>Kassir</th>{% endif %}
           <th>F.A.A.</th>
           <th>Doglan ýyly</th>
           <th>Ýaşy</th>
@@ -119,6 +128,7 @@
             <td class="fw-semibold">{{ exam.id }}</td>
             <td class="text-nowrap">{{ exam.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
             <td class="text-nowrap">{{ exam.created_by.full_name }}</td>
+            {% if show_cashier %}<td class="text-nowrap">{{ exam.paid_by.full_name if exam.paid_by else '—' }}</td>{% endif %}
             <td class="text-nowrap">{{ exam.patient.full_name }}</td>
             <td>{{ exam.patient.birth_year }}</td>
             <td>{{ exam.patient.age }}</td>
@@ -214,21 +224,21 @@
     <nav aria-label="Sahypa">
       <ul class="pagination pagination-sm mb-0">
         <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
-          <a class="page-link" href="{{ url_for('main.reports_tools', page=pagination.prev_num, from=date_from, to=date_to, q=search) }}">
+          <a class="page-link" href="{{ url_for('main.reports_tools', page=pagination.prev_num, from=date_from, to=date_to, q=search, cashier_id=cashier_id) }}">
             <i class="bi bi-chevron-left"></i>
           </a>
         </li>
         {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
           {% if p %}
             <li class="page-item {% if p == pagination.page %}active{% endif %}">
-              <a class="page-link" href="{{ url_for('main.reports_tools', page=p, from=date_from, to=date_to, q=search) }}">{{ p }}</a>
+              <a class="page-link" href="{{ url_for('main.reports_tools', page=p, from=date_from, to=date_to, q=search, cashier_id=cashier_id) }}">{{ p }}</a>
             </li>
           {% else %}
             <li class="page-item disabled"><span class="page-link">…</span></li>
           {% endif %}
         {% endfor %}
         <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
-          <a class="page-link" href="{{ url_for('main.reports_tools', page=pagination.next_num, from=date_from, to=date_to, q=search) }}">
+          <a class="page-link" href="{{ url_for('main.reports_tools', page=pagination.next_num, from=date_from, to=date_to, q=search, cashier_id=cashier_id) }}">
             <i class="bi bi-chevron-right"></i>
           </a>
         </li>

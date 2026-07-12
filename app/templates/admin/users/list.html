@@ -66,7 +66,8 @@
                 'registrar': 'info',
                 'doctor': 'success',
                 'analysis_responsible': 'warning',
-                'cashier': 'secondary'
+                'cashier': 'secondary',
+                'senior_cashier': 'dark'
               } %}
               {% set color = role_colors.get(user.role, 'secondary') %}
               <span class="badge text-bg-{{ color }} fw-medium">

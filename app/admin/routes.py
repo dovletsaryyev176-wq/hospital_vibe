@@ -5,9 +5,9 @@ from flask_login import current_user
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, contains_eager
 from app.admin import admin_bp
-from app.admin.forms import UserForm, AnalysisForm, DirectionForm, CombinedAnalysisForm, AnalysisToolForm, BlankForm, AnalysisToolCategoryForm, AnalysisToolSubcategoryForm
+from app.admin.forms import UserForm, AnalysisForm, DirectionForm, DirectionCategoryForm, CombinedAnalysisForm, AnalysisToolForm, BlankForm, AnalysisToolCategoryForm, AnalysisToolSubcategoryForm
 from app.extensions import db
-from app.models import User, Analysis, DoctorDirection, CombinedAnalysis, Examination, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory
+from app.models import User, Analysis, DoctorDirection, DoctorDirectionCategory, CombinedAnalysis, Examination, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory
 
 
 def admin_required(f):
@@ -262,6 +262,7 @@ def analyses_toggle(analysis_id):
 def directions_list():
     search = request.args.get('q', '').strip()
     status_filter = request.args.get('status', '').strip()
+    cat_filter = request.args.get('cat', 0, type=int)
 
     query = DoctorDirection.query
 
@@ -273,13 +274,19 @@ def directions_list():
     elif status_filter == 'blocked':
         query = query.filter_by(is_active=False)
 
-    directions = query.order_by(DoctorDirection.name).all()
+    if cat_filter:
+        query = query.filter(DoctorDirection.category_id == cat_filter)
+
+    directions = query.options(joinedload(DoctorDirection.category)).order_by(DoctorDirection.name).all()
+    all_categories = DoctorDirectionCategory.query.filter_by(is_active=True).order_by(DoctorDirectionCategory.name).all()
 
     return render_template(
         'admin/directions/list.html',
         directions=directions,
         search=search,
         status_filter=status_filter,
+        cat_filter=cat_filter,
+        all_categories=all_categories,
     )
 
 
@@ -290,7 +297,12 @@ def directions_list():
 def directions_create():
     form = DirectionForm()
     if form.validate_on_submit():
-        direction = DoctorDirection(name=form.name.data.strip(), price=form.price.data, is_insurance=form.is_insurance.data)
+        direction = DoctorDirection(
+            name=form.name.data.strip(),
+            price=form.price.data,
+            is_insurance=form.is_insurance.data,
+            category_id=form.category_id.data or None,
+        )
         direction.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
         db.session.add(direction)
         db.session.commit()
@@ -313,11 +325,13 @@ def directions_edit(direction_id):
 
     if request.method == 'GET':
         form.analysis_ids.data = [a.id for a in direction.analyses]
+        form.category_id.data = direction.category_id or 0
 
     if form.validate_on_submit():
         direction.name = form.name.data.strip()
         direction.price = form.price.data
         direction.is_insurance = form.is_insurance.data
+        direction.category_id = form.category_id.data or None
         direction.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
         db.session.commit()
         flash(f'Ugur «{direction.name}» maglumatlary täzelenen.', 'success')
@@ -341,6 +355,84 @@ def directions_toggle(direction_id):
     action = 'aktiw' if direction.is_active else 'bloklanan'
     flash(f'Ugur «{direction.name}» {action}.', 'success')
     return redirect(url_for('admin.directions_list'))
+
+
+# ── Direction categories ──────────────────────────────────────────────────────
+
+@admin_bp.route('/direction-categories')
+@admin_required
+def direction_categories_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+
+    query = DoctorDirectionCategory.query
+    if search:
+        query = query.filter(DoctorDirectionCategory.name.ilike(f'%{search}%'))
+    if status_filter == 'active':
+        query = query.filter(DoctorDirectionCategory.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(DoctorDirectionCategory.is_active == False)
+
+    categories = query.order_by(DoctorDirectionCategory.name).all()
+    dir_counts = dict(
+        db.session.query(
+            DoctorDirection.category_id,
+            func.count(DoctorDirection.id),
+        )
+        .filter(DoctorDirection.category_id.isnot(None))
+        .group_by(DoctorDirection.category_id)
+        .all()
+    )
+    return render_template(
+        'admin/direction_categories/list.html',
+        categories=categories,
+        dir_counts=dir_counts,
+        search=search,
+        status_filter=status_filter,
+    )
+
+
+@admin_bp.route('/direction-categories/create', methods=['GET', 'POST'])
+@admin_required
+def direction_categories_create():
+    form = DirectionCategoryForm()
+    if form.validate_on_submit():
+        cat = DoctorDirectionCategory(name=form.name.data.strip())
+        db.session.add(cat)
+        db.session.commit()
+        flash(f'Kategoriýa «{cat.name}» döredilen.', 'success')
+        return redirect(url_for('admin.direction_categories_list'))
+    return render_template('admin/direction_categories/create.html', form=form)
+
+
+@admin_bp.route('/direction-categories/<int:cat_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def direction_categories_edit(cat_id):
+    cat = db.session.get(DoctorDirectionCategory, cat_id)
+    if cat is None:
+        abort(404)
+    form = DirectionCategoryForm(editing_category=cat)
+    if not form.is_submitted():
+        form.name.data = cat.name
+    if form.validate_on_submit():
+        cat.name = form.name.data.strip()
+        db.session.commit()
+        flash(f'Kategoriýa «{cat.name}» täzelenen.', 'success')
+        return redirect(url_for('admin.direction_categories_list'))
+    return render_template('admin/direction_categories/edit.html', form=form, cat=cat)
+
+
+@admin_bp.route('/direction-categories/<int:cat_id>/toggle', methods=['POST'])
+@admin_required
+def direction_categories_toggle(cat_id):
+    cat = db.session.get(DoctorDirectionCategory, cat_id)
+    if cat is None:
+        abort(404)
+    cat.is_active = not cat.is_active
+    db.session.commit()
+    action = 'aktiw' if cat.is_active else 'bloklanan'
+    flash(f'Kategoriýa «{cat.name}» {action}.', 'success')
+    return redirect(url_for('admin.direction_categories_list'))
 
 
 # ── Analysis tools (Serişdeler) list ─────────────────────────────────────────
@@ -731,7 +823,8 @@ def blanks_toggle(blank_id):
 @admin_bp.route('/daily-report')
 @admin_required
 def daily_report():
-    rows = (
+    page = request.args.get('page', 1, type=int)
+    pagination = (
         db.session.query(
             func.date(Examination.paid_at).label('day'),
             func.count(Examination.id).label('cnt'),
@@ -739,9 +832,13 @@ def daily_report():
         .filter(Examination.paid_at.isnot(None))
         .group_by(func.date(Examination.paid_at))
         .order_by(func.date(Examination.paid_at).desc())
-        .all()
+        .paginate(page=page, per_page=15, error_out=False)
     )
-    return render_template('admin/reports/daily.html', rows=rows)
+    return render_template(
+        'admin/reports/daily.html',
+        rows=pagination.items,
+        pagination=pagination,
+    )
 
 
 # ── Combined analyses list ────────────────────────────────────────────────────

@@ -40,10 +40,12 @@ def role_required(*roles):
     return decorator
 
 
+CASHIER_ROLES = ('cashier', 'senior_cashier')
+
 main_required = role_required()
 patients_required = role_required('registrar', 'doctor')
-examinations_view_required = role_required('registrar', 'doctor', 'cashier', 'analysis_responsible')
-reports_required = role_required('cashier')
+examinations_view_required = role_required('registrar', 'doctor', 'cashier', 'analysis_responsible', 'senior_cashier')
+reports_required = role_required('cashier', 'senior_cashier')
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -699,7 +701,7 @@ def examinations_close(exam_id):
 # ── Toggle insurance discount ─────────────────────────────────────────────────
 
 @main_bp.route('/examinations/<int:exam_id>/toggle-insurance', methods=['POST'])
-@role_required('cashier', 'registrar')
+@role_required('cashier', 'registrar', 'senior_cashier')
 def examinations_toggle_insurance(exam_id):
     exam = db.session.get(Examination, exam_id)
     if exam is None:
@@ -720,7 +722,7 @@ def examinations_toggle_insurance(exam_id):
 # ── Mark examination as paid ──────────────────────────────────────────────────
 
 @main_bp.route('/examinations/<int:exam_id>/pay', methods=['POST'])
-@role_required('cashier')
+@role_required('cashier', 'senior_cashier')
 def examinations_pay(exam_id):
     exam = db.session.get(Examination, exam_id)
     if exam is None:
@@ -942,16 +944,37 @@ def _apply_exam_date_filter(query, date_from, date_to):
     return query, date_from, date_to
 
 
+def _apply_cashier_scope(query):
+    """Restrict a paid-examinations query to the current cashier's own payments.
+
+    A senior cashier sees every cashier's payments, optionally narrowed to one
+    cashier via the ?cashier_id query param. Returns (query, cashier_id) where
+    cashier_id is the selected filter value (0/None when not filtering)."""
+    if current_user.role == 'senior_cashier':
+        cashier_id = request.args.get('cashier_id', type=int)
+        if cashier_id:
+            query = query.filter(Examination.paid_by_id == cashier_id)
+        return query, cashier_id
+    return query.filter(Examination.paid_by_id == current_user.id), None
+
+
+def _report_cashiers():
+    """Cashiers selectable in the senior-cashier report filter."""
+    return (User.query
+            .filter(User.role.in_(CASHIER_ROLES))
+            .order_by(User.full_name)
+            .all())
+
+
 def _tools_report_query():
     """Build the filtered Examination query for the tools report and return
-    (query, date_from, date_to, search). Dates default to today on first load."""
+    (query, date_from, date_to, search, cashier_id). Dates default to today
+    on first load."""
     search = request.args.get('q', '').strip()
     date_from, date_to = _report_dates_with_today()
 
-    query = Examination.query.filter(
-        Examination.is_paid == True,
-        Examination.paid_by_id == current_user.id,
-    )
+    query = Examination.query.filter(Examination.is_paid == True)
+    query, cashier_id = _apply_cashier_scope(query)
     query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
 
     if search:
@@ -964,13 +987,14 @@ def _tools_report_query():
             )
         )
 
-    return query, date_from, date_to, search
+    return query, date_from, date_to, search, cashier_id
 
 
 def _tools_report_loaded(query):
     return query.options(
         joinedload(Examination.patient),
         joinedload(Examination.created_by),
+        joinedload(Examination.paid_by),
         subqueryload(Examination.exam_analyses),
         subqueryload(Examination.exam_directions),
         subqueryload(Examination.exam_blanks),
@@ -987,13 +1011,14 @@ def _tools_report_loaded(query):
 @main_bp.route('/reports/tools')
 @reports_required
 def reports_tools():
-    query, date_from, date_to, search = _tools_report_query()
+    query, date_from, date_to, search, cashier_id = _tools_report_query()
+    show_cashier = current_user.role == 'senior_cashier'
 
     if request.args.get('export') == 'xlsx':
         exams = _tools_report_loaded(query).all()
         rows = [_build_tools_row(exam) for exam in exams]
         grand = _reports_grand_totals(query)
-        return _tools_report_xlsx(rows, grand, date_from, date_to)
+        return _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier)
 
     page = request.args.get('page', 1, type=int)
     pagination = _tools_report_loaded(query).paginate(page=page, per_page=15, error_out=False)
@@ -1008,10 +1033,13 @@ def reports_tools():
         date_from=date_from,
         date_to=date_to,
         search=search,
+        show_cashier=show_cashier,
+        cashiers=_report_cashiers() if show_cashier else [],
+        cashier_id=cashier_id,
     )
 
 
-def _tools_report_xlsx(rows, grand, date_from, date_to):
+def _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
     """Build an .xlsx workbook of the tools report and return it as a download."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
@@ -1053,6 +1081,9 @@ def _tools_report_xlsx(rows, grand, date_from, date_to):
         row[BD_TOTAL - 1] = float(total)
         ws.append(row)
         return ws.max_row
+
+    if show_cashier:
+        headers.append('Kassir')
 
     # Title / period row
     period = ''
@@ -1101,6 +1132,10 @@ def _tools_report_xlsx(rows, grand, date_from, date_to):
             c.alignment = right
             c.font = bold
 
+        if show_cashier:
+            cc = ws.cell(row=row_idx, column=len(headers))
+            cc.value = exam.paid_by.full_name if exam.paid_by else ''
+
         # Category / subcategory breakdown of tools for this examination.
         if r['categories'] or r['uncategorized_total']:
             for cat_name, cat in r['categories'].items():
@@ -1142,6 +1177,8 @@ def _tools_report_xlsx(rows, grand, date_from, date_to):
             c.alignment = right
 
     widths = [6, 16, 20, 24, 10, 6, 14, 28, 14, 14, 11, 11, 11, 11, 12, 11, 12]
+    if show_cashier:
+        widths = widths + [22]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -1211,15 +1248,14 @@ def _exam_section_totals(exam):
 
 def _directions_report_query():
     """Build the filtered Examination query for the directions report and return
-    (query, date_from, date_to, direction_id). Dates default to today on first load;
-    direction_id (when given) keeps only exams that contain that doctor-direction."""
+    (query, date_from, date_to, direction_id, cashier_id). Dates default to today
+    on first load; direction_id (when given) keeps only exams that contain that
+    doctor-direction."""
     direction_id = request.args.get('direction_id', type=int)
     date_from, date_to = _report_dates_with_today()
 
-    query = Examination.query.filter(
-        Examination.is_paid == True,
-        Examination.paid_by_id == current_user.id,
-    )
+    query = Examination.query.filter(Examination.is_paid == True)
+    query, cashier_id = _apply_cashier_scope(query)
     query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
 
     if direction_id:
@@ -1230,13 +1266,14 @@ def _directions_report_query():
             .distinct()
         )
 
-    return query, date_from, date_to, direction_id
+    return query, date_from, date_to, direction_id, cashier_id
 
 
 def _directions_report_loaded(query):
     return query.options(
         joinedload(Examination.patient),
         joinedload(Examination.created_by),
+        joinedload(Examination.paid_by),
         subqueryload(Examination.exam_analyses),
         subqueryload(Examination.exam_blanks),
         subqueryload(Examination.exam_tools),
@@ -1282,13 +1319,14 @@ def _build_directions_row(exam):
 @main_bp.route('/reports/directions')
 @reports_required
 def reports_directions():
-    query, date_from, date_to, direction_id = _directions_report_query()
+    query, date_from, date_to, direction_id, cashier_id = _directions_report_query()
+    show_cashier = current_user.role == 'senior_cashier'
 
     if request.args.get('export') == 'xlsx':
         exams = _directions_report_loaded(query).all()
         rows = [_build_directions_row(exam) for exam in exams]
         grand = _reports_grand_totals(query)
-        return _directions_report_xlsx(rows, grand, date_from, date_to)
+        return _directions_report_xlsx(rows, grand, date_from, date_to, show_cashier)
 
     page = request.args.get('page', 1, type=int)
     pagination = _directions_report_loaded(query).paginate(page=page, per_page=15, error_out=False)
@@ -1305,10 +1343,13 @@ def reports_directions():
         date_to=date_to,
         directions=directions,
         direction_id=direction_id,
+        show_cashier=show_cashier,
+        cashiers=_report_cashiers() if show_cashier else [],
+        cashier_id=cashier_id,
     )
 
 
-def _directions_report_xlsx(rows, grand, date_from, date_to):
+def _directions_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
     """Build an .xlsx workbook of the directions report and return it as a download."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
@@ -1341,6 +1382,9 @@ def _directions_report_xlsx(rows, grand, date_from, date_to):
             c.alignment = right
             if bold_cell:
                 c.font = bold
+
+    if show_cashier:
+        headers.append('Kassir')
 
     # Title / period row
     ws.append(['Lukmanlaryň ugurlary boýunça hasabat'])
@@ -1386,6 +1430,10 @@ def _directions_report_xlsx(rows, grand, date_from, date_to):
             c.alignment = right
             c.font = bold
 
+        if show_cashier:
+            cc = ws.cell(row=row_idx, column=len(headers))
+            cc.value = exam.paid_by.full_name if exam.paid_by else ''
+
         # Per-direction breakdown lines for this examination.
         for it in r['lines']:
             line = [''] * len(headers)
@@ -1422,6 +1470,8 @@ def _directions_report_xlsx(rows, grand, date_from, date_to):
             c.alignment = right
 
     widths = [6, 16, 20, 24, 10, 6, 14, 28, 14, 14, 11, 11, 11, 11, 12, 11, 12]
+    if show_cashier:
+        widths = widths + [22]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -1443,15 +1493,14 @@ def _directions_report_xlsx(rows, grand, date_from, date_to):
 
 def _analyses_report_query():
     """Build the filtered Examination query for the analyses report and return
-    (query, date_from, date_to, analysis_id). Dates default to today on first load;
-    analysis_id (when given) keeps only exams that contain that analysis."""
+    (query, date_from, date_to, analysis_id, cashier_id). Dates default to today
+    on first load; analysis_id (when given) keeps only exams that contain that
+    analysis."""
     analysis_id = request.args.get('analysis_id', type=int)
     date_from, date_to = _report_dates_with_today()
 
-    query = Examination.query.filter(
-        Examination.is_paid == True,
-        Examination.paid_by_id == current_user.id,
-    )
+    query = Examination.query.filter(Examination.is_paid == True)
+    query, cashier_id = _apply_cashier_scope(query)
     query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
 
     if analysis_id:
@@ -1462,13 +1511,14 @@ def _analyses_report_query():
             .distinct()
         )
 
-    return query, date_from, date_to, analysis_id
+    return query, date_from, date_to, analysis_id, cashier_id
 
 
 def _analyses_report_loaded(query):
     return query.options(
         joinedload(Examination.patient),
         joinedload(Examination.created_by),
+        joinedload(Examination.paid_by),
         subqueryload(Examination.exam_directions),
         subqueryload(Examination.exam_blanks),
         subqueryload(Examination.exam_tools),
@@ -1515,13 +1565,14 @@ def _build_analyses_row(exam):
 @main_bp.route('/reports/analyses')
 @reports_required
 def reports_analyses():
-    query, date_from, date_to, analysis_id = _analyses_report_query()
+    query, date_from, date_to, analysis_id, cashier_id = _analyses_report_query()
+    show_cashier = current_user.role == 'senior_cashier'
 
     if request.args.get('export') == 'xlsx':
         exams = _analyses_report_loaded(query).all()
         rows = [_build_analyses_row(exam) for exam in exams]
         grand = _reports_grand_totals(query)
-        return _analyses_report_xlsx(rows, grand, date_from, date_to)
+        return _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier)
 
     page = request.args.get('page', 1, type=int)
     pagination = _analyses_report_loaded(query).paginate(page=page, per_page=15, error_out=False)
@@ -1538,10 +1589,13 @@ def reports_analyses():
         date_to=date_to,
         analyses=analyses,
         analysis_id=analysis_id,
+        show_cashier=show_cashier,
+        cashiers=_report_cashiers() if show_cashier else [],
+        cashier_id=cashier_id,
     )
 
 
-def _analyses_report_xlsx(rows, grand, date_from, date_to):
+def _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
     """Build an .xlsx workbook of the analyses report and return it as a download."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
@@ -1575,6 +1629,9 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to):
             c.alignment = right
             if bold_cell:
                 c.font = bold
+
+    if show_cashier:
+        headers.append('Kassir')
 
     # Title / period row
     ws.append(['Analizler boýunça hasabat'])
@@ -1620,6 +1677,10 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to):
             c.alignment = right
             c.font = bold
 
+        if show_cashier:
+            cc = ws.cell(row=row_idx, column=len(headers))
+            cc.value = exam.paid_by.full_name if exam.paid_by else ''
+
         # Per-analysis breakdown lines for this examination.
         for it in r['lines']:
             line = [''] * len(headers)
@@ -1658,6 +1719,8 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to):
             c.alignment = right
 
     widths = [6, 16, 20, 24, 10, 6, 14, 28, 14, 14, 11, 11, 11, 11, 12, 11, 12]
+    if show_cashier:
+        widths = widths + [22]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 

@@ -122,7 +122,7 @@
     </a>
     {% endif %}
 
-    {% if current_user.role in ('registrar', 'doctor', 'cashier', 'analysis_responsible') %}
+    {% if current_user.role in ('registrar', 'doctor', 'cashier', 'analysis_responsible', 'senior_cashier') %}
     <div class="nav-section mt-2">Barlaglar</div>
     <a href="{{ url_for('main.examinations_list') }}"
        class="nav-link {% if 'main.examinations' in request.endpoint %}active{% endif %}">
@@ -130,7 +130,7 @@
     </a>
     {% endif %}
 
-    {% if current_user.role == 'cashier' %}
+    {% if current_user.role in ('cashier', 'senior_cashier') %}
     <div class="nav-section mt-2">Hasabatlar</div>
     <a href="{{ url_for('main.reports_index') }}"
        class="nav-link {% if 'main.reports' in request.endpoint %}active{% endif %}">
