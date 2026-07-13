@@ -505,8 +505,17 @@
         <div class="modal-body">
           {% set has_items = exam.exam_analyses or exam.exam_tools or exam.exam_blanks or exam.exam_directions %}
           {% if has_items %}
-          <p class="text-muted small mb-3">Her töleg üçin töleg görnüşini saýlaň: <strong>Nagt</strong> ýa-da <strong>Terminal</strong>.</p>
-          <div class="table-responsive">
+          <p class="text-muted small mb-2">Her töleg üçin töleg görnüşini saýlaň: <strong>Nagt</strong> ýa-da <strong>Terminal</strong>.</p>
+          <div class="d-flex align-items-center gap-2 mb-3">
+            <span class="text-muted small">Ählisi:</span>
+            <button type="button" class="btn btn-sm btn-outline-success" onclick="setAllPayMethod('cash')">
+              <i class="bi bi-cash me-1"></i>Nagt
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="setAllPayMethod('terminal')">
+              <i class="bi bi-credit-card-2-front me-1"></i>Terminal
+            </button>
+          </div>
+          <div class="table-responsive" style="max-height:45vh; overflow-y:auto;">
             <table class="table table-sm align-middle mb-0">
               <thead>
                 <tr class="text-muted small">
@@ -594,6 +603,15 @@
     if (cEl) cEl.textContent = cash.toFixed(2);
     if (tEl) tEl.textContent = term.toFixed(2);
     if (gEl) gEl.textContent = (cash + term).toFixed(2);
+  }
+
+  function setAllPayMethod(method) {
+    if (!payModalEl) return;
+    payModalEl.querySelectorAll('.pay-method').forEach(function (grp) {
+      const radio = grp.querySelector('.pay-radio[value="' + method + '"]');
+      if (radio) radio.checked = true;
+    });
+    recalcPayTotals();
   }
 
   if (payModalEl) {
