@@ -1,0 +1,130 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Lukman ugurlarynyň kategoriýalary boýunça hasabat{% endblock %}
+{% block page_title %}Lukman ugurlarynyň kategoriýalary boýunça hasabat{% endblock %}
+
+{% block content %}
+
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-body px-4 py-3">
+    <div class="d-flex flex-wrap flex-md-nowrap align-items-center gap-2">
+      <a href="{{ url_for('main.reports_index') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <form class="d-flex flex-wrap flex-md-nowrap align-items-center gap-2 flex-grow-1" method="GET" action="{{ url_for('main.reports_direction_categories') }}">
+        <input type="date" class="form-control form-control-sm" name="from" value="{{ date_from }}" style="width:140px">
+        <span class="text-muted small flex-shrink-0">—</span>
+        <input type="date" class="form-control form-control-sm" name="to" value="{{ date_to }}" style="width:140px">
+        <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0">Görkezmek</button>
+        {% if date_from or date_to %}
+          <a href="{{ url_for('main.reports_direction_categories', from='', to='') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0" title="Filtri aýyrmak">
+            <i class="bi bi-x-lg"></i>
+          </a>
+        {% endif %}
+        <a href="{{ url_for('main.reports_direction_categories', from=date_from, to=date_to, export='xlsx') }}"
+           class="btn btn-sm btn-success flex-shrink-0 ms-auto" title="Excel-e çykarmak">
+          <i class="bi bi-file-earmark-excel me-1"></i>Excel
+        </a>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Grand totals -->
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Nagt tölegler</div>
+        <div class="fw-semibold">{{ '%.2f' | format(totals.cash) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">Terminal tölegler</div>
+        <div class="fw-semibold">{{ '%.2f' | format(totals.terminal) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm border-0 h-100 bg-primary-subtle">
+      <div class="card-body py-2 px-3">
+        <div class="text-primary small">Jemi (nagt + terminal)</div>
+        <div class="fw-bold text-primary fs-5">{{ '%.2f' | format(totals.cash + totals.terminal) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">50% ýeňillik (nagt)</div>
+        <div class="fw-semibold text-success">{{ '%.2f' | format(totals.discount_cash) }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm border-0 h-100">
+      <div class="card-body py-2 px-3">
+        <div class="text-muted small">50% ýeňillik (terminal)</div>
+        <div class="fw-semibold text-success">{{ '%.2f' | format(totals.discount_terminal) }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle mb-0 small">
+      <thead>
+        <tr class="text-nowrap">
+          <th style="width:60px">№</th>
+          <th>Lukman ugurlarynyň kategoriýasy</th>
+          <th class="text-end">Nagt tölegleriň jemi</th>
+          <th class="text-end">Terminal tölegleriň jemi</th>
+          <th class="text-end">50% ýeňillik (nagt)</th>
+          <th class="text-end">50% ýeňillik (terminal)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rows %}
+          {% for r in rows %}
+          <tr>
+            <td class="fw-semibold">{{ loop.index }}</td>
+            <td>
+              {{ r.name }}
+              {% if r.is_uncategorized %}<span class="badge bg-secondary-subtle text-secondary ms-1">Kategoriýasyz</span>{% endif %}
+            </td>
+            <td class="text-end">{{ '%.2f' | format(r.cash) }}</td>
+            <td class="text-end">{{ '%.2f' | format(r.terminal) }}</td>
+            <td class="text-end {% if r.discount_cash %}text-success fw-semibold{% endif %}">
+              {{ '%.2f' | format(r.discount_cash) }}
+            </td>
+            <td class="text-end {% if r.discount_terminal %}text-success fw-semibold{% endif %}">
+              {{ '%.2f' | format(r.discount_terminal) }}
+            </td>
+          </tr>
+          {% endfor %}
+          <tr class="table-light fw-bold">
+            <td></td>
+            <td class="text-end">Jemi:</td>
+            <td class="text-end">{{ '%.2f' | format(totals.cash) }}</td>
+            <td class="text-end">{{ '%.2f' | format(totals.terminal) }}</td>
+            <td class="text-end text-success">{{ '%.2f' | format(totals.discount_cash) }}</td>
+            <td class="text-end text-success">{{ '%.2f' | format(totals.discount_terminal) }}</td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="6" class="text-center text-muted py-5">
+              <i class="bi bi-clipboard2-x display-5 d-block mb-2 opacity-25"></i>
+              Maglumat ýok
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

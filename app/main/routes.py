@@ -11,7 +11,8 @@ from app.main.forms import PatientForm
 from app.extensions import db
 from app.models import (Patient, Examination, ExaminationAnalysis,
                         ExaminationDirection, ExaminationAnalysisTool, ExaminationBlank,
-                        DoctorDirection, Analysis, AnalysisTool, Blank,
+                        DoctorDirection, DoctorDirectionCategory,
+                        Analysis, AnalysisTool, Blank,
                         AnalysisToolSubcategory,
                         CombinedAnalysis, User, EarningPlan)
 
@@ -1496,6 +1497,188 @@ def _directions_report_xlsx(rows, grand, date_from, date_to, show_cashier=False)
     buf.seek(0)
 
     fname = 'directions_report'
+    if date_from or date_to:
+        fname += f'_{date_from or "all"}_{date_to or "all"}'
+    fname += '.xlsx'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename={fname}'},
+    )
+
+
+# ── Doctor-direction categories report (senior cashier only) ──────────────────
+
+_DIRECTION_CATEGORIES_UNCATEGORIZED = 'Kategoriýasyz'
+
+
+def _direction_categories_report():
+    """Aggregate paid doctor-direction income per direction category for the
+    selected day (or date range). Returns (rows, totals, date_from, date_to).
+
+    Only paid examinations are considered. Each direction line is split by its
+    payment method into cash / terminal buckets (a missing method counts as
+    cash, matching the payment default), and its insurance 50% discount amount
+    is accumulated separately. Every active category is listed even with no
+    income for the period; directions without a category fall into a trailing
+    'Kategoriýasyz' bucket that appears only when it has data."""
+    date_from, date_to = _report_dates_with_today()
+
+    query = (
+        ExaminationDirection.query
+        .join(ExaminationDirection.examination)
+        .filter(Examination.is_paid == True)
+    )
+    query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
+
+    lines = (
+        query.options(
+            joinedload(ExaminationDirection.examination),
+            joinedload(ExaminationDirection.direction)
+                .joinedload(DoctorDirection.category),
+        ).all()
+    )
+
+    def _new_bucket(name, is_uncategorized):
+        return {
+            'name': name,
+            'cash': Decimal('0'),
+            'terminal': Decimal('0'),
+            'discount_cash': Decimal('0'),
+            'discount_terminal': Decimal('0'),
+            'is_uncategorized': is_uncategorized,
+        }
+
+    # Seed every active category so it appears even with no income this period.
+    buckets = {
+        cat.name: _new_bucket(cat.name, False)
+        for cat in DoctorDirectionCategory.query
+            .filter(DoctorDirectionCategory.is_active == True)
+            .all()
+    }
+
+    for ed in lines:
+        category = ed.direction.category if ed.direction else None
+        name = category.name if category else _DIRECTION_CATEGORIES_UNCATEGORIZED
+        bucket = buckets.get(name)
+        if bucket is None:
+            # An inactive category with income, or the uncategorized bucket.
+            bucket = buckets[name] = _new_bucket(name, category is None)
+
+        amount = ed.effective_total
+        discount = ed.snapshot_total - ed.effective_total
+        if ed.payment_method == ExaminationDirection.PAYMENT_TERMINAL:
+            bucket['terminal'] += amount
+            bucket['discount_terminal'] += discount
+        else:  # cash, or a legacy line with no method — defaults to cash
+            bucket['cash'] += amount
+            bucket['discount_cash'] += discount
+
+    rows = sorted(
+        buckets.values(),
+        key=lambda b: (b['is_uncategorized'], b['name'].lower()),
+    )
+    totals = {
+        'cash': sum((b['cash'] for b in rows), Decimal('0')),
+        'terminal': sum((b['terminal'] for b in rows), Decimal('0')),
+        'discount_cash': sum((b['discount_cash'] for b in rows), Decimal('0')),
+        'discount_terminal': sum((b['discount_terminal'] for b in rows), Decimal('0')),
+    }
+    return rows, totals, date_from, date_to
+
+
+@main_bp.route('/reports/direction-categories')
+@role_required('senior_cashier')
+def reports_direction_categories():
+    rows, totals, date_from, date_to = _direction_categories_report()
+
+    if request.args.get('export') == 'xlsx':
+        return _direction_categories_xlsx(rows, totals, date_from, date_to)
+
+    return render_template(
+        'main/reports/direction_categories_report.html',
+        rows=rows,
+        totals=totals,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def _direction_categories_xlsx(rows, totals, date_from, date_to):
+    """Build an .xlsx workbook of the direction-categories report."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Kategoriýalar'
+
+    headers = [
+        '№',
+        'Lukman ugurlarynyň kategoriýasy',
+        'Nagt tölegleriň jemi',
+        'Terminal tölegleriň jemi',
+        '50% ýeňillik (nagt)',
+        '50% ýeňillik (terminal)',
+    ]
+
+    bold = Font(bold=True)
+    header_fill = PatternFill('solid', fgColor='E9ECEF')
+    right = Alignment(horizontal='right')
+    money_cols = (3, 4, 5, 6)
+
+    ws.append(['Lukman ugurlarynyň kategoriýalary boýunça hasabat'])
+    ws['A1'].font = Font(bold=True, size=14)
+    if date_from or date_to:
+        ws.append([f'Döwür: {date_from or "…"} — {date_to or "…"}'])
+    ws.append([])
+
+    header_row_idx = ws.max_row + 1
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=header_row_idx, column=col)
+        cell.font = bold
+        cell.fill = header_fill
+
+    for idx, row in enumerate(rows, start=1):
+        ws.append([
+            idx,
+            row['name'],
+            float(row['cash']),
+            float(row['terminal']),
+            float(row['discount_cash']),
+            float(row['discount_terminal']),
+        ])
+        row_idx = ws.max_row
+        for col in money_cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+
+    ws.append([
+        '', 'Jemi:',
+        float(totals['cash']), float(totals['terminal']),
+        float(totals['discount_cash']), float(totals['discount_terminal']),
+    ])
+    total_idx = ws.max_row
+    for col in range(1, len(headers) + 1):
+        c = ws.cell(row=total_idx, column=col)
+        c.font = bold
+        if col in money_cols:
+            c.number_format = '#,##0.00'
+            c.alignment = right
+
+    widths = [6, 40, 22, 24, 22, 24]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = 'direction_categories_report'
     if date_from or date_to:
         fname += f'_{date_from or "all"}_{date_to or "all"}'
     fname += '.xlsx'

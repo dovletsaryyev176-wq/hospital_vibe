@@ -49,6 +49,20 @@
   </div>
   {% if current_user.role == 'senior_cashier' %}
   <div class="col-sm-6 col-lg-4">
+    <a href="{{ url_for('main.reports_direction_categories') }}" class="card shadow-sm border-0 text-decoration-none h-100">
+      <div class="card-body d-flex align-items-center gap-3">
+        <div class="bg-danger-subtle text-danger rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+             style="width:48px;height:48px">
+          <i class="bi bi-diagram-3-fill" style="font-size:1.25rem"></i>
+        </div>
+        <div>
+          <div class="fw-semibold text-dark">Lukman ugurlarynyň kategoriýalary boýunça hasabat</div>
+          <div class="text-muted small">Günlük nagt, terminal we 50% ýeňillik jemleri</div>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-sm-6 col-lg-4">
     <a href="{{ url_for('main.reports_plans') }}" class="card shadow-sm border-0 text-decoration-none h-100">
       <div class="card-body d-flex align-items-center gap-3">
         <div class="bg-warning-subtle text-warning rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
