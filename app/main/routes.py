@@ -1622,12 +1622,15 @@ def _direction_categories_xlsx(rows, totals, date_from, date_to):
         'Terminal tölegleriň jemi',
         '50% ýeňillik (nagt)',
         '50% ýeňillik (terminal)',
+        'Nagt tölegleriň umumy jemi',
+        'Terminal tölegleriň umumy jemi',
+        'Umumy jemi',
     ]
 
     bold = Font(bold=True)
     header_fill = PatternFill('solid', fgColor='E9ECEF')
     right = Alignment(horizontal='right')
-    money_cols = (3, 4, 5, 6)
+    money_cols = (3, 4, 5, 6, 7, 8, 9)
 
     ws.append(['Lukman ugurlarynyň kategoriýalary boýunça hasabat'])
     ws['A1'].font = Font(bold=True, size=14)
@@ -1650,6 +1653,9 @@ def _direction_categories_xlsx(rows, totals, date_from, date_to):
             float(row['terminal']),
             float(row['discount_cash']),
             float(row['discount_terminal']),
+            float(row['cash'] + row['discount_cash']),
+            float(row['terminal'] + row['discount_terminal']),
+            float(row['cash'] + row['discount_cash'] + row['terminal'] + row['discount_terminal']),
         ])
         row_idx = ws.max_row
         for col in money_cols:
@@ -1661,6 +1667,10 @@ def _direction_categories_xlsx(rows, totals, date_from, date_to):
         '', 'Jemi:',
         float(totals['cash']), float(totals['terminal']),
         float(totals['discount_cash']), float(totals['discount_terminal']),
+        float(totals['cash'] + totals['discount_cash']),
+        float(totals['terminal'] + totals['discount_terminal']),
+        float(totals['cash'] + totals['discount_cash']
+              + totals['terminal'] + totals['discount_terminal']),
     ])
     total_idx = ws.max_row
     for col in range(1, len(headers) + 1):
@@ -1670,7 +1680,7 @@ def _direction_categories_xlsx(rows, totals, date_from, date_to):
             c.number_format = '#,##0.00'
             c.alignment = right
 
-    widths = [6, 40, 22, 24, 22, 24]
+    widths = [6, 40, 22, 24, 22, 24, 28, 30, 16]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 

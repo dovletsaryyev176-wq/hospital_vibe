@@ -85,6 +85,9 @@
           <th class="text-end">Terminal tölegleriň jemi</th>
           <th class="text-end">50% ýeňillik (nagt)</th>
           <th class="text-end">50% ýeňillik (terminal)</th>
+          <th class="text-end">Nagt tölegleriň umumy jemi</th>
+          <th class="text-end">Terminal tölegleriň umumy jemi</th>
+          <th class="text-end">Umumy jemi</th>
         </tr>
       </thead>
       <tbody>
@@ -104,6 +107,9 @@
             <td class="text-end {% if r.discount_terminal %}text-success fw-semibold{% endif %}">
               {{ '%.2f' | format(r.discount_terminal) }}
             </td>
+            <td class="text-end fw-semibold">{{ '%.2f' | format(r.cash + r.discount_cash) }}</td>
+            <td class="text-end fw-semibold">{{ '%.2f' | format(r.terminal + r.discount_terminal) }}</td>
+            <td class="text-end fw-bold text-primary">{{ '%.2f' | format(r.cash + r.discount_cash + r.terminal + r.discount_terminal) }}</td>
           </tr>
           {% endfor %}
           <tr class="table-light fw-bold">
@@ -113,10 +119,13 @@
             <td class="text-end">{{ '%.2f' | format(totals.terminal) }}</td>
             <td class="text-end text-success">{{ '%.2f' | format(totals.discount_cash) }}</td>
             <td class="text-end text-success">{{ '%.2f' | format(totals.discount_terminal) }}</td>
+            <td class="text-end">{{ '%.2f' | format(totals.cash + totals.discount_cash) }}</td>
+            <td class="text-end">{{ '%.2f' | format(totals.terminal + totals.discount_terminal) }}</td>
+            <td class="text-end text-primary">{{ '%.2f' | format(totals.cash + totals.discount_cash + totals.terminal + totals.discount_terminal) }}</td>
           </tr>
         {% else %}
           <tr>
-            <td colspan="6" class="text-center text-muted py-5">
+            <td colspan="9" class="text-center text-muted py-5">
               <i class="bi bi-clipboard2-x display-5 d-block mb-2 opacity-25"></i>
               Maglumat ýok
             </td>
