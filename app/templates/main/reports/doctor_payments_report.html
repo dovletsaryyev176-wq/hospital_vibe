@@ -1,0 +1,134 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Lukman / jogapkär boýunça töleg hasabaty{% endblock %}
+{% block page_title %}Lukman / jogapkär boýunça töleg hasabaty{% endblock %}
+
+{% block content %}
+
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-body px-4 py-3">
+    <form method="GET" action="{{ url_for('main.reports_doctor_payments') }}">
+      <div class="d-flex flex-wrap align-items-end gap-2">
+        <a href="{{ url_for('main.reports_index') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0 mb-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+
+        <div>
+          <label class="form-label small text-muted mb-1">Lukman ugry</label>
+          <select id="directionSelect" name="direction_id" class="form-select form-select-sm" style="min-width:220px">
+            <option value="">— Ugur saýlaň —</option>
+            {% for d in directions %}
+              <option value="{{ d.id }}" {% if d.id == direction_id %}selected{% endif %}>{{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label class="form-label small text-muted mb-1">Lukman / jogapkär</label>
+          <select id="doctorSelect" name="doctor_id" class="form-select form-select-sm" style="min-width:220px">
+            <option value="">— Lukman / jogapkär —</option>
+            {% if direction_id and users_by_direction.get(direction_id) %}
+              {% for u in users_by_direction[direction_id] %}
+                <option value="{{ u.id }}" {% if u.id == doctor_id %}selected{% endif %}>{{ u.full_name }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+
+        <div>
+          <label class="form-label small text-muted mb-1">Başlangyç</label>
+          <input type="date" class="form-control form-control-sm" name="from" value="{{ date_from }}" style="width:150px">
+        </div>
+        <div>
+          <label class="form-label small text-muted mb-1">Ahyry</label>
+          <input type="date" class="form-control form-control-sm" name="to" value="{{ date_to }}" style="width:150px">
+        </div>
+
+        <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0 mb-1">Görkezmek</button>
+
+        {% if row is not none %}
+          <a href="{{ url_for('main.reports_doctor_payments', direction_id=direction_id, doctor_id=doctor_id, from=date_from, to=date_to, export='xlsx') }}"
+             class="btn btn-sm btn-success flex-shrink-0 ms-auto mb-1" title="Excel-e çykarmak">
+            <i class="bi bi-file-earmark-excel me-1"></i>Excel
+          </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle mb-0 small">
+      <thead>
+        <tr class="text-nowrap">
+          <th>Ugur</th>
+          <th>Lukman / jogapkär</th>
+          <th class="text-end">Kabullaryň sany</th>
+          <th class="text-end">Nagt töleg</th>
+          <th class="text-end">50% ýeňillik (nagt)</th>
+          <th class="text-end">Terminal töleg</th>
+          <th class="text-end">50% ýeňillik (terminal)</th>
+          <th class="text-end">Nagt tölegleriň umumy jemi</th>
+          <th class="text-end">Terminal tölegleriň umumy jemi</th>
+          <th class="text-end">Umumy jemi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if row is not none %}
+          <tr>
+            <td>{{ direction.name if direction else '—' }}</td>
+            <td>{{ doctor.full_name if doctor else '—' }}</td>
+            <td class="text-end fw-semibold">{{ row.count }}</td>
+            <td class="text-end">{{ '%.2f' | format(row.cash) }}</td>
+            <td class="text-end {% if row.discount_cash %}text-success fw-semibold{% endif %}">
+              {{ '%.2f' | format(row.discount_cash) }}
+            </td>
+            <td class="text-end">{{ '%.2f' | format(row.terminal) }}</td>
+            <td class="text-end {% if row.discount_terminal %}text-success fw-semibold{% endif %}">
+              {{ '%.2f' | format(row.discount_terminal) }}
+            </td>
+            <td class="text-end fw-semibold">{{ '%.2f' | format(row.cash + row.discount_cash) }}</td>
+            <td class="text-end fw-semibold">{{ '%.2f' | format(row.terminal + row.discount_terminal) }}</td>
+            <td class="text-end fw-bold text-primary">
+              {{ '%.2f' | format(row.cash + row.discount_cash + row.terminal + row.discount_terminal) }}
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td colspan="10" class="text-center text-muted py-5">
+              <i class="bi bi-funnel display-5 d-block mb-2 opacity-25"></i>
+              Ugry we lukmany / jogapkäri saýlaň
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var DIRECTION_USERS = {{ users_json | tojson }};
+    var dirSel = document.getElementById('directionSelect');
+    var docSel = document.getElementById('doctorSelect');
+
+    function fillDoctors(keepId) {
+      var users = DIRECTION_USERS[dirSel.value] || [];
+      docSel.innerHTML = '<option value="">— Lukman / jogapkär —</option>';
+      users.forEach(function (pair) {
+        var opt = document.createElement('option');
+        opt.value = pair[0];
+        opt.textContent = pair[1];
+        if (keepId != null && String(pair[0]) === String(keepId)) {
+          opt.selected = true;
+        }
+        docSel.appendChild(opt);
+      });
+    }
+
+    dirSel.addEventListener('change', function () { fillDoctors(null); });
+  })();
+</script>
+
+{% endblock %}

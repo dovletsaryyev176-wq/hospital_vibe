@@ -14,7 +14,7 @@ from app.models import (Patient, Examination, ExaminationAnalysis,
                         DoctorDirection, DoctorDirectionCategory,
                         Analysis, AnalysisTool, Blank,
                         AnalysisToolSubcategory,
-                        CombinedAnalysis, User, EarningPlan)
+                        CombinedAnalysis, User, EarningPlan, user_directions)
 
 
 def role_required(*roles):
@@ -1689,6 +1689,196 @@ def _direction_categories_xlsx(rows, totals, date_from, date_to):
     buf.seek(0)
 
     fname = 'direction_categories_report'
+    if date_from or date_to:
+        fname += f'_{date_from or "all"}_{date_to or "all"}'
+    fname += '.xlsx'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename={fname}'},
+    )
+
+
+# ── Doctor / responsible payment report (senior cashier only) ─────────────────
+
+def _doctor_direction_users():
+    """Map {direction_id: [User, ...]} of active doctors / analysis-responsibles
+    assigned to each doctor-direction, ordered by name. One query."""
+    q = (
+        db.session.query(user_directions.c.direction_id, User)
+        .join(User, User.id == user_directions.c.user_id)
+        .filter(User.is_active == True,
+                User.role.in_(['doctor', 'analysis_responsible']))
+        .order_by(User.full_name)
+    )
+    mapping = {}
+    for direction_id, user in q.all():
+        mapping.setdefault(direction_id, []).append(user)
+    return mapping
+
+
+def _doctor_payments_report():
+    """Aggregate paid doctor-direction income for one selected direction and one
+    selected doctor / responsible over the chosen date range.
+
+    Returns (row, direction, doctor, direction_id, doctor_id, date_from, date_to,
+    directions, users_by_direction). `row` is None until both a direction and a
+    doctor are picked. Each matching direction line is one reception; its amount
+    goes to the cash or terminal bucket by payment method (missing method counts
+    as cash), and its insurance 50% discount is accumulated separately."""
+    direction_id = request.args.get('direction_id', type=int)
+    doctor_id = request.args.get('doctor_id', type=int)
+    date_from, date_to = _report_dates_with_today()
+
+    directions = DoctorDirection.query.order_by(DoctorDirection.name).all()
+    users_by_direction = _doctor_direction_users()
+
+    row = direction = doctor = None
+    if direction_id and doctor_id:
+        query = (
+            ExaminationDirection.query
+            .join(ExaminationDirection.examination)
+            .filter(
+                Examination.is_paid == True,
+                ExaminationDirection.direction_id == direction_id,
+                ExaminationDirection.doctor_id == doctor_id,
+            )
+        )
+        query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
+        lines = query.all()
+
+        cash = terminal = discount_cash = discount_terminal = Decimal('0')
+        for ed in lines:
+            amount = ed.effective_total
+            discount = ed.snapshot_total - ed.effective_total
+            if ed.payment_method == ExaminationDirection.PAYMENT_TERMINAL:
+                terminal += amount
+                discount_terminal += discount
+            else:  # cash, or a legacy line with no method — defaults to cash
+                cash += amount
+                discount_cash += discount
+
+        row = {
+            'count': len(lines),
+            'cash': cash,
+            'discount_cash': discount_cash,
+            'terminal': terminal,
+            'discount_terminal': discount_terminal,
+        }
+        direction = db.session.get(DoctorDirection, direction_id)
+        doctor = db.session.get(User, doctor_id)
+
+    return (row, direction, doctor, direction_id, doctor_id,
+            date_from, date_to, directions, users_by_direction)
+
+
+@main_bp.route('/reports/doctor-payments')
+@role_required('senior_cashier')
+def reports_doctor_payments():
+    (row, direction, doctor, direction_id, doctor_id,
+     date_from, date_to, directions, users_by_direction) = _doctor_payments_report()
+
+    if request.args.get('export') == 'xlsx' and row is not None:
+        return _doctor_payments_xlsx(row, direction, doctor, date_from, date_to)
+
+    # Direction -> eligible users, JSON-serializable for the dependent dropdown.
+    users_json = {
+        str(did): [[u.id, u.full_name] for u in users]
+        for did, users in users_by_direction.items()
+    }
+
+    return render_template(
+        'main/reports/doctor_payments_report.html',
+        row=row,
+        direction=direction,
+        doctor=doctor,
+        direction_id=direction_id,
+        doctor_id=doctor_id,
+        date_from=date_from,
+        date_to=date_to,
+        directions=directions,
+        users_by_direction=users_by_direction,
+        users_json=users_json,
+    )
+
+
+def _doctor_payments_xlsx(row, direction, doctor, date_from, date_to):
+    """Build an .xlsx workbook of the doctor / responsible payment report."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Töleg hasabaty'
+
+    headers = [
+        'Ugur',
+        'Lukman / jogapkär',
+        'Kabullaryň sany',
+        'Nagt töleg',
+        '50% ýeňillik (nagt)',
+        'Terminal töleg',
+        '50% ýeňillik (terminal)',
+        'Nagt tölegleriň umumy jemi',
+        'Terminal tölegleriň umumy jemi',
+        'Umumy jemi',
+    ]
+
+    bold = Font(bold=True)
+    header_fill = PatternFill('solid', fgColor='E9ECEF')
+    right = Alignment(horizontal='right')
+    money_cols = (4, 5, 6, 7, 8, 9, 10)
+
+    ws.append(['Lukman / jogapkär boýunça töleg hasabaty'])
+    ws['A1'].font = Font(bold=True, size=14)
+    if date_from or date_to:
+        ws.append([f'Döwür: {date_from or "…"} — {date_to or "…"}'])
+    ws.append([])
+
+    header_row_idx = ws.max_row + 1
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=header_row_idx, column=col)
+        cell.font = bold
+        cell.fill = header_fill
+
+    cash = row['cash']
+    discount_cash = row['discount_cash']
+    terminal = row['terminal']
+    discount_terminal = row['discount_terminal']
+    total_cash = cash + discount_cash
+    total_terminal = terminal + discount_terminal
+
+    ws.append([
+        direction.name if direction else '—',
+        doctor.full_name if doctor else '—',
+        row['count'],
+        float(cash),
+        float(discount_cash),
+        float(terminal),
+        float(discount_terminal),
+        float(total_cash),
+        float(total_terminal),
+        float(total_cash + total_terminal),
+    ])
+    data_idx = ws.max_row
+    ws.cell(row=data_idx, column=3).alignment = right
+    for col in money_cols:
+        c = ws.cell(row=data_idx, column=col)
+        c.number_format = '#,##0.00'
+        c.alignment = right
+
+    widths = [30, 26, 16, 16, 20, 16, 22, 28, 30, 16]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = 'doctor_payments_report'
     if date_from or date_to:
         fname += f'_{date_from or "all"}_{date_to or "all"}'
     fname += '.xlsx'
