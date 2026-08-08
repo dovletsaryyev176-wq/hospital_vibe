@@ -1890,6 +1890,198 @@ def _doctor_payments_xlsx(row, direction, doctor, date_from, date_to):
     )
 
 
+# ── Analysis-tool payment report (senior cashier only) ────────────────────────
+
+def _tool_payments_report():
+    """Aggregate paid analysis-tool income for the selected tools over the
+    chosen date range.
+
+    Returns (rows, totals, tool_ids, date_from, date_to, tools). `rows` is None
+    until at least one tool is picked; otherwise one bucket per selected tool,
+    ordered by tool name. Each matching tool line's amount goes to the cash or
+    terminal bucket by payment method (missing method counts as cash), and its
+    insurance 50% discount is accumulated separately."""
+    tool_ids = list(dict.fromkeys(request.args.getlist('tool_ids', type=int)))
+    date_from, date_to = _report_dates_with_today()
+
+    tools = (AnalysisTool.query
+             .filter(AnalysisTool.is_active == True)
+             .order_by(AnalysisTool.name)
+             .all())
+
+    rows = totals = None
+    if tool_ids:
+        query = (
+            ExaminationAnalysisTool.query
+            .join(ExaminationAnalysisTool.examination)
+            .filter(
+                Examination.is_paid == True,
+                ExaminationAnalysisTool.tool_id.in_(tool_ids),
+            )
+            .options(
+                joinedload(ExaminationAnalysisTool.examination),
+                joinedload(ExaminationAnalysisTool.tool),
+            )
+        )
+        query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
+        lines = query.all()
+
+        selected = (AnalysisTool.query
+                    .filter(AnalysisTool.id.in_(tool_ids))
+                    .order_by(AnalysisTool.name)
+                    .all())
+        buckets = OrderedDict(
+            (t.id, {'name': t.name, 'count': 0,
+                    'cash': Decimal('0'), 'discount_cash': Decimal('0'),
+                    'terminal': Decimal('0'), 'discount_terminal': Decimal('0')})
+            for t in selected
+        )
+        for et in lines:
+            bucket = buckets.get(et.tool_id)
+            if bucket is None:
+                continue
+            amount = et.effective_total
+            discount = et.snapshot_total - et.effective_total
+            bucket['count'] += et.quantity or 1
+            if et.payment_method == ExaminationAnalysisTool.PAYMENT_TERMINAL:
+                bucket['terminal'] += amount
+                bucket['discount_terminal'] += discount
+            else:  # cash, or a legacy line with no method — defaults to cash
+                bucket['cash'] += amount
+                bucket['discount_cash'] += discount
+
+        rows = list(buckets.values())
+        totals = {
+            'count': sum(b['count'] for b in rows),
+            'cash': sum((b['cash'] for b in rows), Decimal('0')),
+            'discount_cash': sum((b['discount_cash'] for b in rows), Decimal('0')),
+            'terminal': sum((b['terminal'] for b in rows), Decimal('0')),
+            'discount_terminal': sum((b['discount_terminal'] for b in rows), Decimal('0')),
+        }
+
+    return rows, totals, tool_ids, date_from, date_to, tools
+
+
+@main_bp.route('/reports/tool-payments')
+@role_required('senior_cashier')
+def reports_tool_payments():
+    rows, totals, tool_ids, date_from, date_to, tools = _tool_payments_report()
+
+    if request.args.get('export') == 'xlsx' and rows is not None:
+        return _tool_payments_xlsx(rows, totals, date_from, date_to)
+
+    return render_template(
+        'main/reports/tool_payments_report.html',
+        rows=rows,
+        totals=totals,
+        tool_ids=tool_ids,
+        date_from=date_from,
+        date_to=date_to,
+        tools=tools,
+    )
+
+
+def _tool_payments_xlsx(rows, totals, date_from, date_to):
+    """Build an .xlsx workbook of the analysis-tool payment report."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Serişdeler'
+
+    headers = [
+        '№',
+        'Serişde',
+        'Sany',
+        'Nagt töleg',
+        '50% ýeňillik (nagt)',
+        'Terminal töleg',
+        '50% ýeňillik (terminal)',
+        'Nagt tölegleriň umumy jemi',
+        'Terminal tölegleriň umumy jemi',
+        'Umumy jemi',
+    ]
+
+    bold = Font(bold=True)
+    header_fill = PatternFill('solid', fgColor='E9ECEF')
+    right = Alignment(horizontal='right')
+    money_cols = (4, 5, 6, 7, 8, 9, 10)
+
+    ws.append(['Serişdeler boýunça töleg hasabaty'])
+    ws['A1'].font = Font(bold=True, size=14)
+    if date_from or date_to:
+        ws.append([f'Döwür: {date_from or "…"} — {date_to or "…"}'])
+    ws.append([])
+
+    header_row_idx = ws.max_row + 1
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=header_row_idx, column=col)
+        cell.font = bold
+        cell.fill = header_fill
+
+    for idx, row in enumerate(rows, start=1):
+        ws.append([
+            idx,
+            row['name'],
+            row['count'],
+            float(row['cash']),
+            float(row['discount_cash']),
+            float(row['terminal']),
+            float(row['discount_terminal']),
+            float(row['cash'] + row['discount_cash']),
+            float(row['terminal'] + row['discount_terminal']),
+            float(row['cash'] + row['discount_cash'] + row['terminal'] + row['discount_terminal']),
+        ])
+        row_idx = ws.max_row
+        ws.cell(row=row_idx, column=3).alignment = right
+        for col in money_cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+
+    ws.append([
+        '', 'Jemi:',
+        totals['count'],
+        float(totals['cash']), float(totals['discount_cash']),
+        float(totals['terminal']), float(totals['discount_terminal']),
+        float(totals['cash'] + totals['discount_cash']),
+        float(totals['terminal'] + totals['discount_terminal']),
+        float(totals['cash'] + totals['discount_cash']
+              + totals['terminal'] + totals['discount_terminal']),
+    ])
+    total_idx = ws.max_row
+    for col in range(1, len(headers) + 1):
+        c = ws.cell(row=total_idx, column=col)
+        c.font = bold
+        if col == 3:
+            c.alignment = right
+        if col in money_cols:
+            c.number_format = '#,##0.00'
+            c.alignment = right
+
+    widths = [6, 40, 10, 16, 20, 16, 22, 28, 30, 16]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = 'tool_payments_report'
+    if date_from or date_to:
+        fname += f'_{date_from or "all"}_{date_to or "all"}'
+    fname += '.xlsx'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename={fname}'},
+    )
+
+
 def _analyses_report_query():
     """Build the filtered Examination query for the analyses report and return
     (query, date_from, date_to, analysis_id, cashier_id). Dates default to today

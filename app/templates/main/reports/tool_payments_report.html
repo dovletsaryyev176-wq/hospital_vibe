@@ -1,0 +1,156 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Serişdeler boýunça töleg hasabaty{% endblock %}
+{% block page_title %}Serişdeler boýunça töleg hasabaty{% endblock %}
+
+{% block content %}
+
+<div class="card shadow-sm border-0 mb-3">
+  <div class="card-body px-4 py-3">
+    <form method="GET" action="{{ url_for('main.reports_tool_payments') }}">
+      <div class="d-flex flex-wrap align-items-end gap-2">
+        <a href="{{ url_for('main.reports_index') }}" class="btn btn-sm btn-outline-secondary flex-shrink-0 mb-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+
+        <div>
+          <label class="form-label small text-muted mb-1">Serişdeler</label>
+          <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary dropdown-toggle text-start bg-white text-dark"
+                    type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside"
+                    aria-expanded="false" style="min-width:260px">
+              <span id="toolsDropdownLabel">— Serişde saýlaň —</span>
+            </button>
+            <div class="dropdown-menu shadow-sm p-2" style="min-width:320px;max-height:320px;overflow-y:auto">
+              {% for t in tools %}
+                <label class="dropdown-item d-flex align-items-start gap-2 mb-0 px-2 py-1" style="cursor:pointer">
+                  <input class="form-check-input mt-1 flex-shrink-0 tool-check" type="checkbox"
+                         name="tool_ids" value="{{ t.id }}"
+                         {% if t.id in tool_ids %}checked{% endif %}
+                         data-name="{{ t.name }}">
+                  <span class="text-wrap small">{{ t.name }}</span>
+                </label>
+              {% endfor %}
+              {% if not tools %}
+                <div class="text-muted small px-2 py-1">Serişde ýok</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="form-label small text-muted mb-1">Başlangyç</label>
+          <input type="date" class="form-control form-control-sm" name="from" value="{{ date_from }}" style="width:150px">
+        </div>
+        <div>
+          <label class="form-label small text-muted mb-1">Ahyry</label>
+          <input type="date" class="form-control form-control-sm" name="to" value="{{ date_to }}" style="width:150px">
+        </div>
+
+        <button type="submit" class="btn btn-sm btn-outline-primary flex-shrink-0 mb-1">Görkezmek</button>
+
+        {% if rows is not none %}
+          <a href="{{ url_for('main.reports_tool_payments', tool_ids=tool_ids, from=date_from, to=date_to, export='xlsx') }}"
+             class="btn btn-sm btn-success flex-shrink-0 ms-auto mb-1" title="Excel-e çykarmak">
+            <i class="bi bi-file-earmark-excel me-1"></i>Excel
+          </a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive">
+    <table class="table table-bordered table-hover align-middle mb-0 small">
+      <thead>
+        <tr class="text-nowrap">
+          <th>Serişde</th>
+          <th class="text-end">Sany</th>
+          <th class="text-end">Nagt töleg</th>
+          <th class="text-end">50% ýeňillik (nagt)</th>
+          <th class="text-end">Terminal töleg</th>
+          <th class="text-end">50% ýeňillik (terminal)</th>
+          <th class="text-end">Nagt tölegleriň umumy jemi</th>
+          <th class="text-end">Terminal tölegleriň umumy jemi</th>
+          <th class="text-end">Umumy jemi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if rows is not none %}
+          {% for row in rows %}
+            <tr>
+              <td>{{ row.name }}</td>
+              <td class="text-end fw-semibold">{{ row.count }}</td>
+              <td class="text-end">{{ '%.2f' | format(row.cash) }}</td>
+              <td class="text-end {% if row.discount_cash %}text-success fw-semibold{% endif %}">
+                {{ '%.2f' | format(row.discount_cash) }}
+              </td>
+              <td class="text-end">{{ '%.2f' | format(row.terminal) }}</td>
+              <td class="text-end {% if row.discount_terminal %}text-success fw-semibold{% endif %}">
+                {{ '%.2f' | format(row.discount_terminal) }}
+              </td>
+              <td class="text-end fw-semibold">{{ '%.2f' | format(row.cash + row.discount_cash) }}</td>
+              <td class="text-end fw-semibold">{{ '%.2f' | format(row.terminal + row.discount_terminal) }}</td>
+              <td class="text-end fw-bold text-primary">
+                {{ '%.2f' | format(row.cash + row.discount_cash + row.terminal + row.discount_terminal) }}
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="9" class="text-center text-muted py-5">
+              <i class="bi bi-funnel display-5 d-block mb-2 opacity-25"></i>
+              Bir ýa-da birnäçe serişde saýlaň
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+      {% if rows is not none %}
+        <tfoot>
+          <tr class="table-light fw-bold">
+            <td>Jemi:</td>
+            <td class="text-end">{{ totals.count }}</td>
+            <td class="text-end">{{ '%.2f' | format(totals.cash) }}</td>
+            <td class="text-end {% if totals.discount_cash %}text-success{% endif %}">
+              {{ '%.2f' | format(totals.discount_cash) }}
+            </td>
+            <td class="text-end">{{ '%.2f' | format(totals.terminal) }}</td>
+            <td class="text-end {% if totals.discount_terminal %}text-success{% endif %}">
+              {{ '%.2f' | format(totals.discount_terminal) }}
+            </td>
+            <td class="text-end">{{ '%.2f' | format(totals.cash + totals.discount_cash) }}</td>
+            <td class="text-end">{{ '%.2f' | format(totals.terminal + totals.discount_terminal) }}</td>
+            <td class="text-end text-primary">
+              {{ '%.2f' | format(totals.cash + totals.discount_cash + totals.terminal + totals.discount_terminal) }}
+            </td>
+          </tr>
+        </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var label = document.getElementById('toolsDropdownLabel');
+    var checks = Array.prototype.slice.call(document.querySelectorAll('.tool-check'));
+
+    function updateLabel() {
+      var picked = checks.filter(function (c) { return c.checked; });
+      if (picked.length === 0) {
+        label.textContent = '— Serişde saýlaň —';
+      } else if (picked.length === 1) {
+        var name = picked[0].getAttribute('data-name');
+        label.textContent = name.length > 30 ? name.slice(0, 30) + '…' : name;
+      } else {
+        label.textContent = picked.length + ' serişde saýlandy';
+      }
+    }
+
+    checks.forEach(function (c) { c.addEventListener('change', updateLabel); });
+    updateLabel();
+  })();
+</script>
+
+{% endblock %}
