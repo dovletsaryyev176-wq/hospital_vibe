@@ -80,7 +80,14 @@
         {% if rows is not none %}
           {% for row in rows %}
             <tr>
-              <td>{{ row.name }}</td>
+              <td>
+                <a class="text-decoration-none fw-semibold" data-bs-toggle="collapse"
+                   href="#toolDetail{{ loop.index }}" role="button" aria-expanded="false"
+                   aria-controls="toolDetail{{ loop.index }}">
+                  <i class="bi bi-chevron-down small me-1"></i>{{ row.name }}
+                </a>
+                <span class="text-muted small ms-1">({{ row.details | length }})</span>
+              </td>
               <td class="text-end fw-semibold">{{ row.count }}</td>
               <td class="text-end">{{ '%.2f' | format(row.cash) }}</td>
               <td class="text-end {% if row.discount_cash %}text-success fw-semibold{% endif %}">
@@ -94,6 +101,45 @@
               <td class="text-end fw-semibold">{{ '%.2f' | format(row.terminal + row.discount_terminal) }}</td>
               <td class="text-end fw-bold text-primary">
                 {{ '%.2f' | format(row.cash + row.discount_cash + row.terminal + row.discount_terminal) }}
+              </td>
+            </tr>
+            <tr class="collapse" id="toolDetail{{ loop.index }}">
+              <td colspan="9" class="bg-light p-3">
+                <div class="fw-semibold small text-muted mb-2">
+                  {{ row.name }} — ulanylan syrkawlar
+                </div>
+                {% if row.details %}
+                  <table class="table table-sm table-bordered bg-white mb-0">
+                    <thead>
+                      <tr class="text-nowrap">
+                        <th style="width:90px">Barlag №</th>
+                        <th style="width:140px">Senesi</th>
+                        <th>Syrkaw (F.A.A.)</th>
+                        <th class="text-end" style="width:80px">Sany</th>
+                        <th style="width:110px">Töleg görnüşi</th>
+                        <th class="text-end" style="width:130px">50% ýeňillik</th>
+                        <th class="text-end" style="width:130px">Tölenen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for d in row.details %}
+                        <tr>
+                          <td class="fw-semibold">{{ d.exam_id }}</td>
+                          <td class="text-nowrap">{{ d.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                          <td>{{ d.patient }}</td>
+                          <td class="text-end">{{ d.quantity }}</td>
+                          <td>{{ 'Terminal' if d.is_terminal else 'Nagt' }}</td>
+                          <td class="text-end {% if d.discount %}text-success fw-semibold{% endif %}">
+                            {{ '%.2f' | format(d.discount) }}
+                          </td>
+                          <td class="text-end fw-semibold">{{ '%.2f' | format(d.amount) }}</td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                {% else %}
+                  <div class="text-muted small">Bu döwürde serişde ulanylmadyk.</div>
+                {% endif %}
               </td>
             </tr>
           {% endfor %}

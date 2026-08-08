@@ -1919,7 +1919,8 @@ def _tool_payments_report():
                 ExaminationAnalysisTool.tool_id.in_(tool_ids),
             )
             .options(
-                joinedload(ExaminationAnalysisTool.examination),
+                joinedload(ExaminationAnalysisTool.examination)
+                .joinedload(Examination.patient),
                 joinedload(ExaminationAnalysisTool.tool),
             )
         )
@@ -1933,7 +1934,8 @@ def _tool_payments_report():
         buckets = OrderedDict(
             (t.id, {'name': t.name, 'count': 0,
                     'cash': Decimal('0'), 'discount_cash': Decimal('0'),
-                    'terminal': Decimal('0'), 'discount_terminal': Decimal('0')})
+                    'terminal': Decimal('0'), 'discount_terminal': Decimal('0'),
+                    'details': []})
             for t in selected
         )
         for et in lines:
@@ -1950,7 +1952,20 @@ def _tool_payments_report():
                 bucket['cash'] += amount
                 bucket['discount_cash'] += discount
 
+            exam = et.examination
+            bucket['details'].append({
+                'exam_id': et.examination_id,
+                'created_at': exam.created_at,
+                'patient': exam.patient.full_name if exam.patient else '—',
+                'quantity': et.quantity or 1,
+                'is_terminal': et.payment_method == ExaminationAnalysisTool.PAYMENT_TERMINAL,
+                'amount': amount,
+                'discount': discount,
+            })
+
         rows = list(buckets.values())
+        for row in rows:
+            row['details'].sort(key=lambda d: d['created_at'])
         totals = {
             'count': sum(b['count'] for b in rows),
             'cash': sum((b['cash'] for b in rows), Decimal('0')),
@@ -2005,7 +2020,10 @@ def _tool_payments_xlsx(rows, totals, date_from, date_to):
     ]
 
     bold = Font(bold=True)
+    small = Font(size=9)
+    small_bold = Font(size=9, bold=True)
     header_fill = PatternFill('solid', fgColor='E9ECEF')
+    detail_fill = PatternFill('solid', fgColor='F5F5F5')
     right = Alignment(horizontal='right')
     money_cols = (4, 5, 6, 7, 8, 9, 10)
 
@@ -2036,11 +2054,41 @@ def _tool_payments_xlsx(rows, totals, date_from, date_to):
             float(row['cash'] + row['discount_cash'] + row['terminal'] + row['discount_terminal']),
         ])
         row_idx = ws.max_row
+        ws.cell(row=row_idx, column=2).font = bold
         ws.cell(row=row_idx, column=3).alignment = right
         for col in money_cols:
             c = ws.cell(row=row_idx, column=col)
             c.number_format = '#,##0.00'
             c.alignment = right
+
+        if row['details']:
+            ws.append(['', 'Barlag №', 'Senesi', 'Syrkaw (F.A.A.)', 'Sany',
+                       'Töleg görnüşi', '50% ýeňillik', 'Tölenen'])
+            hdr_idx = ws.max_row
+            for col in range(2, 9):
+                c = ws.cell(row=hdr_idx, column=col)
+                c.font = small_bold
+                c.fill = detail_fill
+            for d in row['details']:
+                ws.append([
+                    '',
+                    d['exam_id'],
+                    d['created_at'].strftime('%d.%m.%Y %H:%M'),
+                    d['patient'],
+                    d['quantity'],
+                    'Terminal' if d['is_terminal'] else 'Nagt',
+                    float(d['discount']),
+                    float(d['amount']),
+                ])
+                didx = ws.max_row
+                for col in range(2, 9):
+                    ws.cell(row=didx, column=col).font = small
+                ws.cell(row=didx, column=5).alignment = right
+                for col in (7, 8):
+                    c = ws.cell(row=didx, column=col)
+                    c.number_format = '#,##0.00'
+                    c.alignment = right
+            ws.append([])
 
     ws.append([
         '', 'Jemi:',
@@ -2062,7 +2110,7 @@ def _tool_payments_xlsx(rows, totals, date_from, date_to):
             c.number_format = '#,##0.00'
             c.alignment = right
 
-    widths = [6, 40, 10, 16, 20, 16, 22, 28, 30, 16]
+    widths = [6, 40, 18, 30, 20, 16, 22, 28, 30, 16]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
