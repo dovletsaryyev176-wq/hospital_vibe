@@ -1720,67 +1720,110 @@ def _doctor_direction_users():
 
 def _doctor_payments_report():
     """Aggregate paid doctor-direction income for one selected direction and one
-    selected doctor / responsible over the chosen date range.
+    selected doctor / responsible — or every doctor of the direction at once
+    (doctor_id='all') — over the chosen date range.
 
-    Returns (row, direction, doctor, direction_id, doctor_id, date_from, date_to,
-    directions, users_by_direction). `row` is None until both a direction and a
-    doctor are picked. Each matching direction line is one reception; its amount
-    goes to the cash or terminal bucket by payment method (missing method counts
-    as cash), and its insurance 50% discount is accumulated separately."""
+    Returns (rows, totals, direction, direction_id, doctor_arg, date_from,
+    date_to, directions, users_by_direction). `rows` is None until a direction
+    and a doctor (or 'all') are picked; otherwise one bucket per doctor, each
+    listing its receptions in `details`. Each matching direction line is one
+    reception; its amount goes to the cash or terminal bucket by payment method
+    (missing method counts as cash), and its insurance 50% discount is
+    accumulated separately."""
     direction_id = request.args.get('direction_id', type=int)
-    doctor_id = request.args.get('doctor_id', type=int)
+    doctor_arg = (request.args.get('doctor_id') or '').strip()
+    all_doctors = doctor_arg == 'all'
+    doctor_id = int(doctor_arg) if doctor_arg.isdigit() else None
+
     date_from, date_to = _report_dates_with_today()
 
     directions = DoctorDirection.query.order_by(DoctorDirection.name).all()
     users_by_direction = _doctor_direction_users()
 
-    row = direction = doctor = None
-    if direction_id and doctor_id:
+    rows = totals = direction = None
+    if direction_id and (all_doctors or doctor_id):
         query = (
             ExaminationDirection.query
             .join(ExaminationDirection.examination)
             .filter(
                 Examination.is_paid == True,
                 ExaminationDirection.direction_id == direction_id,
-                ExaminationDirection.doctor_id == doctor_id,
+            )
+            .options(
+                joinedload(ExaminationDirection.examination)
+                .joinedload(Examination.patient),
+                joinedload(ExaminationDirection.doctor),
             )
         )
+        if not all_doctors:
+            query = query.filter(ExaminationDirection.doctor_id == doctor_id)
         query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
         lines = query.all()
 
-        cash = terminal = discount_cash = discount_terminal = Decimal('0')
+        def _new_doctor_bucket(name):
+            return {'name': name, 'count': 0,
+                    'cash': Decimal('0'), 'discount_cash': Decimal('0'),
+                    'terminal': Decimal('0'), 'discount_terminal': Decimal('0'),
+                    'details': []}
+
+        # Pre-seed so pickable doctors appear even with zero income.
+        if all_doctors:
+            seed = users_by_direction.get(direction_id, [])
+        else:
+            u = db.session.get(User, doctor_id)
+            seed = [u] if u else []
+        buckets = OrderedDict((u.id, _new_doctor_bucket(u.full_name)) for u in seed)
+
         for ed in lines:
+            bucket = buckets.get(ed.doctor_id)
+            if bucket is None:
+                # A doctor with income who is no longer assigned / active.
+                bucket = buckets[ed.doctor_id] = _new_doctor_bucket(
+                    ed.doctor.full_name if ed.doctor else '—')
             amount = ed.effective_total
             discount = ed.snapshot_total - ed.effective_total
+            bucket['count'] += 1
             if ed.payment_method == ExaminationDirection.PAYMENT_TERMINAL:
-                terminal += amount
-                discount_terminal += discount
+                bucket['terminal'] += amount
+                bucket['discount_terminal'] += discount
             else:  # cash, or a legacy line with no method — defaults to cash
-                cash += amount
-                discount_cash += discount
+                bucket['cash'] += amount
+                bucket['discount_cash'] += discount
 
-        row = {
-            'count': len(lines),
-            'cash': cash,
-            'discount_cash': discount_cash,
-            'terminal': terminal,
-            'discount_terminal': discount_terminal,
+            exam = ed.examination
+            bucket['details'].append({
+                'exam_id': ed.examination_id,
+                'created_at': exam.created_at,
+                'patient': exam.patient.full_name if exam.patient else '—',
+                'is_terminal': ed.payment_method == ExaminationDirection.PAYMENT_TERMINAL,
+                'amount': amount,
+                'discount': discount,
+            })
+
+        rows = list(buckets.values())
+        for r in rows:
+            r['details'].sort(key=lambda d: d['created_at'])
+        totals = {
+            'count': sum(r['count'] for r in rows),
+            'cash': sum((r['cash'] for r in rows), Decimal('0')),
+            'discount_cash': sum((r['discount_cash'] for r in rows), Decimal('0')),
+            'terminal': sum((r['terminal'] for r in rows), Decimal('0')),
+            'discount_terminal': sum((r['discount_terminal'] for r in rows), Decimal('0')),
         }
         direction = db.session.get(DoctorDirection, direction_id)
-        doctor = db.session.get(User, doctor_id)
 
-    return (row, direction, doctor, direction_id, doctor_id,
+    return (rows, totals, direction, direction_id, doctor_arg,
             date_from, date_to, directions, users_by_direction)
 
 
 @main_bp.route('/reports/doctor-payments')
 @role_required('senior_cashier')
 def reports_doctor_payments():
-    (row, direction, doctor, direction_id, doctor_id,
+    (rows, totals, direction, direction_id, doctor_arg,
      date_from, date_to, directions, users_by_direction) = _doctor_payments_report()
 
-    if request.args.get('export') == 'xlsx' and row is not None:
-        return _doctor_payments_xlsx(row, direction, doctor, date_from, date_to)
+    if request.args.get('export') == 'xlsx' and rows is not None:
+        return _doctor_payments_xlsx(rows, totals, direction, date_from, date_to)
 
     # Direction -> eligible users, JSON-serializable for the dependent dropdown.
     users_json = {
@@ -1790,11 +1833,11 @@ def reports_doctor_payments():
 
     return render_template(
         'main/reports/doctor_payments_report.html',
-        row=row,
+        rows=rows,
+        totals=totals,
         direction=direction,
-        doctor=doctor,
         direction_id=direction_id,
-        doctor_id=doctor_id,
+        doctor_arg=doctor_arg,
         date_from=date_from,
         date_to=date_to,
         directions=directions,
@@ -1803,8 +1846,9 @@ def reports_doctor_payments():
     )
 
 
-def _doctor_payments_xlsx(row, direction, doctor, date_from, date_to):
-    """Build an .xlsx workbook of the doctor / responsible payment report."""
+def _doctor_payments_xlsx(rows, totals, direction, date_from, date_to):
+    """Build an .xlsx workbook of the doctor / responsible payment report:
+    one summary row per doctor, each followed by its reception details."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
     from openpyxl.utils import get_column_letter
@@ -1814,6 +1858,7 @@ def _doctor_payments_xlsx(row, direction, doctor, date_from, date_to):
     ws.title = 'Töleg hasabaty'
 
     headers = [
+        '№',
         'Ugur',
         'Lukman / jogapkär',
         'Kabullaryň sany',
@@ -1827,9 +1872,12 @@ def _doctor_payments_xlsx(row, direction, doctor, date_from, date_to):
     ]
 
     bold = Font(bold=True)
+    small = Font(size=9)
+    small_bold = Font(size=9, bold=True)
     header_fill = PatternFill('solid', fgColor='E9ECEF')
+    detail_fill = PatternFill('solid', fgColor='F5F5F5')
     right = Alignment(horizontal='right')
-    money_cols = (4, 5, 6, 7, 8, 9, 10)
+    money_cols = (5, 6, 7, 8, 9, 10, 11)
 
     ws.append(['Lukman / jogapkär boýunça töleg hasabaty'])
     ws['A1'].font = Font(bold=True, size=14)
@@ -1844,33 +1892,76 @@ def _doctor_payments_xlsx(row, direction, doctor, date_from, date_to):
         cell.font = bold
         cell.fill = header_fill
 
-    cash = row['cash']
-    discount_cash = row['discount_cash']
-    terminal = row['terminal']
-    discount_terminal = row['discount_terminal']
-    total_cash = cash + discount_cash
-    total_terminal = terminal + discount_terminal
+    for idx, row in enumerate(rows, start=1):
+        ws.append([
+            idx,
+            direction.name if direction else '—',
+            row['name'],
+            row['count'],
+            float(row['cash']),
+            float(row['discount_cash']),
+            float(row['terminal']),
+            float(row['discount_terminal']),
+            float(row['cash'] + row['discount_cash']),
+            float(row['terminal'] + row['discount_terminal']),
+            float(row['cash'] + row['discount_cash'] + row['terminal'] + row['discount_terminal']),
+        ])
+        row_idx = ws.max_row
+        ws.cell(row=row_idx, column=3).font = bold
+        ws.cell(row=row_idx, column=4).alignment = right
+        for col in money_cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+
+        if row['details']:
+            ws.append(['', 'Barlag №', 'Senesi', 'Syrkaw (F.A.A.)',
+                       'Töleg görnüşi', '50% ýeňillik', 'Tölenen'])
+            hdr_idx = ws.max_row
+            for col in range(2, 8):
+                c = ws.cell(row=hdr_idx, column=col)
+                c.font = small_bold
+                c.fill = detail_fill
+            for d in row['details']:
+                ws.append([
+                    '',
+                    d['exam_id'],
+                    d['created_at'].strftime('%d.%m.%Y %H:%M'),
+                    d['patient'],
+                    'Terminal' if d['is_terminal'] else 'Nagt',
+                    float(d['discount']),
+                    float(d['amount']),
+                ])
+                didx = ws.max_row
+                for col in range(2, 8):
+                    ws.cell(row=didx, column=col).font = small
+                for col in (6, 7):
+                    c = ws.cell(row=didx, column=col)
+                    c.number_format = '#,##0.00'
+                    c.alignment = right
+            ws.append([])
 
     ws.append([
-        direction.name if direction else '—',
-        doctor.full_name if doctor else '—',
-        row['count'],
-        float(cash),
-        float(discount_cash),
-        float(terminal),
-        float(discount_terminal),
-        float(total_cash),
-        float(total_terminal),
-        float(total_cash + total_terminal),
+        '', '', 'Jemi:',
+        totals['count'],
+        float(totals['cash']), float(totals['discount_cash']),
+        float(totals['terminal']), float(totals['discount_terminal']),
+        float(totals['cash'] + totals['discount_cash']),
+        float(totals['terminal'] + totals['discount_terminal']),
+        float(totals['cash'] + totals['discount_cash']
+              + totals['terminal'] + totals['discount_terminal']),
     ])
-    data_idx = ws.max_row
-    ws.cell(row=data_idx, column=3).alignment = right
-    for col in money_cols:
-        c = ws.cell(row=data_idx, column=col)
-        c.number_format = '#,##0.00'
-        c.alignment = right
+    total_idx = ws.max_row
+    for col in range(1, len(headers) + 1):
+        c = ws.cell(row=total_idx, column=col)
+        c.font = bold
+        if col == 4:
+            c.alignment = right
+        if col in money_cols:
+            c.number_format = '#,##0.00'
+            c.alignment = right
 
-    widths = [30, 26, 16, 16, 20, 16, 22, 28, 30, 16]
+    widths = [6, 26, 30, 18, 16, 20, 16, 22, 28, 30, 16]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
