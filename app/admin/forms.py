@@ -1,8 +1,9 @@
 import re
 from flask_wtf import FlaskForm
-from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, IntegerField, BooleanField, SubmitField
+from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, IntegerField, BooleanField, TextAreaField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional, NumberRange, ValidationError, Regexp
-from app.models import User, Analysis, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory, DoctorDirectionCategory
+from app.models import (User, Analysis, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory,
+                        DoctorDirectionCategory, Department, RoomType, Room, Bed, Meal)
 
 
 PHONE_RE = re.compile(r'^\+?[\d\s\-\(\)]{7,20}$')
@@ -493,3 +494,223 @@ class BlankForm(FlaskForm):
             choices = [(a.id, f'{a.name} [bloklanan]') for a in blocked] + choices
 
         self.analysis_ids.choices = choices
+
+
+class DepartmentForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Bölümiň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Bölümiň ady'},
+    )
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_department=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_department = editing_department
+
+    def validate_name(self, field):
+        existing = Department.query.filter(
+            Department.name.ilike(field.data.strip())
+        ).first()
+        if existing and (self._editing_department is None or existing.id != self._editing_department.id):
+            raise ValidationError('Bu atly bölüm eýýäm hasaba alnan.')
+
+
+class RoomTypeForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Palata görnüşiniň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Palata görnüşiniň ady'},
+    )
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_room_type=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_room_type = editing_room_type
+
+    def validate_name(self, field):
+        existing = RoomType.query.filter(
+            RoomType.name.ilike(field.data.strip())
+        ).first()
+        if existing and (self._editing_room_type is None or existing.id != self._editing_room_type.id):
+            raise ValidationError('Bu atly palata görnüşi eýýäm hasaba alnan.')
+
+
+class RoomForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Palatanyň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Mysal: 101'},
+    )
+    room_type_id = SelectField('Palatanyň görnüşi', coerce=int, validators=[Optional()])
+    department_id = SelectField('Bölüm', coerce=int, validators=[Optional()])
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_room=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_room = editing_room
+        self._build_room_type_choices()
+        self._build_department_choices()
+
+    def _build_room_type_choices(self):
+        types = RoomType.query.filter_by(is_active=True).order_by(RoomType.name).all()
+        choices = [(0, '— Palatanyň görnüşini saýlaň —')]
+        if self._editing_room and self._editing_room.room_type and not self._editing_room.room_type.is_active:
+            current = self._editing_room.room_type
+            choices.append((current.id, f'{current.name} [bloklanan]'))
+        choices += [(t.id, t.name) for t in types]
+        self.room_type_id.choices = choices
+
+    def _build_department_choices(self):
+        deps = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+        choices = [(0, '— Bölümi saýlaň —')]
+        if self._editing_room and self._editing_room.department and not self._editing_room.department.is_active:
+            current = self._editing_room.department
+            choices.append((current.id, f'{current.name} [bloklanan]'))
+        choices += [(d.id, d.name) for d in deps]
+        self.department_id.choices = choices
+
+    def validate_room_type_id(self, field):
+        if not field.data:
+            raise ValidationError('Palatanyň görnüşini saýlaň.')
+
+    def validate_department_id(self, field):
+        if not field.data:
+            raise ValidationError('Bölümi saýlaň.')
+
+    def validate_name(self, field):
+        if not self.department_id.data:
+            return
+        existing = Room.query.filter(
+            Room.department_id == self.department_id.data,
+            Room.name.ilike(field.data.strip()),
+        ).first()
+        if existing and (self._editing_room is None or existing.id != self._editing_room.id):
+            raise ValidationError('Bu bölümde şu atly palata eýýäm hasaba alnan.')
+
+
+class BedForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Krowadyň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Mysal: 1'},
+    )
+    room_id = SelectField('Palata', coerce=int, validators=[Optional()])
+    price = DecimalField(
+        'Bahasy (manat)',
+        validators=[
+            DataRequired(message='Bahany giriziň'),
+            NumberRange(min=0, message='Baha otrisatel bolup bilmeýär'),
+        ],
+        places=2,
+        render_kw={'placeholder': '0.00', 'step': '0.01', 'min': '0'},
+    )
+    is_insurance = BooleanField('Ätiýaçlandyryş')
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_bed=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_bed = editing_bed
+        self._build_room_choices()
+
+    def _build_room_choices(self):
+        rooms = (
+            Room.query
+            .filter_by(is_active=True)
+            .join(Room.department)
+            .order_by(Department.name, Room.name)
+            .all()
+        )
+        choices = [(0, '— Palatany saýlaň —')]
+        if self._editing_bed and self._editing_bed.room and not self._editing_bed.room.is_active:
+            current = self._editing_bed.room
+            choices.append((current.id, f'{self._room_label(current)} [bloklanan]'))
+        choices += [(r.id, self._room_label(r)) for r in rooms]
+        self.room_id.choices = choices
+
+    @staticmethod
+    def _room_label(room):
+        return f'{room.name} — {room.department.name}' if room.department else room.name
+
+    def validate_room_id(self, field):
+        if not field.data:
+            raise ValidationError('Palatany saýlaň.')
+
+    def validate_name(self, field):
+        if not self.room_id.data:
+            return
+        existing = Bed.query.filter(
+            Bed.room_id == self.room_id.data,
+            Bed.name.ilike(field.data.strip()),
+        ).first()
+        if existing and (self._editing_bed is None or existing.id != self._editing_bed.id):
+            raise ValidationError('Bu palatada şu atly krowat eýýäm hasaba alnan.')
+
+
+class MealForm(FlaskForm):
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Naharyň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Naharyň ady'},
+    )
+    note = TextAreaField(
+        'Bellik',
+        validators=[Optional(), Length(max=500, message='Bellik 500 simwoldan geçmeli däl')],
+        render_kw={'placeholder': 'Bellik (islege görä)', 'rows': 3},
+    )
+    department_ids = SelectMultipleField(
+        'Bölümler',
+        coerce=int,
+    )
+    price = DecimalField(
+        'Bahasy (manat)',
+        validators=[
+            DataRequired(message='Bahany giriziň'),
+            NumberRange(min=0, message='Baha otrisatel bolup bilmeýär'),
+        ],
+        places=2,
+        render_kw={'placeholder': '0.00', 'step': '0.01', 'min': '0'},
+    )
+    is_insurance = BooleanField('Ätiýaçlandyryş')
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_meal=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_meal = editing_meal
+        self._build_department_choices()
+
+    def _build_department_choices(self):
+        active = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+        choices = [(d.id, d.name) for d in active]
+
+        if self._editing_meal:
+            blocked = [d for d in self._editing_meal.departments if not d.is_active]
+            choices = [(d.id, f'{d.name} [bloklanan]') for d in blocked] + choices
+
+        self.department_ids.choices = choices
+
+    def validate_department_ids(self, field):
+        if not field.data:
+            raise ValidationError('Iň bolmanda 1 bölümi saýlaň.')
+
+    def validate_name(self, field):
+        existing = Meal.query.filter(
+            Meal.name.ilike(field.data.strip())
+        ).first()
+        if existing and (self._editing_meal is None or existing.id != self._editing_meal.id):
+            raise ValidationError('Bu atly nahar eýýäm hasaba alnan.')

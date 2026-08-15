@@ -1,0 +1,60 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}Täze krowat{% endblock %}
+{% block page_title %}Täze krowat{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card shadow-sm table-card">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+        <a href="{{ url_for('admin.beds_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">Krowat goşmak</h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-12">
+              {{ form.name.label(class='form-label fw-medium') }}
+              {{ form.name(class='form-control' + (' is-invalid' if form.name.errors else '')) }}
+              {% for e in form.name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.room_id.label(class='form-label fw-medium') }}
+              {{ form.room_id(class='form-select' + (' is-invalid' if form.room_id.errors else '')) }}
+              {% for e in form.room_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-7">
+              {{ form.price.label(class='form-label fw-medium') }}
+              <div class="input-group">
+                {{ form.price(class='form-control text-end' + (' is-invalid' if form.price.errors else '')) }}
+                <span class="input-group-text">manat</span>
+                {% for e in form.price.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              </div>
+            </div>
+
+            <div class="col-12">
+              <div class="form-check">
+                {{ form.is_insurance(class='form-check-input') }}
+                {{ form.is_insurance.label(class='form-check-label') }}
+              </div>
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ url_for('admin.beds_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

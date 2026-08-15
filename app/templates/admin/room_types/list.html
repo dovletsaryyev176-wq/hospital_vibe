@@ -1,0 +1,119 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}Palata görnüşleri{% endblock %}
+{% block page_title %}Palata görnüşleri{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm table-card">
+
+  <!-- Toolbar -->
+  <div class="card-header bg-white border-bottom px-4 py-3">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <form class="d-flex gap-2 flex-grow-1" method="GET" action="{{ url_for('admin.room_types_list') }}">
+        <div class="input-group" style="max-width:280px">
+          <span class="input-group-text bg-white border-end-0">
+            <i class="bi bi-search text-muted"></i>
+          </span>
+          <input type="text" class="form-control border-start-0 ps-0"
+                 name="q" value="{{ search }}" placeholder="Adyna görä gözleg">
+        </div>
+        <select name="status" class="form-select" style="max-width:160px">
+          <option value="">Hemme statuslar</option>
+          <option value="active"  {% if status_filter == 'active'  %}selected{% endif %}>Aktiwler</option>
+          <option value="blocked" {% if status_filter == 'blocked' %}selected{% endif %}>Bloklananlar</option>
+        </select>
+        <button type="submit" class="btn btn-outline-primary">Tapmak</button>
+        {% if search or status_filter %}
+          <a href="{{ url_for('admin.room_types_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-x-lg"></i>
+          </a>
+        {% endif %}
+      </form>
+
+      <a href="{{ url_for('admin.room_types_create') }}" class="btn btn-primary ms-auto">
+        <i class="bi bi-plus-lg me-1"></i>Görnüş goşmak
+      </a>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:50px">#</th>
+          <th>Ady</th>
+          <th class="text-center" style="width:130px">Palatalar</th>
+          <th class="text-center" style="width:130px">Ýagdaýy</th>
+          <th class="text-center pe-4" style="width:110px">Amallar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if room_types %}
+          {% for rt in room_types %}
+          <tr>
+            <td class="ps-4 text-muted">{{ loop.index }}</td>
+            <td class="fw-medium">{{ rt.name }}</td>
+            <td class="text-center text-muted small">{{ room_counts.get(rt.id, 0) }}</td>
+            <td class="text-center">
+              {% if rt.is_active %}
+                <span class="badge bg-success-subtle text-success">
+                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Aktiw
+                </span>
+              {% else %}
+                <span class="badge bg-secondary-subtle text-secondary">
+                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Bloklanan
+                </span>
+              {% endif %}
+            </td>
+            <td class="text-center pe-4">
+              <div class="d-flex justify-content-center gap-1">
+                <a href="{{ url_for('admin.room_types_edit', type_id=rt.id) }}"
+                   class="btn btn-sm btn-outline-secondary" title="Üýtgetmek">
+                  <i class="bi bi-pencil"></i>
+                </a>
+
+                <form id="toggle-rt-{{ rt.id }}" method="POST"
+                      action="{{ url_for('admin.room_types_toggle', type_id=rt.id) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                </form>
+
+                {% if rt.is_active %}
+                  <button type="button" class="btn btn-sm btn-outline-danger" title="Bloklamak"
+                          onclick="confirmAction('toggle-rt-{{ rt.id }}', 'Palata görnüşini bloklamak «{{ rt.name }}»?')">
+                    <i class="bi bi-slash-circle"></i>
+                  </button>
+                {% else %}
+                  <button type="button" class="btn btn-sm btn-outline-success" title="Aktiwleşdirmek"
+                          onclick="confirmAction('toggle-rt-{{ rt.id }}', 'Palata görnüşini aktiwleşdirmek «{{ rt.name }}»?')">
+                    <i class="bi bi-check-circle"></i>
+                  </button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="5" class="text-center text-muted py-5">
+              <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
+              {% if search or status_filter %}
+                Palata görnüşi tapylmady. <a href="{{ url_for('admin.room_types_list') }}">Filtri aýyrmak</a>
+              {% else %}
+                Heniz palata görnüşi ýok.
+                <a href="{{ url_for('admin.room_types_create') }}">Ilki görnüş goşmak</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if room_types %}
+  <div class="card-footer bg-white text-muted small px-4">
+    Tapylanlar: {{ room_types | length }}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

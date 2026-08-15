@@ -455,6 +455,110 @@ class ExaminationDirection(PricingSnapshotMixin, db.Model):
         return self.direction
 
 
+class Department(db.Model):
+    __tablename__ = 'departments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    rooms = db.relationship('Room', back_populates='department', lazy='dynamic')
+
+    def __repr__(self) -> str:
+        return f'<Department {self.name}>'
+
+
+class RoomType(db.Model):
+    __tablename__ = 'room_types'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    rooms = db.relationship('Room', back_populates='room_type', lazy='dynamic')
+
+    def __repr__(self) -> str:
+        return f'<RoomType {self.name}>'
+
+
+class Room(db.Model):
+    __tablename__ = 'rooms'
+    __table_args__ = (
+        db.UniqueConstraint('department_id', 'name', name='uq_room_department_name'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    room_type_id = db.Column(db.Integer, db.ForeignKey('room_types.id'), nullable=False)
+    department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    room_type = db.relationship('RoomType', back_populates='rooms')
+    department = db.relationship('Department', back_populates='rooms')
+    beds = db.relationship('Bed', back_populates='room', lazy='dynamic')
+
+    def __repr__(self) -> str:
+        return f'<Room {self.name}>'
+
+
+class Bed(db.Model):
+    __tablename__ = 'beds'
+    __table_args__ = (
+        db.UniqueConstraint('room_id', 'name', name='uq_bed_room_name'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    room_id = db.Column(db.Integer, db.ForeignKey('rooms.id'), nullable=False)
+    price = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    is_insurance = db.Column(db.Boolean, default=False, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    room = db.relationship('Room', back_populates='beds')
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.price:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<Bed {self.name}>'
+
+
+meal_departments = db.Table(
+    'meal_departments',
+    db.Column('meal_id', db.Integer, db.ForeignKey('meals.id'), primary_key=True),
+    db.Column('department_id', db.Integer, db.ForeignKey('departments.id'), primary_key=True),
+)
+
+
+class Meal(db.Model):
+    __tablename__ = 'meals'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    note = db.Column(db.String(500), nullable=True)
+    price = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    is_insurance = db.Column(db.Boolean, default=False, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    departments = db.relationship(
+        'Department', secondary=meal_departments, lazy='subquery',
+        backref=db.backref('meals', lazy='dynamic'),
+    )
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.price:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<Meal {self.name}>'
+
+
 class EarningPlan(db.Model):
     """Monthly earning target for a doctor / analysis-responsible, set by the
     senior cashier. Earnings are measured against doctor-direction income."""

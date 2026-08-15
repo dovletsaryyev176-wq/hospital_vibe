@@ -5,9 +5,13 @@ from flask_login import current_user
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, contains_eager
 from app.admin import admin_bp
-from app.admin.forms import UserForm, AnalysisForm, DirectionForm, DirectionCategoryForm, CombinedAnalysisForm, AnalysisToolForm, BlankForm, AnalysisToolCategoryForm, AnalysisToolSubcategoryForm
+from app.admin.forms import (UserForm, AnalysisForm, DirectionForm, DirectionCategoryForm, CombinedAnalysisForm,
+                             AnalysisToolForm, BlankForm, AnalysisToolCategoryForm, AnalysisToolSubcategoryForm,
+                             DepartmentForm, RoomTypeForm, RoomForm, BedForm, MealForm)
 from app.extensions import db
-from app.models import User, Analysis, DoctorDirection, DoctorDirectionCategory, CombinedAnalysis, Examination, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory
+from app.models import (User, Analysis, DoctorDirection, DoctorDirectionCategory, CombinedAnalysis, Examination,
+                        AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory,
+                        Department, RoomType, Room, Bed, Meal)
 
 
 def admin_required(f):
@@ -925,3 +929,447 @@ def combined_analyses_toggle(combined_id):
     action = 'aktiw' if combined.is_active else 'bloklanan'
     flash(f'Kombinlenen analiz «{combined.name}» {action}.', 'success')
     return redirect(url_for('admin.combined_analyses_list'))
+
+
+# ── Departments (Bölümler) ────────────────────────────────────────────────────
+
+@admin_bp.route('/departments')
+@admin_required
+def departments_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+
+    query = Department.query
+    if search:
+        query = query.filter(Department.name.ilike(f'%{search}%'))
+    if status_filter == 'active':
+        query = query.filter(Department.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(Department.is_active == False)
+
+    departments = query.order_by(Department.name).all()
+    room_counts = dict(
+        db.session.query(Room.department_id, func.count(Room.id))
+        .group_by(Room.department_id)
+        .all()
+    )
+    return render_template(
+        'admin/departments/list.html',
+        departments=departments,
+        room_counts=room_counts,
+        search=search,
+        status_filter=status_filter,
+    )
+
+
+@admin_bp.route('/departments/create', methods=['GET', 'POST'])
+@admin_required
+def departments_create():
+    form = DepartmentForm()
+    if form.validate_on_submit():
+        dep = Department(name=form.name.data.strip())
+        db.session.add(dep)
+        db.session.commit()
+        flash(f'Bölüm «{dep.name}» döredilen.', 'success')
+        return redirect(url_for('admin.departments_list'))
+    return render_template('admin/departments/create.html', form=form)
+
+
+@admin_bp.route('/departments/<int:dep_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def departments_edit(dep_id):
+    dep = db.session.get(Department, dep_id)
+    if dep is None:
+        abort(404)
+    form = DepartmentForm(editing_department=dep)
+    if not form.is_submitted():
+        form.name.data = dep.name
+    if form.validate_on_submit():
+        dep.name = form.name.data.strip()
+        db.session.commit()
+        flash(f'Bölüm «{dep.name}» täzelenen.', 'success')
+        return redirect(url_for('admin.departments_list'))
+    return render_template('admin/departments/edit.html', form=form, dep=dep)
+
+
+@admin_bp.route('/departments/<int:dep_id>/toggle', methods=['POST'])
+@admin_required
+def departments_toggle(dep_id):
+    dep = db.session.get(Department, dep_id)
+    if dep is None:
+        abort(404)
+    dep.is_active = not dep.is_active
+    db.session.commit()
+    action = 'aktiw' if dep.is_active else 'bloklanan'
+    flash(f'Bölüm «{dep.name}» {action}.', 'success')
+    return redirect(url_for('admin.departments_list'))
+
+
+# ── Room types (Palata görnüşleri) ────────────────────────────────────────────
+
+@admin_bp.route('/room-types')
+@admin_required
+def room_types_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+
+    query = RoomType.query
+    if search:
+        query = query.filter(RoomType.name.ilike(f'%{search}%'))
+    if status_filter == 'active':
+        query = query.filter(RoomType.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(RoomType.is_active == False)
+
+    room_types = query.order_by(RoomType.name).all()
+    room_counts = dict(
+        db.session.query(Room.room_type_id, func.count(Room.id))
+        .group_by(Room.room_type_id)
+        .all()
+    )
+    return render_template(
+        'admin/room_types/list.html',
+        room_types=room_types,
+        room_counts=room_counts,
+        search=search,
+        status_filter=status_filter,
+    )
+
+
+@admin_bp.route('/room-types/create', methods=['GET', 'POST'])
+@admin_required
+def room_types_create():
+    form = RoomTypeForm()
+    if form.validate_on_submit():
+        rt = RoomType(name=form.name.data.strip())
+        db.session.add(rt)
+        db.session.commit()
+        flash(f'Palata görnüşi «{rt.name}» döredilen.', 'success')
+        return redirect(url_for('admin.room_types_list'))
+    return render_template('admin/room_types/create.html', form=form)
+
+
+@admin_bp.route('/room-types/<int:type_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def room_types_edit(type_id):
+    rt = db.session.get(RoomType, type_id)
+    if rt is None:
+        abort(404)
+    form = RoomTypeForm(editing_room_type=rt)
+    if not form.is_submitted():
+        form.name.data = rt.name
+    if form.validate_on_submit():
+        rt.name = form.name.data.strip()
+        db.session.commit()
+        flash(f'Palata görnüşi «{rt.name}» täzelenen.', 'success')
+        return redirect(url_for('admin.room_types_list'))
+    return render_template('admin/room_types/edit.html', form=form, room_type=rt)
+
+
+@admin_bp.route('/room-types/<int:type_id>/toggle', methods=['POST'])
+@admin_required
+def room_types_toggle(type_id):
+    rt = db.session.get(RoomType, type_id)
+    if rt is None:
+        abort(404)
+    rt.is_active = not rt.is_active
+    db.session.commit()
+    action = 'aktiw' if rt.is_active else 'bloklanan'
+    flash(f'Palata görnüşi «{rt.name}» {action}.', 'success')
+    return redirect(url_for('admin.room_types_list'))
+
+
+# ── Rooms (Palatalar) ─────────────────────────────────────────────────────────
+
+@admin_bp.route('/rooms')
+@admin_required
+def rooms_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+    dep_filter = request.args.get('dep', 0, type=int)
+    type_filter = request.args.get('type', 0, type=int)
+
+    query = Room.query
+    if search:
+        query = query.filter(Room.name.ilike(f'%{search}%'))
+    if status_filter == 'active':
+        query = query.filter(Room.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(Room.is_active == False)
+    if dep_filter:
+        query = query.filter(Room.department_id == dep_filter)
+    if type_filter:
+        query = query.filter(Room.room_type_id == type_filter)
+
+    rooms = (
+        query.options(joinedload(Room.department), joinedload(Room.room_type))
+        .join(Room.department)
+        .order_by(Department.name, Room.name)
+        .all()
+    )
+    bed_counts = dict(
+        db.session.query(Bed.room_id, func.count(Bed.id))
+        .group_by(Bed.room_id)
+        .all()
+    )
+    all_departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+    all_room_types = RoomType.query.filter_by(is_active=True).order_by(RoomType.name).all()
+
+    return render_template(
+        'admin/rooms/list.html',
+        rooms=rooms,
+        bed_counts=bed_counts,
+        search=search,
+        status_filter=status_filter,
+        dep_filter=dep_filter,
+        type_filter=type_filter,
+        all_departments=all_departments,
+        all_room_types=all_room_types,
+    )
+
+
+@admin_bp.route('/rooms/create', methods=['GET', 'POST'])
+@admin_required
+def rooms_create():
+    form = RoomForm()
+    if form.validate_on_submit():
+        room = Room(
+            name=form.name.data.strip(),
+            room_type_id=form.room_type_id.data,
+            department_id=form.department_id.data,
+        )
+        db.session.add(room)
+        db.session.commit()
+        flash(f'Palata «{room.name}» döredilen.', 'success')
+        return redirect(url_for('admin.rooms_list'))
+    return render_template('admin/rooms/create.html', form=form)
+
+
+@admin_bp.route('/rooms/<int:room_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def rooms_edit(room_id):
+    room = db.session.get(Room, room_id)
+    if room is None:
+        abort(404)
+    form = RoomForm(editing_room=room)
+    if not form.is_submitted():
+        form.name.data = room.name
+        form.room_type_id.data = room.room_type_id or 0
+        form.department_id.data = room.department_id or 0
+    if form.validate_on_submit():
+        room.name = form.name.data.strip()
+        room.room_type_id = form.room_type_id.data
+        room.department_id = form.department_id.data
+        db.session.commit()
+        flash(f'Palata «{room.name}» maglumatlary täzelenen.', 'success')
+        return redirect(url_for('admin.rooms_list'))
+    return render_template('admin/rooms/edit.html', form=form, room=room)
+
+
+@admin_bp.route('/rooms/<int:room_id>/toggle', methods=['POST'])
+@admin_required
+def rooms_toggle(room_id):
+    room = db.session.get(Room, room_id)
+    if room is None:
+        abort(404)
+    room.is_active = not room.is_active
+    db.session.commit()
+    action = 'aktiw' if room.is_active else 'bloklanan'
+    flash(f'Palata «{room.name}» {action}.', 'success')
+    return redirect(url_for('admin.rooms_list'))
+
+
+# ── Beds (Krowatlar) ──────────────────────────────────────────────────────────
+
+@admin_bp.route('/beds')
+@admin_required
+def beds_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+    dep_filter = request.args.get('dep', 0, type=int)
+    room_filter = request.args.get('room', 0, type=int)
+
+    query = Bed.query.join(Bed.room)
+
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(Bed.name.ilike(like), Room.name.ilike(like)))
+    if status_filter == 'active':
+        query = query.filter(Bed.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(Bed.is_active == False)
+    if dep_filter:
+        query = query.filter(Room.department_id == dep_filter)
+    if room_filter:
+        query = query.filter(Bed.room_id == room_filter)
+
+    beds = (
+        query.options(contains_eager(Bed.room).joinedload(Room.department))
+        .join(Room.department)
+        .order_by(Department.name, Room.name, Bed.name)
+        .all()
+    )
+    all_departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+    all_rooms = (
+        Room.query.filter_by(is_active=True)
+        .options(joinedload(Room.department))
+        .join(Room.department)
+        .order_by(Department.name, Room.name)
+        .all()
+    )
+
+    return render_template(
+        'admin/beds/list.html',
+        beds=beds,
+        search=search,
+        status_filter=status_filter,
+        dep_filter=dep_filter,
+        room_filter=room_filter,
+        all_departments=all_departments,
+        all_rooms=all_rooms,
+    )
+
+
+@admin_bp.route('/beds/create', methods=['GET', 'POST'])
+@admin_required
+def beds_create():
+    form = BedForm()
+    if form.validate_on_submit():
+        bed = Bed(
+            name=form.name.data.strip(),
+            room_id=form.room_id.data,
+            price=form.price.data,
+            is_insurance=form.is_insurance.data,
+        )
+        db.session.add(bed)
+        db.session.commit()
+        flash(f'Krowat «{bed.name}» döredilen.', 'success')
+        return redirect(url_for('admin.beds_list'))
+    return render_template('admin/beds/create.html', form=form)
+
+
+@admin_bp.route('/beds/<int:bed_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def beds_edit(bed_id):
+    bed = db.session.get(Bed, bed_id)
+    if bed is None:
+        abort(404)
+    form = BedForm(editing_bed=bed)
+    if not form.is_submitted():
+        form.name.data = bed.name
+        form.room_id.data = bed.room_id or 0
+        form.price.data = bed.price
+        form.is_insurance.data = bed.is_insurance
+    if form.validate_on_submit():
+        bed.name = form.name.data.strip()
+        bed.room_id = form.room_id.data
+        bed.price = form.price.data
+        bed.is_insurance = form.is_insurance.data
+        db.session.commit()
+        flash(f'Krowat «{bed.name}» maglumatlary täzelenen.', 'success')
+        return redirect(url_for('admin.beds_list'))
+    return render_template('admin/beds/edit.html', form=form, bed=bed)
+
+
+@admin_bp.route('/beds/<int:bed_id>/toggle', methods=['POST'])
+@admin_required
+def beds_toggle(bed_id):
+    bed = db.session.get(Bed, bed_id)
+    if bed is None:
+        abort(404)
+    bed.is_active = not bed.is_active
+    db.session.commit()
+    action = 'aktiw' if bed.is_active else 'bloklanan'
+    flash(f'Krowat «{bed.name}» {action}.', 'success')
+    return redirect(url_for('admin.beds_list'))
+
+
+# ── Meals (Naharlar) ──────────────────────────────────────────────────────────
+
+@admin_bp.route('/meals')
+@admin_required
+def meals_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+    dep_filter = request.args.get('dep', 0, type=int)
+
+    query = Meal.query
+
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(Meal.name.ilike(like), Meal.note.ilike(like)))
+    if status_filter == 'active':
+        query = query.filter(Meal.is_active == True)
+    elif status_filter == 'blocked':
+        query = query.filter(Meal.is_active == False)
+    if dep_filter:
+        query = query.filter(Meal.departments.any(Department.id == dep_filter))
+
+    meals = query.order_by(Meal.name).all()
+    all_departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+
+    return render_template(
+        'admin/meals/list.html',
+        meals=meals,
+        search=search,
+        status_filter=status_filter,
+        dep_filter=dep_filter,
+        all_departments=all_departments,
+    )
+
+
+@admin_bp.route('/meals/create', methods=['GET', 'POST'])
+@admin_required
+def meals_create():
+    form = MealForm()
+    if form.validate_on_submit():
+        meal = Meal(
+            name=form.name.data.strip(),
+            note=(form.note.data or '').strip() or None,
+            price=form.price.data,
+            is_insurance=form.is_insurance.data,
+        )
+        meal.departments = Department.query.filter(Department.id.in_(form.department_ids.data)).all()
+        db.session.add(meal)
+        db.session.commit()
+        flash(f'Nahar «{meal.name}» döredilen.', 'success')
+        return redirect(url_for('admin.meals_list'))
+    return render_template('admin/meals/create.html', form=form)
+
+
+@admin_bp.route('/meals/<int:meal_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def meals_edit(meal_id):
+    meal = db.session.get(Meal, meal_id)
+    if meal is None:
+        abort(404)
+    form = MealForm(editing_meal=meal)
+    if not form.is_submitted():
+        form.name.data = meal.name
+        form.note.data = meal.note
+        form.price.data = meal.price
+        form.is_insurance.data = meal.is_insurance
+        form.department_ids.data = [d.id for d in meal.departments]
+    if form.validate_on_submit():
+        meal.name = form.name.data.strip()
+        meal.note = (form.note.data or '').strip() or None
+        meal.price = form.price.data
+        meal.is_insurance = form.is_insurance.data
+        meal.departments = Department.query.filter(Department.id.in_(form.department_ids.data)).all()
+        db.session.commit()
+        flash(f'Nahar «{meal.name}» maglumatlary täzelenen.', 'success')
+        return redirect(url_for('admin.meals_list'))
+    return render_template('admin/meals/edit.html', form=form, meal=meal)
+
+
+@admin_bp.route('/meals/<int:meal_id>/toggle', methods=['POST'])
+@admin_required
+def meals_toggle(meal_id):
+    meal = db.session.get(Meal, meal_id)
+    if meal is None:
+        abort(404)
+    meal.is_active = not meal.is_active
+    db.session.commit()
+    action = 'aktiw' if meal.is_active else 'bloklanan'
+    flash(f'Nahar «{meal.name}» {action}.', 'success')
+    return redirect(url_for('admin.meals_list'))

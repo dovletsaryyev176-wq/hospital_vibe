@@ -217,6 +217,38 @@
       <i class="bi bi-file-earmark-text"></i> Blanklar
     </a>
 
+    <div class="nav-section mt-2">Ýatymlaýyn</div>
+    <a href="{{ url_for('admin.departments_list') }}"
+       class="nav-link {% if 'admin.departments' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-diagram-3"></i> Bölümler
+    </a>
+    {% set palata_active = 'admin.rooms' in request.endpoint or 'admin.room_types' in request.endpoint %}
+    <a class="nav-link nav-link-toggle {% if palata_active %}active{% endif %}"
+       data-bs-toggle="collapse" href="#palata-menu" role="button"
+       aria-expanded="{{ 'true' if palata_active else 'false' }}"
+       aria-controls="palata-menu">
+      <i class="bi bi-door-closed"></i> Palatalar
+      <i class="bi bi-chevron-down toggle-arrow"></i>
+    </a>
+    <div class="collapse {% if palata_active %}show{% endif %}" id="palata-menu">
+      <a href="{{ url_for('admin.rooms_list') }}"
+         class="nav-link nav-link-sub {% if 'admin.rooms' in request.endpoint %}active{% endif %}">
+        <i class="bi bi-list-ul"></i> Ähli palatalar
+      </a>
+      <a href="{{ url_for('admin.room_types_list') }}"
+         class="nav-link nav-link-sub {% if 'admin.room_types' in request.endpoint %}active{% endif %}">
+        <i class="bi bi-folder"></i> Görnüşleri
+      </a>
+    </div>
+    <a href="{{ url_for('admin.beds_list') }}"
+       class="nav-link {% if 'admin.beds' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-hospital"></i> Krowatlar
+    </a>
+    <a href="{{ url_for('admin.meals_list') }}"
+       class="nav-link {% if 'admin.meals' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-cup-hot"></i> Naharlar
+    </a>
+
     <div class="nav-section mt-2">Hasabatlar</div>
     <a href="{{ url_for('admin.daily_report') }}"
        class="nav-link {% if request.endpoint == 'admin.daily_report' %}active{% endif %}">
