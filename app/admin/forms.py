@@ -142,6 +142,9 @@ class UserForm(FlaskForm):
             ('analysis_responsible', 'Analiz boýunça jogapkär'),
             ('cashier', 'Kassir'),
             ('senior_cashier', 'Uly kassir'),
+            ('department_head', 'Bölüm müdiri'),
+            ('senior_nurse', 'Uly şepagat uýasy'),
+            ('nurse', 'Şepagat uýasy'),
         ],
         validators=[DataRequired(message='Roly saýlaň')],
     )

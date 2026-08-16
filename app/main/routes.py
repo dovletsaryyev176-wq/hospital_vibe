@@ -33,6 +33,8 @@ def role_required(*roles):
                 logout_user()
                 flash('Siziň ulanyjyňyz bloklanan.', 'danger')
                 return redirect(url_for('auth.login'))
+            if current_user.is_inpatient_only():
+                return redirect(url_for('inpatient.dashboard'))
             if roles and current_user.role not in roles:
                 flash('Siz bu bölege girip bilmeýärsiňiz.', 'danger')
                 return redirect(url_for('main.dashboard'))

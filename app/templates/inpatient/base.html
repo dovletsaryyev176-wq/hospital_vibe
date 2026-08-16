@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Ulgam{% endblock %} — MMU</title>
+  <title>{% block title %}Ýatymlaýyn{% endblock %} — MMU</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap-icons.min.css') }}">
   <style>
     :root {
       --sidebar-width: 260px;
-      --sidebar-bg: #1a3a5c;
-      --sidebar-hover: #14304e;
-      --sidebar-active: #0d6efd;
+      --sidebar-bg: #14504a;
+      --sidebar-hover: #0f403b;
+      --sidebar-active: #0d9488;
       --topbar-height: 56px;
     }
 
@@ -85,7 +85,7 @@
       align-items: center;
       padding: 0 1.5rem;
     }
-    .topbar-title { font-weight: 600; font-size: 1rem; color: #1a3a5c; }
+    .topbar-title { font-weight: 600; font-size: 1rem; color: #14504a; }
     .page-body { padding: 1.75rem 1.5rem; flex: 1; }
 
     .table-card { border: none; border-radius: .75rem; overflow: hidden; }
@@ -99,56 +99,38 @@
 
 <div id="sidebar">
   <a class="sidebar-brand d-flex align-items-center gap-2 text-decoration-none"
-     href="{{ url_for('main.dashboard') }}">
-    <i class="bi bi-hospital brand-icon text-info"></i>
+     href="{{ url_for('inpatient.dashboard') }}">
+    <i class="bi bi-hospital brand-icon text-white-50"></i>
     <div>
-      <div class="brand-name">MMU</div>
+      <div class="brand-name">MMU Ýatymlaýyn</div>
       <div class="brand-sub">Medisina maglumat ulgamy</div>
     </div>
   </a>
 
   <nav class="sidebar-nav">
     <div class="nav-section">Baş sahypa</div>
-    <a href="{{ url_for('main.dashboard') }}"
-       class="nav-link {% if request.endpoint == 'main.dashboard' %}active{% endif %}">
+    <a href="{{ url_for('inpatient.dashboard') }}"
+       class="nav-link {% if request.endpoint == 'inpatient.dashboard' %}active{% endif %}">
       <i class="bi bi-speedometer2"></i> Umumy
     </a>
 
-    {% if current_user.role in ('registrar', 'doctor') %}
     <div class="nav-section mt-2">Syrkawlar</div>
-    <a href="{{ url_for('main.patients_list') }}"
-       class="nav-link {% if 'main.patients' in request.endpoint %}active{% endif %}">
-      <i class="bi bi-person-lines-fill"></i> Syrkawlar
+    <a href="{{ url_for('inpatient.patients_list') }}"
+       class="nav-link {% if 'inpatient.patients' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-people"></i> Syrkawlar
     </a>
-    {% endif %}
 
-    {% if current_user.role in ('registrar', 'doctor', 'cashier', 'analysis_responsible', 'senior_cashier') %}
-    <div class="nav-section mt-2">Barlaglar</div>
-    <a href="{{ url_for('main.examinations_list') }}"
-       class="nav-link {% if 'main.examinations' in request.endpoint %}active{% endif %}">
-      <i class="bi bi-clipboard2-pulse-fill"></i> Barlaglar
-    </a>
-    {% endif %}
-
-    {% if current_user.role in ('cashier', 'senior_cashier') %}
-    <div class="nav-section mt-2">Hasabatlar</div>
-    <a href="{{ url_for('main.reports_index') }}"
-       class="nav-link {% if 'main.reports' in request.endpoint %}active{% endif %}">
-      <i class="bi bi-bar-chart-line-fill"></i> Hasabatlar
-    </a>
-    {% endif %}
-
-    {% if current_user.can_access_inpatient() %}
+    {% if not current_user.is_inpatient_only() %}
     <div class="nav-section mt-2">Başga bölüm</div>
-    <a href="{{ url_for('inpatient.dashboard') }}" class="nav-link">
-      <i class="bi bi-box-arrow-right"></i> Ýatymlaýyn
+    <a href="{{ url_for('main.dashboard') }}" class="nav-link">
+      <i class="bi bi-box-arrow-left"></i> Ambulatoriýa
     </a>
     {% endif %}
   </nav>
 
   <div class="sidebar-footer">
     <div class="d-flex align-items-center gap-2 mb-2">
-      <div class="bg-info rounded-circle d-flex align-items-center justify-content-center"
+      <div class="bg-white bg-opacity-25 rounded-circle d-flex align-items-center justify-content-center"
            style="width:32px;height:32px;flex-shrink:0">
         <i class="bi bi-person-fill text-white" style="font-size:.9rem"></i>
       </div>
@@ -157,7 +139,7 @@
         <div class="user-role">{{ current_user.get_role_display() }}</div>
       </div>
     </div>
-    <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-danger btn-sm w-100">
+    <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light btn-sm w-100">
       <i class="bi bi-box-arrow-right me-1"></i>Çykmak
     </a>
   </div>

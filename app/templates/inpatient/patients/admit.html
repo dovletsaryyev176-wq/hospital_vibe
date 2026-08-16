@@ -1,0 +1,117 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Ýatyrmak{% endblock %}
+{% block page_title %}Ýatymlaýyn bölüme ýatyrmak{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-person-vcard me-2 text-success"></i>{{ patient.full_name }}
+        </h6>
+        <div class="text-muted small mt-1">
+          {{ patient.birth_year }} ý. ({{ patient.age }} ýaş) · {{ patient.citizenship }}
+          {% if patient.passport_number %} · {{ patient.passport_number }}{% endif %}
+        </div>
+      </div>
+
+      <form method="POST" novalidate>
+        {{ form.hidden_tag() }}
+        <div class="card-body px-4 py-4">
+
+          {% if relative_errors %}
+          <div class="alert alert-danger py-2 px-3">
+            {% for e in relative_errors %}
+              <div><i class="bi bi-exclamation-circle me-1"></i>{{ e }}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <div class="row g-3">
+            <div class="col-sm-6">
+              {{ form.department_id.label(class='form-label fw-medium') }}
+              {{ form.department_id(class='form-select' + (' is-invalid' if form.department_id.errors else '')) }}
+              {% for e in form.department_id.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+            <div class="col-sm-6">
+              {{ form.history_number.label(class='form-label fw-medium') }}
+              {{ form.history_number(class='form-control' + (' is-invalid' if form.history_number.errors else '')) }}
+              {% for e in form.history_number.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <hr class="my-4">
+
+          <div class="d-flex align-items-center mb-2">
+            <label class="form-label fw-medium mb-0">Hossarlarynyň telefonlary</label>
+            <button type="button" class="btn btn-sm btn-outline-success ms-auto" id="addRelative">
+              <i class="bi bi-plus-lg me-1"></i>Setir goşmak
+            </button>
+          </div>
+          <div class="text-muted small mb-2">Iň azyndan bir hossaryň FAA-sy we telefony gerek.</div>
+
+          <div id="relativeRows" class="d-flex flex-column gap-2">
+            {% set rows = relatives if relatives else [{'full_name': '', 'phone_number': '', 'relation': ''}] %}
+            {% for row in rows %}
+            <div class="row g-2 relative-row">
+              <div class="col-sm-4">
+                <input type="text" name="relative_full_name" class="form-control"
+                       value="{{ row.full_name }}" placeholder="FAA">
+              </div>
+              <div class="col-sm-4">
+                <input type="text" name="relative_phone" class="form-control"
+                       value="{{ row.phone_number }}" placeholder="+993 __ ______">
+              </div>
+              <div class="col-sm-3">
+                <input type="text" name="relative_relation" class="form-control"
+                       value="{{ row.relation or '' }}" placeholder="Garyndaşlygy">
+              </div>
+              <div class="col-sm-1 d-flex">
+                <button type="button" class="btn btn-outline-danger w-100 remove-relative" title="Aýyrmak">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="card-footer bg-white border-top px-4 py-3 d-flex gap-2">
+          {{ form.submit(class='btn btn-success') }}
+          <a href="{{ url_for('inpatient.patients_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const rowsBox = document.getElementById('relativeRows');
+
+  document.getElementById('addRelative').addEventListener('click', function () {
+    const first = rowsBox.querySelector('.relative-row');
+    const copy = first.cloneNode(true);
+    copy.querySelectorAll('input').forEach(function (input) { input.value = ''; });
+    rowsBox.appendChild(copy);
+  });
+
+  rowsBox.addEventListener('click', function (event) {
+    const button = event.target.closest('.remove-relative');
+    if (!button) return;
+    const rows = rowsBox.querySelectorAll('.relative-row');
+    if (rows.length === 1) {
+      rows[0].querySelectorAll('input').forEach(function (input) { input.value = ''; });
+    } else {
+      button.closest('.relative-row').remove();
+    }
+  });
+</script>
+{% endblock %}

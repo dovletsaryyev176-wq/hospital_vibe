@@ -33,6 +33,9 @@ def create_app(config_class=Config):
     from app.main import main_bp
     app.register_blueprint(main_bp, url_prefix='/app')
 
+    from app.inpatient import inpatient_bp
+    app.register_blueprint(inpatient_bp, url_prefix='/stasionar')
+
     from app.commands import create_admin
     app.cli.add_command(create_admin)
 
@@ -41,6 +44,8 @@ def create_app(config_class=Config):
         if current_user.is_authenticated:
             if current_user.is_administrator():
                 return redirect(url_for('admin.dashboard'))
+            if current_user.is_inpatient_only():
+                return redirect(url_for('inpatient.dashboard'))
             return redirect(url_for('main.dashboard'))
         return redirect(url_for('auth.login'))
 

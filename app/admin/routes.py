@@ -1005,6 +1005,67 @@ def departments_toggle(dep_id):
     return redirect(url_for('admin.departments_list'))
 
 
+# ── Users ↔ departments (Ulanyjylaryň bölümleri) ──────────────────────────────
+
+@admin_bp.route('/user-departments')
+@admin_required
+def user_departments_list():
+    search = request.args.get('q', '').strip()
+    role_filter = request.args.get('role', '').strip()
+
+    query = User.query
+
+    if search:
+        like = f'%{search}%'
+        query = query.filter(
+            db.or_(
+                User.full_name.ilike(like),
+                User.username.ilike(like),
+                User.phone_number.ilike(like),
+            )
+        )
+
+    if role_filter and role_filter in User.ROLES:
+        query = query.filter_by(role=role_filter)
+
+    users = query.options(joinedload(User.departments)).order_by(User.full_name).all()
+    departments = Department.query.filter_by(is_active=True).order_by(Department.name).all()
+
+    return render_template(
+        'admin/user_departments/list.html',
+        users=users,
+        departments=departments,
+        search=search,
+        role_filter=role_filter,
+        roles=User.ROLES,
+    )
+
+
+@admin_bp.route('/user-departments/<int:user_id>', methods=['POST'])
+@admin_required
+def user_departments_update(user_id):
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+
+    back = url_for('admin.user_departments_list',
+                   q=request.form.get('q', '').strip() or None,
+                   role=request.form.get('role', '').strip() or None)
+
+    if not user.can_have_departments():
+        flash(f'«{user.get_role_display()}» roluna bölüm bellenmeýär.', 'danger')
+        return redirect(back)
+
+    selected_ids = request.form.getlist('department_ids', type=int)
+    user.departments = (
+        Department.query.filter(Department.id.in_(selected_ids)).all() if selected_ids else []
+    )
+    db.session.commit()
+
+    flash(f'«{user.full_name}» ulanyjynyň bölümleri täzelendi.', 'success')
+    return redirect(back)
+
+
 # ── Room types (Palata görnüşleri) ────────────────────────────────────────────
 
 @admin_bp.route('/room-types')

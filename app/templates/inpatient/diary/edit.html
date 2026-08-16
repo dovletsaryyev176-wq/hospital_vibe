@@ -1,0 +1,41 @@
+{% extends 'inpatient/base.html' %}
+{% from 'inpatient/diary/_form_fields.html' import diary_fields %}
+
+{% block title %}Ýazgyny üýtgetmek{% endblock %}
+{% block page_title %}Gündelik ýazgysyny üýtgetmek{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-person-vcard me-2 text-success"></i>{{ patient.full_name }}
+        </h6>
+        <div class="text-muted small mt-1">
+          {{ hospitalization.department.name }} ·
+          Kesel taryhy: {{ hospitalization.history_number }} ·
+          Ýazgy: {{ entry.created_at.strftime('%d.%m.%Y %H:%M') }}
+        </div>
+      </div>
+
+      <form method="POST" novalidate>
+        {{ form.hidden_tag() }}
+        <div class="card-body px-4 py-4">
+          <div class="alert alert-light border py-2 px-3 small">
+            <i class="bi bi-clock-history me-1 text-muted"></i>
+            Ýazgyny {{ entry.edit_deadline.strftime('%d.%m.%Y %H:%M') }} çenli üýtgedip bilýärsiňiz.
+            Üýtgedilen ýazgy bellik bilen görkeziler.
+          </div>
+          {{ diary_fields(form) }}
+        </div>
+        <div class="card-footer bg-white border-top px-4 py-3 d-flex gap-2">
+          {{ form.submit(class='btn btn-primary') }}
+          <a href="{{ url_for('inpatient.diary', hospitalization_id=hospitalization.id) }}"
+             class="btn btn-outline-secondary">Gaýtarmak</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

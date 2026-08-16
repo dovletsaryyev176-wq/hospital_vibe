@@ -1,0 +1,47 @@
+{% macro diary_fields(form) %}
+<div class="row g-3">
+  <div class="col-12">
+    {{ form.complaints.label(class='form-label fw-medium') }}
+    {{ form.complaints(class='form-control' + (' is-invalid' if form.complaints.errors else '')) }}
+    {% for e in form.complaints.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="col-12">
+    {{ form.objective.label(class='form-label fw-medium') }}
+    {{ form.objective(class='form-control' + (' is-invalid' if form.objective.errors else '')) }}
+    {% for e in form.objective.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="col-md-6">
+    {{ form.dynamics.label(class='form-label fw-medium') }}
+    {{ form.dynamics(class='form-control' + (' is-invalid' if form.dynamics.errors else '')) }}
+    {% for e in form.dynamics.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="col-md-6">
+    {{ form.plan.label(class='form-label fw-medium') }}
+    {{ form.plan(class='form-control' + (' is-invalid' if form.plan.errors else '')) }}
+    {% for e in form.plan.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-12">
+    <div class="text-muted mb-2" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">
+      Görkezijiler (mejbury däl)
+    </div>
+    <div class="row g-2">
+      <div class="col-sm-4">
+        {{ form.temperature.label(class='form-label small mb-1') }}
+        {{ form.temperature(class='form-control' + (' is-invalid' if form.temperature.errors else ''), type='number') }}
+        {% for e in form.temperature.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+      </div>
+      <div class="col-sm-4">
+        {{ form.blood_pressure.label(class='form-label small mb-1') }}
+        {{ form.blood_pressure(class='form-control' + (' is-invalid' if form.blood_pressure.errors else '')) }}
+        {% for e in form.blood_pressure.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+      </div>
+      <div class="col-sm-4">
+        {{ form.pulse.label(class='form-label small mb-1') }}
+        {{ form.pulse(class='form-control' + (' is-invalid' if form.pulse.errors else ''), type='number') }}
+        {% for e in form.pulse.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}

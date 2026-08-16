@@ -1,0 +1,268 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Syrkawlar{% endblock %}
+{% block page_title %}Syrkawlar{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm border-0 rounded-3 overflow-hidden">
+
+  <!-- Toolbar -->
+  <div class="card-header bg-white border-bottom px-4 py-3">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <form class="d-flex gap-2 flex-grow-1" method="GET" action="{{ url_for('inpatient.patients_list') }}">
+        <div class="input-group" style="max-width:340px">
+          <span class="input-group-text bg-white border-end-0">
+            <i class="bi bi-search text-muted"></i>
+          </span>
+          <input type="text" class="form-control border-start-0 ps-0"
+                 name="q" value="{{ search }}"
+                 placeholder="FAA, pasport, kesel taryhy boýunça">
+        </div>
+        {% if is_head %}
+        <select name="place" class="form-select" style="max-width:190px">
+          <option value="">Hemmesi</option>
+          <option value="in"  {% if place_filter == 'in'  %}selected{% endif %}>Ýatanlar</option>
+          <option value="out" {% if place_filter == 'out' %}selected{% endif %}>Ýatmaýanlar</option>
+        </select>
+        {% endif %}
+        {% if is_doctor %}
+        <input type="hidden" name="mine" value="{{ '1' if mine_only else '' }}">
+        {% endif %}
+        <button type="submit" class="btn btn-outline-success">Tapmak</button>
+        {% if search or place_filter or mine_only %}
+          <a href="{{ url_for('inpatient.patients_list') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-x-lg"></i>
+          </a>
+        {% endif %}
+      </form>
+
+      {% if is_doctor %}
+      <div class="btn-group btn-group-sm" role="group">
+        <a href="{{ url_for('inpatient.patients_list', q=search) }}"
+           class="btn {% if not mine_only %}btn-success{% else %}btn-outline-success{% endif %}">
+          Hemmesi
+        </a>
+        <a href="{{ url_for('inpatient.patients_list', q=search, mine=1) }}"
+           class="btn {% if mine_only %}btn-success{% else %}btn-outline-success{% endif %}">
+          Meniň syrkawlarym
+        </a>
+      </div>
+      {% endif %}
+
+      <span class="text-muted small ms-auto">
+        <i class="bi bi-eye me-1"></i>
+        {% if is_head %}Ähli syrkawlar{% else %}Diňe bölümiňizde ýatanlar{% endif %}
+      </span>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:50px">#</th>
+          <th>FAA</th>
+          <th>Doglan ýyly</th>
+          <th>Pasport</th>
+          <th>Kesel taryhy</th>
+          <th>Bölüm</th>
+          <th>Palata / krowat</th>
+          <th>Bejeriji lukman</th>
+          <th class="text-center pe-4">Amallar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if patients %}
+          {% for patient in patients %}
+          {% set h = hospitalizations.get(patient.id) %}
+          {% set visible = h and h.department_id in my_dep_ids %}
+          <tr>
+            <td class="ps-4 text-muted">{{ (pagination.page - 1) * pagination.per_page + loop.index }}</td>
+            <td class="fw-medium">{{ patient.full_name }}</td>
+            <td class="text-nowrap">
+              {{ patient.birth_year }}
+              <span class="text-muted small">({{ patient.age }} ýaş)</span>
+            </td>
+            <td class="font-monospace small">{{ patient.passport_number or '—' }}</td>
+            <td class="font-monospace small">
+              {% if visible %}{{ h.history_number }}{% else %}—{% endif %}
+            </td>
+            <td>
+              {% if h %}
+                <span class="badge bg-success-subtle text-success">
+                  <i class="bi bi-circle-fill me-1" style="font-size:.45rem;vertical-align:middle"></i>Ýatyr
+                </span>
+                <div class="text-muted small mt-1">{{ h.department.name }}</div>
+              {% else %}
+                <span class="badge bg-secondary-subtle text-secondary">Ýatmaýar</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if visible %}
+                {% if h.has_bed %}
+                  <span class="fw-medium">{{ h.place_display }}</span>
+                {% else %}
+                  <span class="badge bg-warning-subtle text-warning">Bellenmedik</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if visible %}
+                {% if h.has_doctor %}
+                  <span class="fw-medium">{{ h.doctor.full_name }}</span>
+                  {% if is_doctor and h.doctor_id == current_user.id %}
+                    <span class="badge bg-success-subtle text-success ms-1" style="font-size:.6rem">meniňki</span>
+                  {% endif %}
+                {% else %}
+                  <span class="badge bg-warning-subtle text-warning">Bellenmedik</span>
+                {% endif %}
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td class="text-center pe-4">
+              <div class="d-flex justify-content-center gap-1">
+                {% if is_head or visible %}
+                  <a href="{{ url_for('inpatient.patients_detail', patient_id=patient.id) }}"
+                     class="btn btn-sm btn-outline-secondary" title="Görmek">
+                    <i class="bi bi-eye"></i>
+                  </a>
+                {% endif %}
+
+                {% if visible %}
+                  <a href="{{ url_for('inpatient.diary', hospitalization_id=h.id) }}"
+                     class="btn btn-sm btn-outline-success" title="Gündelik">
+                    <i class="bi bi-journal-text"></i>
+                  </a>
+                  <a href="{{ url_for('inpatient.meals', hospitalization_id=h.id) }}"
+                     class="btn btn-sm btn-outline-success" title="Naharlar">
+                    <i class="bi bi-cup-hot"></i>
+                  </a>
+                {% endif %}
+
+                {% if is_head and not h %}
+                  <a href="{{ url_for('inpatient.patients_admit', patient_id=patient.id) }}"
+                     class="btn btn-sm btn-success" title="Ýatyrmak">
+                    <i class="bi bi-hospital me-1"></i>Ýatyrmak
+                  </a>
+                {% endif %}
+
+                {% if is_head and visible %}
+                  <a href="{{ url_for('inpatient.patients_assign_doctor', patient_id=patient.id) }}"
+                     class="btn btn-sm {% if h.has_doctor %}btn-outline-primary{% else %}btn-primary{% endif %}"
+                     title="Bejeriji lukman bellemek">
+                    <i class="bi bi-person-badge me-1"></i>Lukman
+                  </a>
+
+                  <form id="discharge-{{ patient.id }}" method="POST"
+                        action="{{ url_for('inpatient.patients_discharge', patient_id=patient.id) }}"
+                        class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  </form>
+                  <button type="button" class="btn btn-sm btn-outline-danger" title="Çykarmak"
+                          onclick="confirmAction('discharge-{{ patient.id }}', '«{{ patient.full_name }}» çykarylsynmy?')">
+                    <i class="bi bi-box-arrow-right"></i>
+                  </button>
+                {% endif %}
+
+                {% if current_user.role == 'senior_nurse' and visible %}
+                  <a href="{{ url_for('inpatient.patients_assign_bed', patient_id=patient.id) }}"
+                     class="btn btn-sm {% if h.has_bed %}btn-outline-primary{% else %}btn-primary{% endif %}"
+                     title="Palata we krowat bellemek">
+                    <i class="bi bi-door-open me-1"></i>{% if h.has_bed %}Üýtget{% else %}Palata{% endif %}
+                  </a>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="9" class="text-center text-muted py-5">
+              <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
+              {% if search or place_filter %}
+                Syrkaw tapylmady. <a href="{{ url_for('inpatient.patients_list') }}">Filtri aýyrmak</a>
+              {% elif is_head %}
+                Heniz syrkaw ýok.
+              {% else %}
+                Bölümiňizde ýatan syrkaw ýok.
+              {% endif %}
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pagination.total %}
+  <div class="card-footer bg-white px-4 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="text-muted small">
+      Jemi: {{ pagination.total }}
+      ({{ (pagination.page - 1) * pagination.per_page + 1 }}–{{ [(pagination.page) * pagination.per_page, pagination.total] | min }})
+    </span>
+    {% if pagination.pages > 1 %}
+    <nav aria-label="Sahypa">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('inpatient.patients_list', page=pagination.prev_num, q=search, place=place_filter, mine='1' if mine_only else None) }}">
+            <i class="bi bi-chevron-left"></i>
+          </a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('inpatient.patients_list', page=p, q=search, place=place_filter, mine='1' if mine_only else None) }}">{{ p }}</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('inpatient.patients_list', page=pagination.next_num, q=search, place=place_filter, mine='1' if mine_only else None) }}">
+            <i class="bi bi-chevron-right"></i>
+          </a>
+        </li>
+      </ul>
+    </nav>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- Confirmation modal -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body text-center py-4">
+        <i class="bi bi-question-circle text-warning" style="font-size:2.5rem"></i>
+        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Hakykatdanmy?</p>
+      </div>
+      <div class="modal-footer justify-content-center border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Tassyklamak</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
+  let pendingForm = null;
+
+  function confirmAction(formId, message) {
+    document.getElementById('confirmMessage').textContent = message || 'Hakykatdanmy?';
+    pendingForm = document.getElementById(formId);
+    confirmModal.show();
+  }
+
+  document.getElementById('confirmOk').addEventListener('click', function () {
+    if (pendingForm) pendingForm.submit();
+    confirmModal.hide();
+  });
+</script>
+{% endblock %}

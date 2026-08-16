@@ -222,6 +222,10 @@
        class="nav-link {% if 'admin.departments' in request.endpoint %}active{% endif %}">
       <i class="bi bi-diagram-3"></i> Bölümler
     </a>
+    <a href="{{ url_for('admin.user_departments_list') }}"
+       class="nav-link {% if 'admin.user_departments' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-person-badge"></i> Ulanyjylaryň bölümleri
+    </a>
     {% set palata_active = 'admin.rooms' in request.endpoint or 'admin.room_types' in request.endpoint %}
     <a class="nav-link nav-link-toggle {% if palata_active %}active{% endif %}"
        data-bs-toggle="collapse" href="#palata-menu" role="button"

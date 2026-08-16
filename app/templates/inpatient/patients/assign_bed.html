@@ -1,0 +1,58 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Palata bellemek{% endblock %}
+{% block page_title %}Palata we krowat bellemek{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-person-vcard me-2 text-success"></i>{{ patient.full_name }}
+        </h6>
+        <div class="text-muted small mt-1">
+          {{ current.department.name }} · Kesel taryhy: {{ current.history_number }}
+        </div>
+      </div>
+
+      <div class="card-body px-4 py-4">
+        <div class="mb-3">
+          <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">
+            Häzirki ýeri
+          </div>
+          {% if current.has_bed %}
+            <div class="fw-medium">{{ current.place_display }}</div>
+          {% else %}
+            <span class="badge bg-warning-subtle text-warning">Bellenmedik</span>
+          {% endif %}
+        </div>
+
+        {% if beds %}
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+          <div class="mb-3">
+            {{ form.bed_id.label(class='form-label fw-medium') }}
+            {{ form.bed_id(class='form-select' + (' is-invalid' if form.bed_id.errors else '')) }}
+            {% for e in form.bed_id.errors %}
+              <div class="invalid-feedback">{{ e }}</div>
+            {% endfor %}
+            <div class="form-text">Diňe boş krowatlar görkezilýär.</div>
+          </div>
+          <div class="d-flex gap-2">
+            {{ form.submit(class='btn btn-primary') }}
+            <a href="{{ url_for('inpatient.patients_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+          </div>
+        </form>
+        {% else %}
+        <div class="alert alert-warning py-2 px-3 mb-3">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          «{{ current.department.name }}» bölüminde boş krowat ýok.
+        </div>
+        <a href="{{ url_for('inpatient.patients_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

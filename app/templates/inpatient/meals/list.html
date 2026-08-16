@@ -1,0 +1,219 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Naharlar{% endblock %}
+{% block page_title %}Naharlar{% endblock %}
+
+{% block content %}
+
+<a href="{{ url_for('inpatient.patients_detail', patient_id=patient.id) }}"
+   class="btn btn-sm btn-outline-secondary mb-3">
+  <i class="bi bi-arrow-left me-1"></i>Syrkawyň kartasy
+</a>
+
+<!-- Patient header -->
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body py-3 px-4 d-flex flex-wrap align-items-center gap-3">
+    <div>
+      <h6 class="mb-0 fw-semibold">{{ patient.full_name }}</h6>
+      <div class="text-muted small">
+        {{ patient.birth_year }} ý. ({{ patient.age }} ýaş) ·
+        {{ hospitalization.department.name }} ·
+        Kesel taryhy: {{ hospitalization.history_number }}
+      </div>
+    </div>
+    <div class="ms-auto">
+      {% if hospitalization.is_open %}
+        <span class="badge bg-success-subtle text-success">Ýatyr</span>
+      {% else %}
+        <span class="badge bg-secondary-subtle text-secondary">Çykarylan</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Current meals -->
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+    <h6 class="mb-0 fw-semibold"><i class="bi bi-cup-hot me-2 text-success"></i>Häzirki naharlar</h6>
+    <span class="badge bg-secondary-subtle text-secondary ms-2">{{ active | length }}</span>
+  </div>
+
+  {% if active %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Ady</th>
+          <th>Bellik</th>
+          <th>Başlangyjy</th>
+          <th class="text-end">Bahasy</th>
+          <th>Bellän</th>
+          {% if may_assign %}<th class="text-center pe-4" style="width:120px">Amallar</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in active %}
+        <tr>
+          <td class="ps-4 fw-medium">{{ item.meal.name }}</td>
+          <td class="text-muted small">{{ item.meal.note or '—' }}</td>
+          <td class="text-nowrap small">{{ item.started_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td class="text-end text-nowrap">
+            {{ item.price_display }}
+            {% if item.is_insurance %}
+              <span class="badge bg-info-subtle text-info ms-1" style="font-size:.6rem">ätiýaç.</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ item.assigned_by.full_name }}</td>
+          {% if may_assign %}
+          <td class="text-center pe-4">
+            <form id="stop-{{ item.id }}" method="POST"
+                  action="{{ url_for('inpatient.meals_stop', assignment_id=item.id) }}" class="d-inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            </form>
+            <button type="button" class="btn btn-sm btn-outline-danger"
+                    onclick="confirmAction('stop-{{ item.id }}', '«{{ item.meal.name }}» bes edilsinmi?')">
+              <i class="bi bi-stop-circle me-1"></i>Bes etmek
+            </button>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-4">
+    <i class="bi bi-cup text-muted opacity-50" style="font-size:2rem"></i>
+    <div class="mt-2 small">Häzir bellenen nahar ýok.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Assign -->
+{% if may_assign %}
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4">
+    <h6 class="mb-0 fw-semibold"><i class="bi bi-plus-circle me-2 text-success"></i>Nahar bellemek</h6>
+  </div>
+  <div class="card-body px-4">
+    {% if available %}
+    <form method="POST" action="{{ url_for('inpatient.meals_add', hospitalization_id=hospitalization.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-2 mb-3">
+        {% for meal in available %}
+        <div class="col-md-6">
+          <div class="form-check border rounded p-2 ps-4 h-100">
+            <input class="form-check-input" type="checkbox" name="meal_ids"
+                   value="{{ meal.id }}" id="meal_{{ meal.id }}">
+            <label class="form-check-label w-100" for="meal_{{ meal.id }}">
+              <span class="fw-medium">{{ meal.name }}</span>
+              <span class="text-muted small ms-1">{{ meal.price_display }}</span>
+              {% if meal.is_insurance %}
+                <span class="badge bg-info-subtle text-info ms-1" style="font-size:.6rem">ätiýaç.</span>
+              {% endif %}
+              {% if meal.note %}
+                <div class="text-muted small">{{ meal.note }}</div>
+              {% endif %}
+            </label>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <button type="submit" class="btn btn-success">
+        <i class="bi bi-check-lg me-1"></i>Bellemek
+      </button>
+    </form>
+    {% else %}
+    <div class="text-muted small">
+      «{{ hospitalization.department.name }}» bölümi üçin başga elýeterli nahar ýok.
+      Naharlar dolandyryjy tarapyndan bölüme baglanýar.
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% elif hospitalization.is_open %}
+<div class="alert alert-light border py-2 px-3 small">
+  <i class="bi bi-eye me-1 text-muted"></i>
+  Nahar bellemek uly şepagat uýasynyň işi. Siz diňe görüp bilýärsiňiz.
+</div>
+{% else %}
+<div class="alert alert-light border py-2 px-3 small">
+  <i class="bi bi-lock me-1 text-muted"></i>
+  Syrkaw çykarylan — naharlar bes edilen.
+</div>
+{% endif %}
+
+<!-- History -->
+{% if finished %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white border-bottom py-3 px-4">
+    <h6 class="mb-0 fw-semibold"><i class="bi bi-clock-history me-2 text-muted"></i>Nahar taryhy</h6>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Ady</th>
+          <th>Başlangyjy</th>
+          <th>Soňy</th>
+          <th class="text-end">Bahasy</th>
+          <th>Bellän</th>
+          <th class="pe-4">Bes eden</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in finished %}
+        <tr>
+          <td class="ps-4 fw-medium">{{ item.meal.name }}</td>
+          <td class="text-nowrap small">{{ item.started_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td class="text-nowrap small">{{ item.ended_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td class="text-end text-nowrap">
+            {{ item.price_display }}
+            {% if item.is_insurance %}
+              <span class="badge bg-info-subtle text-info ms-1" style="font-size:.6rem">ätiýaç.</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ item.assigned_by.full_name }}</td>
+          <td class="text-muted small pe-4">{{ item.ended_by.full_name if item.ended_by else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Confirmation modal -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body text-center py-4">
+        <i class="bi bi-question-circle text-warning" style="font-size:2.5rem"></i>
+        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Hakykatdanmy?</p>
+      </div>
+      <div class="modal-footer justify-content-center border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Tassyklamak</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
+  let pendingForm = null;
+
+  function confirmAction(formId, message) {
+    document.getElementById('confirmMessage').textContent = message || 'Hakykatdanmy?';
+    pendingForm = document.getElementById(formId);
+    confirmModal.show();
+  }
+
+  document.getElementById('confirmOk').addEventListener('click', function () {
+    if (pendingForm) pendingForm.submit();
+    confirmModal.hide();
+  });
+</script>
+{% endblock %}

@@ -67,7 +67,10 @@
                 'doctor': 'success',
                 'analysis_responsible': 'warning',
                 'cashier': 'secondary',
-                'senior_cashier': 'dark'
+                'senior_cashier': 'dark',
+                'department_head': 'danger',
+                'senior_nurse': 'primary',
+                'nurse': 'light'
               } %}
               {% set color = role_colors.get(user.role, 'secondary') %}
               <span class="badge text-bg-{{ color }} fw-medium">

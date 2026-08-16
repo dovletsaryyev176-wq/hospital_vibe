@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin
 from app.extensions import db
@@ -182,6 +182,13 @@ user_directions = db.Table(
 )
 
 
+user_departments = db.Table(
+    'user_departments',
+    db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
+    db.Column('department_id', db.Integer, db.ForeignKey('departments.id'), primary_key=True),
+)
+
+
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
 
@@ -192,7 +199,20 @@ class User(UserMixin, db.Model):
         'analysis_responsible': 'Analizler boýunça jogapkär',
         'cashier': 'Kassir',
         'senior_cashier': 'Uly kassir',
+        'department_head': 'Bölüm müdiri',
+        'senior_nurse': 'Uly şepagat uýasy',
+        'nurse': 'Şepagat uýasy',
     }
+
+    # Roles that may be attached to inpatient departments (ýatymlaýyn bölümler)
+    DEPARTMENT_ROLES = ('department_head', 'senior_nurse', 'nurse', 'doctor')
+
+    # Roles allowed into the inpatient section
+    INPATIENT_ROLES = ('doctor', 'department_head', 'senior_nurse', 'nurse')
+
+    # Of those, the ones that work *only* in the inpatient section — they land
+    # there after login instead of the outpatient (main) section
+    INPATIENT_ONLY_ROLES = ('department_head', 'senior_nurse', 'nurse')
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False, index=True)
@@ -206,6 +226,24 @@ class User(UserMixin, db.Model):
 
     directions = db.relationship('DoctorDirection', secondary=user_directions, lazy='select',
                                  backref=db.backref('users', lazy='dynamic'))
+    departments = db.relationship('Department', secondary=user_departments, lazy='select',
+                                  backref=db.backref('users', lazy='dynamic'))
+
+    def can_have_departments(self) -> bool:
+        """Whether departments may be assigned to this user (inpatient module)."""
+        return self.role in self.DEPARTMENT_ROLES
+
+    def can_access_inpatient(self) -> bool:
+        return self.role in self.INPATIENT_ROLES
+
+    def is_inpatient_only(self) -> bool:
+        """User works in the inpatient section only — no outpatient access."""
+        return self.role in self.INPATIENT_ONLY_ROLES
+
+    @property
+    def active_departments(self):
+        """Departments assigned to this user, blocked ones excluded."""
+        return [d for d in self.departments if d.is_active]
 
     def set_password(self, password: str) -> None:
         self.password_hash = generate_password_hash(password)
@@ -579,3 +617,288 @@ class EarningPlan(db.Model):
 
     def __repr__(self) -> str:
         return f'<EarningPlan user={self.user_id} {self.year}-{self.month:02d} amount={self.amount}>'
+
+
+class Hospitalization(db.Model):
+    """A patient's stay in an inpatient department.
+
+    Opened by the department head (who also supplies the history number and the
+    relatives' phones), then a senior nurse of the same department assigns the
+    room and bed. Department and history number are kept on the record itself,
+    so past stays stay correct even if the staff's departments change later.
+    """
+    __tablename__ = 'hospitalizations'
+
+    STATUS_ACTIVE = 'active'
+    STATUS_DISCHARGED = 'discharged'
+
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'), nullable=False, index=True)
+    department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=False, index=True)
+    history_number = db.Column(db.String(50), nullable=False, unique=True, index=True)
+    status = db.Column(db.String(20), nullable=False, default=STATUS_ACTIVE, index=True)
+
+    admitted_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    admitted_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    discharged_at = db.Column(db.DateTime, nullable=True)
+    discharged_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    room_id = db.Column(db.Integer, db.ForeignKey('rooms.id'), nullable=True)
+    bed_id = db.Column(db.Integer, db.ForeignKey('beds.id'), nullable=True)
+    bed_assigned_at = db.Column(db.DateTime, nullable=True)
+    bed_assigned_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    # current attending doctor; every change is also kept in doctor_assignments
+    doctor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    doctor_assigned_at = db.Column(db.DateTime, nullable=True)
+    doctor_assigned_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    patient = db.relationship('Patient', backref=db.backref('hospitalizations', lazy='dynamic'))
+    department = db.relationship('Department')
+    room = db.relationship('Room')
+    bed = db.relationship('Bed')
+    admitted_by = db.relationship('User', foreign_keys=[admitted_by_id])
+    discharged_by = db.relationship('User', foreign_keys=[discharged_by_id])
+    bed_assigned_by = db.relationship('User', foreign_keys=[bed_assigned_by_id])
+    doctor = db.relationship('User', foreign_keys=[doctor_id])
+    doctor_assigned_by = db.relationship('User', foreign_keys=[doctor_assigned_by_id])
+    relatives = db.relationship('HospitalizationRelative', back_populates='hospitalization',
+                                cascade='all, delete-orphan')
+    bed_stays = db.relationship('HospitalizationBedStay', back_populates='hospitalization',
+                                cascade='all, delete-orphan',
+                                order_by='HospitalizationBedStay.started_at')
+    doctor_assignments = db.relationship('HospitalizationDoctorAssignment',
+                                         back_populates='hospitalization',
+                                         cascade='all, delete-orphan',
+                                         order_by='HospitalizationDoctorAssignment.started_at')
+    diary_entries = db.relationship('HospitalizationDiaryEntry', back_populates='hospitalization',
+                                    cascade='all, delete-orphan',
+                                    order_by='HospitalizationDiaryEntry.created_at.desc()')
+    meal_assignments = db.relationship('HospitalizationMealAssignment',
+                                       back_populates='hospitalization',
+                                       cascade='all, delete-orphan',
+                                       order_by='HospitalizationMealAssignment.started_at')
+
+    @property
+    def is_open(self) -> bool:
+        return self.status == self.STATUS_ACTIVE
+
+    @property
+    def has_bed(self) -> bool:
+        return self.bed_id is not None
+
+    @property
+    def current_bed_stay(self):
+        """The period the patient is lying in right now, if any."""
+        return next((s for s in self.bed_stays if s.ended_at is None), None)
+
+    @property
+    def has_doctor(self) -> bool:
+        return self.doctor_id is not None
+
+    @property
+    def active_meal_assignments(self):
+        """Meals the patient is on right now — several may run at once."""
+        return [m for m in self.meal_assignments if m.ended_at is None]
+
+    @property
+    def current_doctor_assignment(self):
+        return next((a for a in self.doctor_assignments if a.ended_at is None), None)
+
+    @property
+    def place_display(self) -> str:
+        if not self.has_bed:
+            return '—'
+        return f'{self.room.name} / {self.bed.name}'
+
+    def __repr__(self) -> str:
+        return f'<Hospitalization {self.history_number} patient={self.patient_id}>'
+
+
+class HospitalizationRelative(db.Model):
+    """Contact of a hospitalized patient — who to call."""
+    __tablename__ = 'hospitalization_relatives'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'), nullable=False, index=True)
+    full_name = db.Column(db.String(150), nullable=False)
+    phone_number = db.Column(db.String(20), nullable=False)
+    relation = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='relatives')
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationRelative {self.full_name} {self.phone_number}>'
+
+
+class HospitalizationBedStay(db.Model):
+    """One period a patient spent in one bed.
+
+    A new row is opened every time the bed changes and closed on the next move
+    or on discharge, so a stay that moved between beds keeps every period. The
+    bed price and its insurance flag are snapshotted here — changing the price
+    in the catalogue later must not rewrite what a past period cost.
+    """
+    __tablename__ = 'hospitalization_bed_stays'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    room_id = db.Column(db.Integer, db.ForeignKey('rooms.id'), nullable=False)
+    bed_id = db.Column(db.Integer, db.ForeignKey('beds.id'), nullable=False)
+
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    ended_at = db.Column(db.DateTime, nullable=True)
+    assigned_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='bed_stays')
+    room = db.relationship('Room')
+    bed = db.relationship('Bed')
+    assigned_by = db.relationship('User', foreign_keys=[assigned_by_id])
+
+    @property
+    def is_open(self) -> bool:
+        return self.ended_at is None
+
+    @property
+    def place_display(self) -> str:
+        return f'{self.room.name} / {self.bed.name}'
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.price:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationBedStay h={self.hospitalization_id} bed={self.bed_id}>'
+
+
+class HospitalizationDoctorAssignment(db.Model):
+    """One period a patient was in the care of one doctor.
+
+    The department head assigns the attending doctor; assigning another one
+    closes the running period and opens a new one, so it stays visible who was
+    responsible on any given day.
+    """
+    __tablename__ = 'hospitalization_doctor_assignments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    doctor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    ended_at = db.Column(db.DateTime, nullable=True)
+    assigned_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='doctor_assignments')
+    doctor = db.relationship('User', foreign_keys=[doctor_id])
+    assigned_by = db.relationship('User', foreign_keys=[assigned_by_id])
+
+    @property
+    def is_open(self) -> bool:
+        return self.ended_at is None
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationDoctorAssignment h={self.hospitalization_id} doctor={self.doctor_id}>'
+
+
+class HospitalizationDiaryEntry(db.Model):
+    """A doctor's progress note (gündelik) on a hospitalized patient.
+
+    Entries are never deleted. The author may correct their own note within
+    EDIT_WINDOW of writing it — after that the record is fixed, and any
+    correction made inside the window is marked as edited.
+    """
+    __tablename__ = 'hospitalization_diary_entries'
+
+    EDIT_WINDOW = timedelta(hours=24)
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    complaints = db.Column(db.Text, nullable=True)
+    objective = db.Column(db.Text, nullable=True)
+    dynamics = db.Column(db.Text, nullable=True)
+    plan = db.Column(db.Text, nullable=True)
+
+    temperature = db.Column(db.Numeric(4, 1), nullable=True)
+    blood_pressure = db.Column(db.String(20), nullable=True)
+    pulse = db.Column(db.Integer, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='diary_entries')
+    author = db.relationship('User', foreign_keys=[author_id])
+
+    @property
+    def is_edited(self) -> bool:
+        return self.updated_at is not None
+
+    @property
+    def edit_deadline(self):
+        return self.created_at + self.EDIT_WINDOW
+
+    def is_editable_by(self, user) -> bool:
+        return user.id == self.author_id and datetime.now() <= self.edit_deadline
+
+    @property
+    def has_vitals(self) -> bool:
+        return any(v is not None for v in (self.temperature, self.blood_pressure, self.pulse))
+
+    @property
+    def temperature_display(self) -> str:
+        return f'{self.temperature:.1f}' if self.temperature is not None else '—'
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationDiaryEntry h={self.hospitalization_id} by={self.author_id}>'
+
+
+class HospitalizationMealAssignment(db.Model):
+    """One period a patient was on one meal, assigned by the senior nurse.
+
+    Unlike a bed, several meals may run at the same time, so each meal has its
+    own period. Price and insurance flag are snapshotted at assignment — the
+    catalogue may change later without rewriting what a past period cost.
+    """
+    __tablename__ = 'hospitalization_meal_assignments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    meal_id = db.Column(db.Integer, db.ForeignKey('meals.id'), nullable=False, index=True)
+
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    ended_at = db.Column(db.DateTime, nullable=True)
+    assigned_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    ended_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='meal_assignments')
+    meal = db.relationship('Meal')
+    assigned_by = db.relationship('User', foreign_keys=[assigned_by_id])
+    ended_by = db.relationship('User', foreign_keys=[ended_by_id])
+
+    @property
+    def is_open(self) -> bool:
+        return self.ended_at is None
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.price:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationMealAssignment h={self.hospitalization_id} meal={self.meal_id}>'

@@ -6,6 +6,13 @@ from app.auth.forms import AdminLoginForm, LoginForm
 from app.models import User
 
 
+def _landing_page(user) -> str:
+    """Where a non-admin user lands after logging in."""
+    if user.is_inpatient_only():
+        return url_for('inpatient.dashboard')
+    return url_for('main.dashboard')
+
+
 def _safe_next(next_url: str | None, fallback: str) -> str:
     if next_url:
         parsed = urlparse(next_url)
@@ -55,7 +62,7 @@ def admin_logout():
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated and not current_user.is_administrator():
-        return redirect(url_for('main.dashboard'))
+        return redirect(_landing_page(current_user))
 
     form = LoginForm()
     if form.validate_on_submit():
@@ -74,7 +81,7 @@ def login():
             return render_template('auth/login.html', form=form)
 
         login_user(user, remember=form.remember_me.data)
-        return redirect(_safe_next(request.args.get('next'), url_for('main.dashboard')))
+        return redirect(_safe_next(request.args.get('next'), _landing_page(user)))
 
     return render_template('auth/login.html', form=form)
 
