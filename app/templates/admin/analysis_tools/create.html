@@ -98,7 +98,7 @@
 {% block scripts %}
 <script>
 (function () {
-  const allSubs = {{ subcats_json | safe }};
+  const allSubs = {{ subcats_json | tojson }};
   const catSel = document.getElementById('cat_sel_c');
   const subSel = document.getElementById('sub_sel_c');
 

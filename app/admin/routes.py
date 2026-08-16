@@ -1,5 +1,4 @@
 from functools import wraps
-import json
 from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user
 from sqlalchemy import func
@@ -124,6 +123,10 @@ def users_edit(user_id):
         form.direction_ids.data = [d.id for d in user.directions]
 
     if form.validate_on_submit():
+        if user.id == current_user.id and form.role.data != 'administrator':
+            flash('Öz roluňyzy üýtgedip bolmaýar.', 'danger')
+            return redirect(url_for('admin.users_edit', user_id=user.id))
+
         user.full_name = form.full_name.data.strip()
         user.username = form.username.data.strip()
         user.role = form.role.data
@@ -557,8 +560,9 @@ def analysis_tools_toggle(tool_id):
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _subcats_as_json():
+    """Plain list for the template's `| tojson` (safe against markup in names)."""
     subs = AnalysisToolSubcategory.query.filter_by(is_active=True).order_by(AnalysisToolSubcategory.name).all()
-    return json.dumps([{'id': s.id, 'name': s.name, 'category_id': s.category_id or 0} for s in subs])
+    return [{'id': s.id, 'name': s.name, 'category_id': s.category_id or 0} for s in subs]
 
 
 # ── Analysis tool categories ──────────────────────────────────────────────────

@@ -39,10 +39,11 @@ class PatientForm(FlaskForm):
         ],
         render_kw={'placeholder': 'Şäher köçe jaý otag', 'rows': 2},
     )
+    # No DataRequired here: requiredness is enforced in validate_passport_number,
+    # which allows legacy patients that were registered without a passport.
     passport_number = StringField(
         'Pasport belgisi',
         validators=[
-            DataRequired(message='Pasport belgisini giriziň'),
             Length(max=50, message='50 simwoldan geçmeli däl'),
         ],
         render_kw={'placeholder': 'Pasport belgisi'},
@@ -64,6 +65,10 @@ class PatientForm(FlaskForm):
     def validate_passport_number(self, field):
         value = field.data.strip() if field.data else ''
         if not value:
+            # Passport is required, except for legacy patients registered
+            # before it became mandatory — they may be edited as-is.
+            if self._editing_patient is not None and not self._editing_patient.passport_number:
+                return
             raise ValidationError('Pasport belgisini giriziň.')
         existing = Patient.query.filter_by(passport_number=value).first()
         if existing and (self._editing_patient is None or existing.id != self._editing_patient.id):

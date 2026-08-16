@@ -267,8 +267,18 @@ def _exam_form_context():
     }
 
 
-def _parse_exam_form():
-    """Parse and validate POST data for examination form. Returns (data_dict, errors)."""
+def _parse_exam_form(current_doctor_for=None):
+    """Parse and validate POST data for examination form. Returns (data_dict, errors).
+
+    Every submitted id is checked against the active catalogue — a stale form
+    (an item blocked or deleted after the page was opened) produces a
+    validation error instead of a crash. Each direction's doctor must be an
+    active doctor / analysis-responsible who has that direction assigned;
+    `current_doctor_for` ({direction_id: doctor_id} of an exam being edited)
+    lets an already-saved assignment pass even if the doctor has since lost
+    the direction.
+    """
+    current_doctor_for = current_doctor_for or {}
     patient_id = request.form.get('patient_id', type=int)
     analysis_ids = list(dict.fromkeys(request.form.getlist('analysis_ids', type=int)))
     direction_ids = list(dict.fromkeys(request.form.getlist('direction_ids', type=int)))
@@ -287,6 +297,22 @@ def _parse_exam_form():
     if not analysis_ids and not direction_ids:
         errors.append('Iň bolmanda 1 analiz ýa-da ugur kesgitläň.')
 
+    def _load_active(model, id_list, label):
+        """Return {id: obj} of active catalogue rows; error + drop the missing ones."""
+        if not id_list:
+            return {}, id_list
+        by_id = {obj.id: obj for obj in model.query.filter(
+            model.id.in_(id_list), model.is_active == True).all()}  # noqa: E712
+        missing = [i for i in id_list if i not in by_id]
+        if missing:
+            errors.append(f'Saýlanan {label} tapylmady ýa-da bloklanan. Sahypany täzeläp, gaýtadan synanyşyň.')
+        return by_id, [i for i in id_list if i in by_id]
+
+    analyses_by_id, analysis_ids = _load_active(Analysis, analysis_ids, 'analizleriň käbiri')
+    directions_by_id, direction_ids = _load_active(DoctorDirection, direction_ids, 'ugurlaryň käbiri')
+    tools_by_id, tool_ids = _load_active(AnalysisTool, tool_ids, 'serişdeleriň käbiri')
+    blanks_by_id, blank_ids = _load_active(Blank, blank_ids, 'blanklaryň käbiri')
+
     analysis_qtys = {aid: max(1, request.form.get(f'analysis_qty_{aid}', 1, type=int))
                      for aid in analysis_ids}
     tool_qtys = {tid: max(1, request.form.get(f'tool_qty_{tid}', 1, type=int))
@@ -295,20 +321,39 @@ def _parse_exam_form():
                   for bid in blank_ids}
 
     doctor_for = {}
-    if direction_ids:
-        directions_by_id = {d.id: d for d in DoctorDirection.query.filter(DoctorDirection.id.in_(direction_ids)).all()}
-    else:
-        directions_by_id = {}
     for did in direction_ids:
         doc_id = request.form.get(f'doctor_for_{did}', type=int)
         if not doc_id:
-            dir_obj = directions_by_id.get(did)
-            dir_name = dir_obj.name if dir_obj else f'#{did}'
-            errors.append(f'Ugur «{dir_name}» üçin lukman bellenmedik.')
+            errors.append(f'Ugur «{directions_by_id[did].name}» üçin lukman bellenmedik.')
         else:
             doctor_for[did] = doc_id
 
+    # The chosen doctor must be eligible for the direction (mirrors the form's
+    # dropdown filter): active, doctor / analysis-responsible role, direction assigned.
+    to_verify = {doc_id for did, doc_id in doctor_for.items()
+                 if current_doctor_for.get(did) != doc_id}
+    eligible = {}
+    if to_verify:
+        eligible = {
+            u.id: {d.id for d in u.directions}
+            for u in User.query.filter(
+                User.id.in_(to_verify),
+                User.role.in_(['doctor', 'analysis_responsible']),
+                User.is_active == True,  # noqa: E712
+            ).options(joinedload(User.directions)).all()
+        }
+    for did, doc_id in doctor_for.items():
+        if current_doctor_for.get(did) == doc_id:
+            continue  # unchanged assignment on an existing exam stays valid
+        if did not in eligible.get(doc_id, set()):
+            errors.append(f'Ugur «{directions_by_id[did].name}» üçin saýlanan lukman nädogry. '
+                          f'Sahypany täzeläp, gaýtadan synanyşyň.')
+
     data = {
+        'analyses_by_id': analyses_by_id,
+        'directions_by_id': directions_by_id,
+        'tools_by_id': tools_by_id,
+        'blanks_by_id': blanks_by_id,
         'patient_id': patient_id,
         'analysis_ids': analysis_ids,
         'analysis_qtys': analysis_qtys,
@@ -410,10 +455,8 @@ def examinations_create():
         db.session.add(exam)
         db.session.flush()
 
-        analyses_by_id = {a.id: a for a in Analysis.query.filter(
-            Analysis.id.in_(data['analysis_ids'])).all()} if data['analysis_ids'] else {}
         for aid in data['analysis_ids']:
-            a = analyses_by_id[aid]
+            a = data['analyses_by_id'][aid]
             db.session.add(ExaminationAnalysis(
                 examination_id=exam.id,
                 analysis_id=aid,
@@ -421,10 +464,8 @@ def examinations_create():
                 price=a.price,
                 is_insurance=a.is_insurance,
             ))
-        directions_by_id = {d.id: d for d in DoctorDirection.query.filter(
-            DoctorDirection.id.in_(data['direction_ids'])).all()} if data['direction_ids'] else {}
         for did in data['direction_ids']:
-            d = directions_by_id[did]
+            d = data['directions_by_id'][did]
             db.session.add(ExaminationDirection(
                 examination_id=exam.id,
                 direction_id=did,
@@ -432,10 +473,8 @@ def examinations_create():
                 price=d.price,
                 is_insurance=d.is_insurance,
             ))
-        tools_by_id = {t.id: t for t in AnalysisTool.query.filter(
-            AnalysisTool.id.in_(data['tool_ids'])).all()} if data['tool_ids'] else {}
         for tid in data['tool_ids']:
-            t = tools_by_id[tid]
+            t = data['tools_by_id'][tid]
             db.session.add(ExaminationAnalysisTool(
                 examination_id=exam.id,
                 tool_id=tid,
@@ -443,10 +482,8 @@ def examinations_create():
                 price=t.total_price,
                 is_insurance=t.is_insurance,
             ))
-        blanks_by_id = {b.id: b for b in Blank.query.filter(
-            Blank.id.in_(data['blank_ids'])).all()} if data['blank_ids'] else {}
         for bid in data['blank_ids']:
-            b = blanks_by_id[bid]
+            b = data['blanks_by_id'][bid]
             db.session.add(ExaminationBlank(
                 examination_id=exam.id,
                 blank_id=bid,
@@ -592,7 +629,8 @@ def examinations_edit(exam_id):
     ctx = _exam_form_context()
 
     if request.method == 'POST':
-        data, errors = _parse_exam_form()
+        data, errors = _parse_exam_form(
+            current_doctor_for={ed.direction_id: ed.doctor_id for ed in exam.exam_directions})
         if errors:
             for e in errors:
                 flash(e, 'danger')
@@ -607,10 +645,8 @@ def examinations_edit(exam_id):
 
         for ea in list(exam.exam_analyses):
             db.session.delete(ea)
-        analyses_by_id = {a.id: a for a in Analysis.query.filter(
-            Analysis.id.in_(data['analysis_ids'])).all()} if data['analysis_ids'] else {}
         for aid in data['analysis_ids']:
-            a = analyses_by_id[aid]
+            a = data['analyses_by_id'][aid]
             db.session.add(ExaminationAnalysis(
                 examination_id=exam.id,
                 analysis_id=aid,
@@ -621,10 +657,8 @@ def examinations_edit(exam_id):
 
         for ed in list(exam.exam_directions):
             db.session.delete(ed)
-        directions_by_id = {d.id: d for d in DoctorDirection.query.filter(
-            DoctorDirection.id.in_(data['direction_ids'])).all()} if data['direction_ids'] else {}
         for did in data['direction_ids']:
-            d = directions_by_id[did]
+            d = data['directions_by_id'][did]
             db.session.add(ExaminationDirection(
                 examination_id=exam.id,
                 direction_id=did,
@@ -635,10 +669,8 @@ def examinations_edit(exam_id):
 
         for et in list(exam.exam_tools):
             db.session.delete(et)
-        tools_by_id = {t.id: t for t in AnalysisTool.query.filter(
-            AnalysisTool.id.in_(data['tool_ids'])).all()} if data['tool_ids'] else {}
         for tid in data['tool_ids']:
-            t = tools_by_id[tid]
+            t = data['tools_by_id'][tid]
             db.session.add(ExaminationAnalysisTool(
                 examination_id=exam.id,
                 tool_id=tid,
@@ -649,10 +681,8 @@ def examinations_edit(exam_id):
 
         for eb in list(exam.exam_blanks):
             db.session.delete(eb)
-        blanks_by_id = {b.id: b for b in Blank.query.filter(
-            Blank.id.in_(data['blank_ids'])).all()} if data['blank_ids'] else {}
         for bid in data['blank_ids']:
-            b = blanks_by_id[bid]
+            b = data['blanks_by_id'][bid]
             db.session.add(ExaminationBlank(
                 examination_id=exam.id,
                 blank_id=bid,
@@ -946,18 +976,23 @@ def _report_dates_with_today():
 
 
 def _apply_exam_date_filter(query, date_from, date_to):
-    """Apply created_at >= from and < to+1day filters; return (query, date_from, date_to)
-    with invalid date strings cleared."""
+    """Apply paid_at >= from and < to+1day filters; return (query, date_from, date_to)
+    with invalid date strings cleared.
+
+    All callers report on *paid* examinations, so the period is the payment
+    date — a cashier's daily report must show the money actually taken that
+    day, matching the earning-plan aggregation. (Filtering by creation date
+    would hide an exam created yesterday but paid today.)"""
     if date_from:
         try:
             parsed_from = datetime.strptime(date_from, '%Y-%m-%d')
-            query = query.filter(Examination.created_at >= parsed_from)
+            query = query.filter(Examination.paid_at >= parsed_from)
         except ValueError:
             date_from = ''
     if date_to:
         try:
             parsed_to = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
-            query = query.filter(Examination.created_at < parsed_to)
+            query = query.filter(Examination.paid_at < parsed_to)
         except ValueError:
             date_to = ''
     return query, date_from, date_to
@@ -1024,7 +1059,7 @@ def _tools_report_loaded(query):
             .joinedload(ExaminationAnalysisTool.tool)
             .joinedload(AnalysisTool.subcategory)
             .joinedload(AnalysisToolSubcategory.category),
-    ).order_by(Examination.created_at.desc())
+    ).order_by(Examination.paid_at.desc())
 
 
 @main_bp.route('/reports/tools')
@@ -1069,7 +1104,7 @@ def _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
     ws.title = 'Serişdeler'
 
     headers = [
-        '№', 'Senesi', 'Döreden', 'F.A.A.', 'Doglan ýyly', 'Ýaşy',
+        '№', 'Töleg senesi', 'Döreden', 'F.A.A.', 'Doglan ýyly', 'Ýaşy',
         'Raýatlygy', 'Salgysy', 'Pasport №', 'Saglyk ät.№',
         'Analizler', 'Lukmanlar', 'Blanklar', 'Serişdeler',
         'Doly bahasy', 'Ýeňillik', 'Tölenmeli',
@@ -1127,7 +1162,7 @@ def _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
         patient = exam.patient
         ws.append([
             exam.id,
-            exam.created_at.strftime('%d.%m.%Y %H:%M'),
+            exam.paid_at.strftime('%d.%m.%Y %H:%M') if exam.paid_at else '',
             exam.created_by.full_name if exam.created_by else '',
             patient.full_name if patient else '',
             patient.birth_year if patient else '',
@@ -1217,37 +1252,6 @@ def _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
     )
 
 
-def _reports_date_filter():
-    """Parse from/to query params and return (query, date_from, date_to)."""
-    date_from = request.args.get('from', '').strip()
-    date_to = request.args.get('to', '').strip()
-
-    query = Examination.query.filter(Examination.is_paid == True)
-
-    if date_from:
-        try:
-            parsed_from = datetime.strptime(date_from, '%Y-%m-%d')
-            query = query.filter(Examination.created_at >= parsed_from)
-        except ValueError:
-            date_from = ''
-    if date_to:
-        try:
-            parsed_to = datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1)
-            query = query.filter(Examination.created_at < parsed_to)
-        except ValueError:
-            date_to = ''
-
-    return query, date_from, date_to
-
-
-def _new_grand():
-    return {
-        'analyses': Decimal('0'), 'directions': Decimal('0'),
-        'blanks': Decimal('0'), 'tools': Decimal('0'), 'total': Decimal('0'),
-        'full_total': Decimal('0'), 'discount_total': Decimal('0'),
-    }
-
-
 def _exam_section_totals(exam):
     """Return (totals, full) dicts of section sums for an examination."""
     totals = {
@@ -1300,7 +1304,7 @@ def _directions_report_loaded(query):
             .joinedload(ExaminationDirection.direction),
         subqueryload(Examination.exam_directions)
             .joinedload(ExaminationDirection.doctor),
-    ).order_by(Examination.created_at.desc())
+    ).order_by(Examination.paid_at.desc())
 
 
 def _build_directions_row(exam):
@@ -1379,7 +1383,7 @@ def _directions_report_xlsx(rows, grand, date_from, date_to, show_cashier=False)
     ws.title = 'Lukmanlar'
 
     headers = [
-        '№', 'Senesi', 'Döreden', 'F.A.A.', 'Doglan ýyly', 'Ýaşy',
+        '№', 'Töleg senesi', 'Döreden', 'F.A.A.', 'Doglan ýyly', 'Ýaşy',
         'Raýatlygy', 'Salgysy', 'Pasport №', 'Saglyk ät.№',
         'Analizler', 'Lukmanlar', 'Blanklar', 'Serişdeler',
         'Doly bahasy', 'Ýeňillik', 'Tölenmeli',
@@ -1425,7 +1429,7 @@ def _directions_report_xlsx(rows, grand, date_from, date_to, show_cashier=False)
         patient = exam.patient
         ws.append([
             exam.id,
-            exam.created_at.strftime('%d.%m.%Y %H:%M'),
+            exam.paid_at.strftime('%d.%m.%Y %H:%M') if exam.paid_at else '',
             exam.created_by.full_name if exam.created_by else '',
             patient.full_name if patient else '',
             patient.birth_year if patient else '',
@@ -1795,7 +1799,7 @@ def _doctor_payments_report():
             exam = ed.examination
             bucket['details'].append({
                 'exam_id': ed.examination_id,
-                'created_at': exam.created_at,
+                'paid_at': exam.paid_at,
                 'patient': exam.patient.full_name if exam.patient else '—',
                 'is_terminal': ed.payment_method == ExaminationDirection.PAYMENT_TERMINAL,
                 'amount': amount,
@@ -1804,7 +1808,7 @@ def _doctor_payments_report():
 
         rows = list(buckets.values())
         for r in rows:
-            r['details'].sort(key=lambda d: d['created_at'])
+            r['details'].sort(key=lambda d: d['paid_at'] or datetime.min)
         totals = {
             'count': sum(r['count'] for r in rows),
             'cash': sum((r['cash'] for r in rows), Decimal('0')),
@@ -1917,7 +1921,7 @@ def _doctor_payments_xlsx(rows, totals, direction, date_from, date_to):
             c.alignment = right
 
         if row['details']:
-            ws.append(['', 'Barlag №', 'Senesi', 'Syrkaw (F.A.A.)',
+            ws.append(['', 'Barlag №', 'Töleg senesi', 'Syrkaw (F.A.A.)',
                        'Töleg görnüşi', '50% ýeňillik', 'Tölenen'])
             hdr_idx = ws.max_row
             for col in range(2, 8):
@@ -1928,7 +1932,7 @@ def _doctor_payments_xlsx(rows, totals, direction, date_from, date_to):
                 ws.append([
                     '',
                     d['exam_id'],
-                    d['created_at'].strftime('%d.%m.%Y %H:%M'),
+                    d['paid_at'].strftime('%d.%m.%Y %H:%M') if d['paid_at'] else '',
                     d['patient'],
                     'Terminal' if d['is_terminal'] else 'Nagt',
                     float(d['discount']),
@@ -2048,7 +2052,7 @@ def _tool_payments_report():
             exam = et.examination
             bucket['details'].append({
                 'exam_id': et.examination_id,
-                'created_at': exam.created_at,
+                'paid_at': exam.paid_at,
                 'patient': exam.patient.full_name if exam.patient else '—',
                 'quantity': et.quantity or 1,
                 'is_terminal': et.payment_method == ExaminationAnalysisTool.PAYMENT_TERMINAL,
@@ -2058,7 +2062,7 @@ def _tool_payments_report():
 
         rows = list(buckets.values())
         for row in rows:
-            row['details'].sort(key=lambda d: d['created_at'])
+            row['details'].sort(key=lambda d: d['paid_at'] or datetime.min)
         totals = {
             'count': sum(b['count'] for b in rows),
             'cash': sum((b['cash'] for b in rows), Decimal('0')),
@@ -2155,7 +2159,7 @@ def _tool_payments_xlsx(rows, totals, date_from, date_to):
             c.alignment = right
 
         if row['details']:
-            ws.append(['', 'Barlag №', 'Senesi', 'Syrkaw (F.A.A.)', 'Sany',
+            ws.append(['', 'Barlag №', 'Töleg senesi', 'Syrkaw (F.A.A.)', 'Sany',
                        'Töleg görnüşi', '50% ýeňillik', 'Tölenen'])
             hdr_idx = ws.max_row
             for col in range(2, 9):
@@ -2166,7 +2170,7 @@ def _tool_payments_xlsx(rows, totals, date_from, date_to):
                 ws.append([
                     '',
                     d['exam_id'],
-                    d['created_at'].strftime('%d.%m.%Y %H:%M'),
+                    d['paid_at'].strftime('%d.%m.%Y %H:%M') if d['paid_at'] else '',
                     d['patient'],
                     d['quantity'],
                     'Terminal' if d['is_terminal'] else 'Nagt',
@@ -2289,7 +2293,7 @@ def _analysis_payments_report():
             exam = ea.examination
             bucket['details'].append({
                 'exam_id': ea.examination_id,
-                'created_at': exam.created_at,
+                'paid_at': exam.paid_at,
                 'patient': exam.patient.full_name if exam.patient else '—',
                 'quantity': ea.quantity or 1,
                 'is_terminal': ea.payment_method == ExaminationAnalysis.PAYMENT_TERMINAL,
@@ -2299,7 +2303,7 @@ def _analysis_payments_report():
 
         rows = list(buckets.values())
         for row in rows:
-            row['details'].sort(key=lambda d: d['created_at'])
+            row['details'].sort(key=lambda d: d['paid_at'] or datetime.min)
         totals = {
             'count': sum(b['count'] for b in rows),
             'cash': sum((b['cash'] for b in rows), Decimal('0')),
@@ -2396,7 +2400,7 @@ def _analysis_payments_xlsx(rows, totals, date_from, date_to):
             c.alignment = right
 
         if row['details']:
-            ws.append(['', 'Barlag №', 'Senesi', 'Syrkaw (F.A.A.)', 'Sany',
+            ws.append(['', 'Barlag №', 'Töleg senesi', 'Syrkaw (F.A.A.)', 'Sany',
                        'Töleg görnüşi', '50% ýeňillik', 'Tölenen'])
             hdr_idx = ws.max_row
             for col in range(2, 9):
@@ -2407,7 +2411,7 @@ def _analysis_payments_xlsx(rows, totals, date_from, date_to):
                 ws.append([
                     '',
                     d['exam_id'],
-                    d['created_at'].strftime('%d.%m.%Y %H:%M'),
+                    d['paid_at'].strftime('%d.%m.%Y %H:%M') if d['paid_at'] else '',
                     d['patient'],
                     d['quantity'],
                     'Terminal' if d['is_terminal'] else 'Nagt',
@@ -2498,7 +2502,7 @@ def _analyses_report_loaded(query):
         subqueryload(Examination.exam_analyses)
             .joinedload(ExaminationAnalysis.analysis)
             .joinedload(Analysis.responsible),
-    ).order_by(Examination.created_at.desc())
+    ).order_by(Examination.paid_at.desc())
 
 
 def _build_analyses_row(exam):
@@ -2579,7 +2583,7 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
     ws.title = 'Analizler'
 
     headers = [
-        '№', 'Senesi', 'Döreden', 'F.A.A.', 'Doglan ýyly', 'Ýaşy',
+        '№', 'Töleg senesi', 'Döreden', 'F.A.A.', 'Doglan ýyly', 'Ýaşy',
         'Raýatlygy', 'Salgysy', 'Pasport №', 'Saglyk ät.№',
         'Analizler', 'Lukmanlar', 'Blanklar', 'Serişdeler',
         'Doly bahasy', 'Ýeňillik', 'Tölenmeli',
@@ -2626,7 +2630,7 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
         patient = exam.patient
         ws.append([
             exam.id,
-            exam.created_at.strftime('%d.%m.%Y %H:%M'),
+            exam.paid_at.strftime('%d.%m.%Y %H:%M') if exam.paid_at else '',
             exam.created_by.full_name if exam.created_by else '',
             patient.full_name if patient else '',
             patient.birth_year if patient else '',

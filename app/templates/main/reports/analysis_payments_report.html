@@ -113,7 +113,7 @@
                     <thead>
                       <tr class="text-nowrap">
                         <th style="width:90px">Barlag №</th>
-                        <th style="width:140px">Senesi</th>
+                        <th style="width:140px">Töleg senesi</th>
                         <th>Syrkaw (F.A.A.)</th>
                         <th class="text-end" style="width:80px">Sany</th>
                         <th style="width:110px">Töleg görnüşi</th>
@@ -125,7 +125,7 @@
                       {% for d in row.details %}
                         <tr>
                           <td class="fw-semibold">{{ d.exam_id }}</td>
-                          <td class="text-nowrap">{{ d.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                          <td class="text-nowrap">{{ d.paid_at.strftime('%d.%m.%Y %H:%M') if d.paid_at else '—' }}</td>
                           <td>{{ d.patient }}</td>
                           <td class="text-end">{{ d.quantity }}</td>
                           <td>{{ 'Terminal' if d.is_terminal else 'Nagt' }}</td>

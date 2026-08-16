@@ -14,7 +14,10 @@ def _landing_page(user) -> str:
 
 
 def _safe_next(next_url: str | None, fallback: str) -> str:
-    if next_url:
+    """Only follow a relative in-app path — never an absolute / protocol-relative
+    URL. Backslashes are rejected too: some browsers treat them as slashes,
+    which would turn e.g. '/\\evil.com' into '//evil.com'."""
+    if next_url and '\\' not in next_url:
         parsed = urlparse(next_url)
         if not parsed.netloc and not parsed.scheme:
             return next_url
@@ -50,7 +53,7 @@ def admin_login():
     return render_template('auth/admin_login.html', form=form)
 
 
-@auth_bp.route('/admin/logout')
+@auth_bp.route('/admin/logout', methods=['POST'])
 def admin_logout():
     logout_user()
     flash('Siz ulgamdan çykdyňyz.', 'info')
@@ -86,7 +89,7 @@ def login():
     return render_template('auth/login.html', form=form)
 
 
-@auth_bp.route('/logout')
+@auth_bp.route('/logout', methods=['POST'])
 def logout():
     logout_user()
     flash('Siz ulgamdan çykdyňyz.', 'info')

@@ -2,6 +2,7 @@ from datetime import datetime
 from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user, logout_user
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, subqueryload
 from app.inpatient import inpatient_bp
 from app.inpatient.forms import (HospitalizationForm, BedAssignmentForm,
@@ -340,9 +341,16 @@ def patients_admit(patient_id):
             for row in relatives:
                 hospitalization.relatives.append(HospitalizationRelative(**row))
             db.session.add(hospitalization)
-            db.session.commit()
-            flash(f'«{patient.full_name}» ýatymlaýyn bölüme ýatyryldy.', 'success')
-            return redirect(url_for('inpatient.patients_detail', patient_id=patient.id))
+            try:
+                db.session.commit()
+            except IntegrityError:
+                # Two heads submitting the same history number at once: the form
+                # check passes for both, the unique index rejects the second.
+                db.session.rollback()
+                relative_errors.append('Bu belgili kesel taryhy eýýäm bar.')
+            else:
+                flash(f'«{patient.full_name}» ýatymlaýyn bölüme ýatyryldy.', 'success')
+                return redirect(url_for('inpatient.patients_detail', patient_id=patient.id))
     elif request.method == 'POST':
         relatives, relative_errors = _parse_relatives(request.form)
 
@@ -427,6 +435,21 @@ def patients_assign_bed(patient_id):
         if current.bed_id == chosen.id:
             flash('Syrkaw eýýäm şol krowatda ýatyr.', 'info')
             return redirect(url_for('inpatient.patients_detail', patient_id=patient.id))
+
+        # Re-check occupancy with a row lock right before writing: two nurses
+        # may pass the free-beds check at the same moment (no-op on SQLite).
+        conflict = (
+            Hospitalization.query
+            .filter(Hospitalization.bed_id == chosen.id,
+                    Hospitalization.status == Hospitalization.STATUS_ACTIVE,
+                    Hospitalization.id != current.id)
+            .with_for_update()
+            .first()
+        )
+        if conflict is not None:
+            db.session.rollback()
+            flash('Bu krowat eýýäm başga syrkawa bellenildi. Sanawy täzeläň.', 'danger')
+            return redirect(url_for('inpatient.patients_assign_bed', patient_id=patient.id))
 
         moved_at = datetime.now()
 
@@ -619,7 +642,7 @@ def diary_edit(entry_id):
         return redirect(url_for('inpatient.patients_list'))
 
     if not entry.is_editable_by(current_user):
-        flash('Ýazgyny diňe awtory we ýazylan gününde üýtgedip bolýar.', 'danger')
+        flash('Ýazgyny diňe awtory ýazylandan soň 24 sagadyň dowamynda üýtgedip bilýär.', 'danger')
         return redirect(url_for('inpatient.diary', hospitalization_id=hospitalization.id))
 
     form = DiaryEntryForm(obj=entry)

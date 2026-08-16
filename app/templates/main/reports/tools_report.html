@@ -101,7 +101,7 @@
       <thead>
         <tr class="text-nowrap">
           <th>№</th>
-          <th>Senesi</th>
+          <th>Töleg senesi</th>
           <th>Döreden</th>
           {% if show_cashier %}<th>Kassir</th>{% endif %}
           <th>F.A.A.</th>
@@ -126,7 +126,7 @@
           {% set exam = r.exam %}
           <tr>
             <td class="fw-semibold">{{ exam.id }}</td>
-            <td class="text-nowrap">{{ exam.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+            <td class="text-nowrap">{{ exam.paid_at.strftime('%d.%m.%Y %H:%M') if exam.paid_at else '—' }}</td>
             <td class="text-nowrap">{{ exam.created_by.full_name }}</td>
             {% if show_cashier %}<td class="text-nowrap">{{ exam.paid_by.full_name if exam.paid_by else '—' }}</td>{% endif %}
             <td class="text-nowrap">{{ exam.patient.full_name }}</td>
