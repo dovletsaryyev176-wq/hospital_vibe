@@ -807,6 +807,19 @@ class Hospitalization(db.Model):
     admission_exam = db.relationship('HospitalizationAdmissionExam',
                                      back_populates='hospitalization',
                                      cascade='all, delete-orphan', uselist=False)
+    analysis_orders = db.relationship('HospitalizationAnalysisOrder',
+                                      back_populates='hospitalization',
+                                      cascade='all, delete-orphan',
+                                      order_by='HospitalizationAnalysisOrder.ordered_at.desc()')
+    tool_orders = db.relationship('HospitalizationToolOrder', back_populates='hospitalization',
+                                  cascade='all, delete-orphan',
+                                  order_by='HospitalizationToolOrder.ordered_at.desc()')
+    blank_orders = db.relationship('HospitalizationBlankOrder', back_populates='hospitalization',
+                                   cascade='all, delete-orphan',
+                                   order_by='HospitalizationBlankOrder.ordered_at.desc()')
+    consultations = db.relationship('HospitalizationConsultation', back_populates='hospitalization',
+                                    cascade='all, delete-orphan',
+                                    order_by='HospitalizationConsultation.ordered_at.desc()')
 
     @property
     def is_open(self) -> bool:
@@ -892,6 +905,23 @@ class Hospitalization(db.Model):
         """Calendar days spent in — the day of admission counts as one."""
         end = self.discharged_at or datetime.now()
         return max(1, (end.date() - self.admitted_at.date()).days)
+
+    @property
+    def examination_orders(self):
+        """Every analysis, study and blank ordered during the stay, newest first.
+        Three catalogues, one worklist — the ward thinks in «what is still
+        outstanding», not in which table a row lives in."""
+        rows = list(self.analysis_orders) + list(self.tool_orders) + list(self.blank_orders)
+        return sorted(rows, key=lambda o: o.ordered_at, reverse=True)
+
+    @property
+    def pending_examination_orders(self):
+        """Ordered but not yet carried out — what the ward still owes."""
+        return [o for o in self.examination_orders if o.is_ordered]
+
+    @property
+    def pending_consultations(self):
+        return [c for c in self.consultations if c.is_ordered]
 
     @property
     def admission_exam_overdue(self) -> bool:
@@ -1709,3 +1739,278 @@ class HospitalizationAdmissionExam(db.Model):
 
     def __repr__(self) -> str:
         return f'<HospitalizationAdmissionExam h={self.hospitalization_id}>'
+
+
+# ── What the ward orders: analyses, studies, blanks, consultations ────────────
+
+
+class InpatientOrderMixin:
+    """Shared lifecycle of anything a ward doctor orders for a lying patient.
+
+    The catalogues are the same ones the outpatient section sells from, but the
+    orders themselves are entirely separate records: an inpatient order belongs
+    to a stay, never to an `Examination`, and is neither paid for nor closed
+    through the cashier. Reusing the catalogue keeps one price list for the
+    hospital; keeping the orders apart keeps the two sections from stepping on
+    each other.
+
+    A doctor orders it; later the ward writes down what came back, or calls the
+    order off with a reason. Nothing is ever deleted — a mistaken order is
+    cancelled, so it stays visible that it was once made and by whom. Price and
+    insurance flag are snapshotted at ordering, exactly as bed stays, meals and
+    dispenses do it: a later change in the catalogue must not rewrite what a
+    past order cost.
+
+    Subclasses must expose: self.status, self.price, self.quantity, self._source.
+    """
+    STATUS_ORDERED = 'ordered'
+    STATUS_COMPLETED = 'completed'
+    STATUS_CANCELLED = 'cancelled'
+
+    STATUSES = {
+        STATUS_ORDERED: 'Bellenen',
+        STATUS_COMPLETED: 'Ýerine ýetirilen',
+        STATUS_CANCELLED: 'Ýatyrylan',
+    }
+
+    @property
+    def is_ordered(self) -> bool:
+        return self.status == self.STATUS_ORDERED
+
+    @property
+    def is_completed(self) -> bool:
+        return self.status == self.STATUS_COMPLETED
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self.status == self.STATUS_CANCELLED
+
+    @property
+    def status_display(self) -> str:
+        return self.STATUSES.get(self.status, self.status)
+
+    @property
+    def name_display(self) -> str:
+        return self._source.name
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.price:,.2f}'
+
+    @property
+    def total(self):
+        return self.price * (self.quantity or 1)
+
+    @property
+    def total_display(self) -> str:
+        return f'{self.total:,.2f}'
+
+
+class HospitalizationAnalysisOrder(InpatientOrderMixin, db.Model):
+    """A lab analysis ordered for a hospitalized patient.
+
+    `combined_analysis_id` remembers that the row came in as part of a panel:
+    a panel is expanded into its analyses at ordering, because that is what is
+    carried out and what is priced, but the doctor should still see what they
+    actually picked.
+    """
+    __tablename__ = 'hospitalization_analysis_orders'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    analysis_id = db.Column(db.Integer, db.ForeignKey('analyses.id'), nullable=False, index=True)
+    combined_analysis_id = db.Column(db.Integer, db.ForeignKey('combined_analyses.id'), nullable=True)
+
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    note = db.Column(db.String(500), nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default=InpatientOrderMixin.STATUS_ORDERED,
+                       index=True)
+    ordered_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    ordered_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    result = db.Column(db.Text, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    completed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    cancelled_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    cancel_reason = db.Column(db.String(500), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='analysis_orders')
+    analysis = db.relationship('Analysis')
+    combined_analysis = db.relationship('CombinedAnalysis')
+    ordered_by = db.relationship('User', foreign_keys=[ordered_by_id])
+    completed_by = db.relationship('User', foreign_keys=[completed_by_id])
+    cancelled_by = db.relationship('User', foreign_keys=[cancelled_by_id])
+
+    @property
+    def _source(self):
+        return self.analysis
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationAnalysisOrder h={self.hospitalization_id} a={self.analysis_id}>'
+
+
+class HospitalizationToolOrder(InpatientOrderMixin, db.Model):
+    """An instrumental study (ultrasound, x-ray, …) ordered for a lying patient.
+
+    `price` is the catalogue's `total_price` for one study and `quantity` counts
+    the studies — so one study costs exactly what the price list says. The
+    catalogue's own `quantity` is left out of the snapshot on purpose: it
+    describes the packaging of the service, not how many were ordered.
+    """
+    __tablename__ = 'hospitalization_tool_orders'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    tool_id = db.Column(db.Integer, db.ForeignKey('analysis_tools.id'), nullable=False, index=True)
+
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    note = db.Column(db.String(500), nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default=InpatientOrderMixin.STATUS_ORDERED,
+                       index=True)
+    ordered_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    ordered_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    result = db.Column(db.Text, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    completed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    cancelled_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    cancel_reason = db.Column(db.String(500), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='tool_orders')
+    tool = db.relationship('AnalysisTool')
+    ordered_by = db.relationship('User', foreign_keys=[ordered_by_id])
+    completed_by = db.relationship('User', foreign_keys=[completed_by_id])
+    cancelled_by = db.relationship('User', foreign_keys=[cancelled_by_id])
+
+    @property
+    def _source(self):
+        return self.tool
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationToolOrder h={self.hospitalization_id} t={self.tool_id}>'
+
+
+class HospitalizationBlankOrder(InpatientOrderMixin, db.Model):
+    """A blank (form) issued for a lying patient. Same lifecycle as an analysis
+    order — `result` here holds a note about the issue, since a blank has no
+    finding of its own."""
+    __tablename__ = 'hospitalization_blank_orders'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    blank_id = db.Column(db.Integer, db.ForeignKey('blanks.id'), nullable=False, index=True)
+
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    note = db.Column(db.String(500), nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default=InpatientOrderMixin.STATUS_ORDERED,
+                       index=True)
+    ordered_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    ordered_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    result = db.Column(db.Text, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    completed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    cancelled_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    cancel_reason = db.Column(db.String(500), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='blank_orders')
+    blank = db.relationship('Blank')
+    ordered_by = db.relationship('User', foreign_keys=[ordered_by_id])
+    completed_by = db.relationship('User', foreign_keys=[completed_by_id])
+    cancelled_by = db.relationship('User', foreign_keys=[cancelled_by_id])
+
+    @property
+    def _source(self):
+        return self.blank
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationBlankOrder h={self.hospitalization_id} b={self.blank_id}>'
+
+
+class HospitalizationConsultation(InpatientOrderMixin, db.Model):
+    """A specialist called in to see a lying patient.
+
+    The service comes from the same `DoctorDirection` catalogue the outpatient
+    section uses (so it has a price), plus the particular doctor who is asked to
+    come. The conclusion is entered by the attending doctor or the head of the
+    department — the consultant is not given access to another department's
+    case history, they say what they found and the ward writes it down over
+    their name.
+    """
+    __tablename__ = 'hospitalization_consultations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    direction_id = db.Column(db.Integer, db.ForeignKey('doctor_directions.id'),
+                             nullable=False, index=True)
+    # the specialist asked for; kept even after the consultation happened
+    doctor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    reason = db.Column(db.String(500), nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default=InpatientOrderMixin.STATUS_ORDERED,
+                       index=True)
+    ordered_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    ordered_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+
+    conclusion = db.Column(db.Text, nullable=True)
+    # when the specialist actually saw the patient — not when the note was typed
+    performed_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    completed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    cancelled_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    cancel_reason = db.Column(db.String(500), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='consultations')
+    direction = db.relationship('DoctorDirection')
+    doctor = db.relationship('User', foreign_keys=[doctor_id])
+    ordered_by = db.relationship('User', foreign_keys=[ordered_by_id])
+    completed_by = db.relationship('User', foreign_keys=[completed_by_id])
+    cancelled_by = db.relationship('User', foreign_keys=[cancelled_by_id])
+
+    @property
+    def _source(self):
+        return self.direction
+
+    @property
+    def quantity(self) -> int:
+        """A consultation is one visit — the mixin's totals expect a count."""
+        return 1
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationConsultation h={self.hospitalization_id} d={self.direction_id}>'

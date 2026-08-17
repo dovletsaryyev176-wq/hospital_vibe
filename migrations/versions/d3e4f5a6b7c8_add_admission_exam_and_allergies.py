@@ -83,13 +83,8 @@ def upgrade():
 
 
 def downgrade():
-    with op.batch_alter_table('hospitalization_admission_exams', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_hospitalization_admission_exams_author_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_admission_exams_hospitalization_id'))
     op.drop_table('hospitalization_admission_exams')
 
-    with op.batch_alter_table('patient_allergies', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_patient_allergies_patient_id'))
     op.drop_table('patient_allergies')
 
     with op.batch_alter_table('patients', schema=None) as batch_op:

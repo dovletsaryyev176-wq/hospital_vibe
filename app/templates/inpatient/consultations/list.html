@@ -1,0 +1,198 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Konsultasiýalar{% endblock %}
+{% block page_title %}Konsultasiýalar{% endblock %}
+
+{% macro money(record) %}
+  <div class="font-monospace">{{ record.price_display }}</div>
+  {% if record.is_insurance %}
+    <span class="badge bg-info-subtle text-info" style="font-size:.6rem">ätiýaç.</span>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+
+{% include 'inpatient/_patient_header.html' %}
+
+<div class="d-flex flex-wrap gap-2 mb-3">
+  {% if may_manage %}
+  <a href="{{ url_for('inpatient.consultations_add', hospitalization_id=hospitalization.id) }}"
+     class="btn btn-primary btn-sm">
+    <i class="bi bi-plus-lg me-1"></i>Konsultasiýa bellemek
+  </a>
+  {% endif %}
+  <a href="{{ url_for('inpatient.orders', hospitalization_id=hospitalization.id) }}"
+     class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-clipboard2-pulse me-1"></i>Barlaglar
+    {% if hospitalization.pending_examination_orders %}
+      <span class="badge bg-warning text-dark ms-1">{{ hospitalization.pending_examination_orders | length }}</span>
+    {% endif %}
+  </a>
+</div>
+
+<!-- Awaiting the specialist -->
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-hourglass-split me-2 text-warning"></i>Garaşylýanlar
+    </h6>
+    <span class="badge bg-secondary-subtle text-secondary ms-2">{{ pending | length }}</span>
+  </div>
+
+  {% if pending %}
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Ugur</th>
+          <th style="width:180px">Lukman</th>
+          <th style="width:150px">Bellenen wagty</th>
+          <th class="text-end" style="width:110px">Bahasy</th>
+          {% if may_manage %}<th class="pe-4" style="width:180px">Amallar</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for record in pending %}
+        <tr>
+          <td class="ps-4">
+            <div class="fw-medium">{{ record.direction.name }}</div>
+            {% if record.reason %}
+              <div class="text-muted small">{{ record.reason }}</div>
+            {% endif %}
+          </td>
+          <td>
+            <div class="fw-medium small">{{ record.doctor.full_name }}</div>
+            {% if record.doctor.cabinet %}
+              <div class="text-muted small">Otag: {{ record.doctor.cabinet }}</div>
+            {% endif %}
+          </td>
+          <td class="small text-nowrap">
+            {{ record.ordered_at.strftime('%d.%m.%Y %H:%M') }}
+            <div class="text-muted">{{ record.ordered_by.full_name }}</div>
+          </td>
+          <td class="text-end text-nowrap">{{ money(record) }}</td>
+          {% if may_manage %}
+          <td class="pe-4">
+            <div class="d-flex gap-1">
+              <a href="{{ url_for('inpatient.consultations_conclusion', consultation_id=record.id) }}"
+                 class="btn btn-sm btn-outline-primary text-nowrap">
+                <i class="bi bi-pencil me-1"></i>Netije
+              </a>
+              <a href="{{ url_for('inpatient.consultations_cancel', consultation_id=record.id) }}"
+                 class="btn btn-sm btn-outline-danger" title="Ýatyrmak">
+                <i class="bi bi-x-circle"></i>
+              </a>
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-4">
+    <i class="bi bi-check2-circle opacity-25" style="font-size:2rem"></i>
+    <div class="mt-2 small">Garaşylýan konsultasiýa ýok.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Conclusions -->
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-person-badge me-2 text-success"></i>Geçirilen konsultasiýalar
+    </h6>
+    <span class="badge bg-secondary-subtle text-secondary ms-2">{{ completed | length }}</span>
+  </div>
+
+  {% if completed %}
+  <div class="list-group list-group-flush">
+    {% for record in completed %}
+    <div class="list-group-item px-4 py-3">
+      <div class="d-flex flex-wrap align-items-start gap-2 mb-2">
+        <div>
+          <div class="fw-semibold">{{ record.direction.name }}</div>
+          <div class="text-muted small">
+            {{ record.doctor.full_name }} ·
+            {{ record.performed_at.strftime('%d.%m.%Y %H:%M') if record.performed_at else '—' }}
+          </div>
+        </div>
+        <div class="ms-auto text-end">{{ money(record) }}</div>
+      </div>
+
+      {% if record.reason %}
+        <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Sebäbi</div>
+        <div class="small mb-2">{{ record.reason }}</div>
+      {% endif %}
+
+      {% if record.conclusion %}
+        <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Netije</div>
+        <div class="small" style="white-space:pre-wrap">{{ record.conclusion }}</div>
+      {% endif %}
+
+      <div class="text-muted small mt-2">
+        Ýazan: {{ record.completed_by.full_name if record.completed_by else '—' }}
+        {% if record.completed_at %} · {{ record.completed_at.strftime('%d.%m.%Y %H:%M') }}{% endif %}
+      </div>
+
+      {% if may_manage %}
+        <a href="{{ url_for('inpatient.consultations_conclusion', consultation_id=record.id) }}"
+           class="btn btn-sm btn-outline-secondary mt-2">
+          <i class="bi bi-pencil me-1"></i>Üýtgetmek
+        </a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-4">
+    <i class="bi bi-person opacity-25" style="font-size:2rem"></i>
+    <div class="mt-2 small">Heniz konsultasiýa geçirilmedi.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Cancelled -->
+{% if cancelled %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white border-bottom py-3 px-4">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-x-circle me-2 text-muted"></i>Ýatyrylanlar
+    </h6>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Ugur</th>
+          <th style="width:180px">Lukman</th>
+          <th style="width:150px">Ýatyrylan wagty</th>
+          <th class="pe-4">Sebäbi</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for record in cancelled %}
+        <tr class="text-muted">
+          <td class="ps-4 text-decoration-line-through">{{ record.direction.name }}</td>
+          <td class="small">{{ record.doctor.full_name }}</td>
+          <td class="small text-nowrap">
+            {{ record.cancelled_at.strftime('%d.%m.%Y %H:%M') if record.cancelled_at else '—' }}
+          </td>
+          <td class="small pe-4">{{ record.cancel_reason or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="alert alert-light border py-2 px-3 small mt-3">
+  <i class="bi bi-info-circle me-1 text-muted"></i>
+  Konsultantyň netijesini bejeriji lukman ýa-da bölüm müdiri ýazýar — konsultanta
+  başga bölümiň kesel taryhyna giriş berilmeýär.
+</div>
+
+{% endblock %}

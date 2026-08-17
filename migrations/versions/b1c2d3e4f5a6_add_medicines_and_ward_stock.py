@@ -145,29 +145,12 @@ def upgrade():
 
 
 def downgrade():
-    with op.batch_alter_table('medicine_stock_movements', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_medicine_stock_movements_dispense_id'))
-        batch_op.drop_index(batch_op.f('ix_medicine_stock_movements_medicine_id'))
-        batch_op.drop_index(batch_op.f('ix_medicine_stock_movements_department_id'))
     op.drop_table('medicine_stock_movements')
 
-    with op.batch_alter_table('hospitalization_medication_dispenses', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_hospitalization_medication_dispenses_department_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_medication_dispenses_medicine_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_medication_dispenses_hospitalization_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_medication_dispenses_order_id'))
     op.drop_table('hospitalization_medication_dispenses')
 
-    with op.batch_alter_table('hospitalization_medication_orders', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_hospitalization_medication_orders_status'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_medication_orders_doctor_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_medication_orders_medicine_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_medication_orders_hospitalization_id'))
     op.drop_table('hospitalization_medication_orders')
 
-    with op.batch_alter_table('department_medicine_stocks', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_department_medicine_stocks_medicine_id'))
-        batch_op.drop_index(batch_op.f('ix_department_medicine_stocks_department_id'))
     op.drop_table('department_medicine_stocks')
 
     op.drop_table('medicines')

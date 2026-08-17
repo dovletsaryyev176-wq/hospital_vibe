@@ -55,7 +55,4 @@ def downgrade():
         batch_op.drop_column('doctor_assigned_at')
         batch_op.drop_column('doctor_id')
 
-    with op.batch_alter_table('hospitalization_doctor_assignments', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_hospitalization_doctor_assignments_doctor_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_doctor_assignments_hospitalization_id'))
     op.drop_table('hospitalization_doctor_assignments')

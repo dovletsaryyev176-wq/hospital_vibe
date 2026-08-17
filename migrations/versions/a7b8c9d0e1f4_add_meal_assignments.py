@@ -42,7 +42,4 @@ def upgrade():
 
 
 def downgrade():
-    with op.batch_alter_table('hospitalization_meal_assignments', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_hospitalization_meal_assignments_meal_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_meal_assignments_hospitalization_id'))
     op.drop_table('hospitalization_meal_assignments')

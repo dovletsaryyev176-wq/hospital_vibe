@@ -1,0 +1,196 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Barlag bellemek{% endblock %}
+{% block page_title %}Barlag bellemek{% endblock %}
+
+{% macro picker(kind, rows, qty_label) %}
+<div class="table-responsive" style="max-height:420px;overflow-y:auto">
+  <table class="table table-hover align-middle mb-0">
+    <thead class="position-sticky top-0">
+      <tr>
+        <th class="ps-4" style="width:44px"></th>
+        <th>Ady</th>
+        <th class="text-center" style="width:100px">{{ qty_label }}</th>
+        <th class="text-end pe-4" style="width:140px">Bahasy</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td class="ps-4">
+          <input type="checkbox" class="form-check-input item-cb"
+                 name="{{ kind }}_ids" value="{{ row.id }}"
+                 data-kind="{{ kind }}" data-item-id="{{ row.id }}">
+        </td>
+        <td>
+          <div class="fw-medium">{{ row.name }}</div>
+          {% if kind == 'barlag' and row.category %}
+            <div class="text-muted small">
+              {{ row.category.name }}{% if row.subcategory %} / {{ row.subcategory.name }}{% endif %}
+            </div>
+          {% endif %}
+          {% if kind == 'analiz' and row.responsible %}
+            <div class="text-muted small">Jogapkär: {{ row.responsible.full_name }}</div>
+          {% endif %}
+        </td>
+        <td class="text-center">
+          <input type="number" name="{{ kind }}_qty_{{ row.id }}"
+                 class="form-control form-control-sm qty-input"
+                 data-kind="{{ kind }}" data-item-id="{{ row.id }}"
+                 value="1" min="1" style="width:70px;text-align:center;margin:0 auto" disabled>
+        </td>
+        <td class="text-end pe-4 font-monospace small">
+          {{ row.price_display if kind == 'analiz' else row.total_price_display }}
+          {% if row.is_insurance %}
+            <span class="badge bg-info-subtle text-info ms-1" style="font-size:.6rem">ätiýaç.</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
+{% block content %}
+
+{% include 'inpatient/_patient_header.html' %}
+
+<form method="POST" novalidate>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="alert alert-light border py-2 px-3 small">
+    <i class="bi bi-info-circle me-1 text-muted"></i>
+    Bu ýerde bellenen barlaglar diňe ýatymlaýyn bölüme degişli — ambulatoriýanyň
+    barlaglary bilen baglanyşdyrylmaýar. Bahalar bellenen wagtynda ýazylyp galýar.
+  </div>
+
+  <!-- Panels -->
+  {% if combined %}
+  <div class="card border-0 shadow-sm rounded-3 mb-3">
+    <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+      <h6 class="mb-0 fw-semibold">
+        <i class="bi bi-collection me-2 text-primary"></i>Toplumlar
+      </h6>
+      <span class="text-muted small ms-auto">saýlanan toplumyň analizleri aýry setirler bolup ýazylýar</span>
+    </div>
+    <div class="card-body px-4">
+      <div class="row g-2">
+        {% for entry in combined %}
+        <div class="col-md-6">
+          <label class="border rounded-2 px-3 py-2 d-flex gap-2 h-100">
+            <input type="checkbox" class="form-check-input mt-1 flex-shrink-0"
+                   name="combined_ids" value="{{ entry.panel.id }}">
+            <span>
+              <span class="fw-medium">{{ entry.panel.name }}</span>
+              <span class="text-muted small d-block">
+                {{ entry.analyses | map(attribute='name') | join(', ') }}
+              </span>
+              <span class="font-monospace small">{{ '%.2f' | format(entry.total) }} manat</span>
+            </span>
+          </label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Analyses -->
+  <div class="card border-0 shadow-sm rounded-3 mb-3">
+    <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+      <h6 class="mb-0 fw-semibold">
+        <i class="bi bi-droplet me-2 text-primary"></i>Analizler
+      </h6>
+      <span class="badge bg-secondary-subtle text-secondary ms-2">{{ catalogues['analiz'] | length }}</span>
+    </div>
+    {% if catalogues['analiz'] %}
+      {{ picker('analiz', catalogues['analiz'], 'Sany') }}
+    {% else %}
+      <div class="card-body text-muted small">Aktiw analiz tapylmady.</div>
+    {% endif %}
+  </div>
+
+  <!-- Instrumental studies -->
+  <div class="card border-0 shadow-sm rounded-3 mb-3">
+    <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+      <h6 class="mb-0 fw-semibold">
+        <i class="bi bi-activity me-2 text-warning"></i>Instrumental barlaglar
+      </h6>
+      <span class="badge bg-secondary-subtle text-secondary ms-2">{{ catalogues['barlag'] | length }}</span>
+    </div>
+    {% if catalogues['barlag'] %}
+      {{ picker('barlag', catalogues['barlag'], 'Sany') }}
+    {% else %}
+      <div class="card-body text-muted small">Aktiw instrumental barlag tapylmady.</div>
+    {% endif %}
+  </div>
+
+  <!-- Blanks -->
+  <div class="card border-0 shadow-sm rounded-3 mb-3">
+    <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+      <h6 class="mb-0 fw-semibold">
+        <i class="bi bi-file-earmark me-2 text-secondary"></i>Blanklar
+      </h6>
+      <span class="badge bg-secondary-subtle text-secondary ms-2">{{ catalogues['blank'] | length }}</span>
+      <span class="text-muted small ms-auto">mejbury däl</span>
+    </div>
+    {% if catalogues['blank'] %}
+      {{ picker('blank', catalogues['blank'], 'Sany') }}
+    {% else %}
+      <div class="card-body text-muted small">Aktiw blank tapylmady.</div>
+    {% endif %}
+  </div>
+
+  <div class="card border-0 shadow-sm rounded-3">
+    <div class="card-body px-4 py-4">
+      <label for="note" class="form-label fw-medium">Bellik (ähli bellenen barlaglara)</label>
+      <input type="text" class="form-control" id="note" name="note" maxlength="500"
+             placeholder="Mysal: ertir açgarna">
+
+      <hr class="my-4">
+      <div class="d-flex flex-wrap justify-content-end align-items-center gap-2">
+        <span class="text-muted small me-auto">
+          Saýlanan: <span id="selected-count" class="fw-semibold">0</span>
+        </span>
+        <a href="{{ back }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-check-lg me-1"></i>Bellemek
+        </button>
+      </div>
+    </div>
+  </div>
+</form>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // A quantity box only means something for a ticked row, and the count in the
+  // footer is the only feedback that a long list has been ticked at all.
+  const boxes = Array.from(document.querySelectorAll('.item-cb'));
+  const counter = document.getElementById('selected-count');
+
+  function qtyFor(cb) {
+    return document.querySelector(
+      `.qty-input[data-kind="${cb.dataset.kind}"][data-item-id="${cb.dataset.itemId}"]`);
+  }
+
+  function refresh() {
+    counter.textContent = boxes.filter(cb => cb.checked).length;
+  }
+
+  boxes.forEach(cb => {
+    cb.addEventListener('change', function () {
+      const qty = qtyFor(cb);
+      if (qty) {
+        qty.disabled = !cb.checked;
+        if (cb.checked && !qty.value) { qty.value = 1; }
+      }
+      refresh();
+    });
+  });
+
+  refresh();
+</script>
+{% endblock %}

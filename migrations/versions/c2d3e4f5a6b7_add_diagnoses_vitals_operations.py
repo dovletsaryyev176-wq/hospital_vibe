@@ -141,25 +141,12 @@ def upgrade():
 def downgrade():
     op.drop_table('hospitalization_operation_assistants')
 
-    with op.batch_alter_table('hospitalization_operations', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_hospitalization_operations_status'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_operations_surgeon_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_operations_operation_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_operations_hospitalization_id'))
     op.drop_table('hospitalization_operations')
 
     op.drop_table('operations')
 
-    with op.batch_alter_table('hospitalization_vital_records', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_hospitalization_vital_records_recorded_by_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_vital_records_measured_at'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_vital_records_hospitalization_id'))
     op.drop_table('hospitalization_vital_records')
 
-    with op.batch_alter_table('hospitalization_diagnoses', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_hospitalization_diagnoses_author_id'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_diagnoses_kind'))
-        batch_op.drop_index(batch_op.f('ix_hospitalization_diagnoses_hospitalization_id'))
     op.drop_table('hospitalization_diagnoses')
 
     with op.batch_alter_table('hospitalizations', schema=None) as batch_op:

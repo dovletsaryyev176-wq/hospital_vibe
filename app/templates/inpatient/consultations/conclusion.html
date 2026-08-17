@@ -1,0 +1,79 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Konsultasiýanyň netijesi{% endblock %}
+{% block page_title %}Konsultasiýanyň netijesi{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    {% include 'inpatient/_patient_header.html' %}
+
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center gap-2">
+        <a href="{{ back }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-person-badge me-2 text-primary"></i>{{ record.direction.name }}
+        </h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        <div class="row g-3 mb-4">
+          <div class="col-sm-4">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Konsultant</div>
+            <div class="fw-medium">{{ record.doctor.full_name }}</div>
+            {% if record.doctor.cabinet %}
+              <div class="text-muted small">Otag: {{ record.doctor.cabinet }}</div>
+            {% endif %}
+          </div>
+          <div class="col-sm-4">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Bellenen wagty</div>
+            <div class="fw-medium">{{ record.ordered_at.strftime('%d.%m.%Y %H:%M') }}</div>
+            <div class="text-muted small">{{ record.ordered_by.full_name }}</div>
+          </div>
+          <div class="col-sm-4">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Bahasy</div>
+            <div class="fw-medium font-monospace">{{ record.price_display }}</div>
+          </div>
+          {% if record.reason %}
+          <div class="col-12">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Sebäbi</div>
+            <div class="small">{{ record.reason }}</div>
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="alert alert-light border py-2 px-3 small mb-4">
+          <i class="bi bi-info-circle me-1 text-muted"></i>
+          Netijäni konsultantyň sözünden ýazýarsyňyz — ýazan adam hökmünde siz
+          bellenilýärsiňiz.
+        </div>
+
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="mb-3">
+            {{ form.performed_at.label(class='form-label fw-medium') }}
+            {{ form.performed_at(class='form-control' + (' is-invalid' if form.performed_at.errors else '')) }}
+            {% for e in form.performed_at.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div>
+            {{ form.conclusion.label(class='form-label fw-medium') }}
+            {{ form.conclusion(class='form-control' + (' is-invalid' if form.conclusion.errors else '')) }}
+            {% for e in form.conclusion.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ back }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

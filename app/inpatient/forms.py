@@ -676,3 +676,107 @@ class AllergyRemoveForm(FlaskForm):
         render_kw={'placeholder': 'Mysal: ýalňyş girizilen, tassyklanmady'},
     )
     submit = SubmitField('Aýyrmak')
+
+
+class OrderResultForm(FlaskForm):
+    """Writing down what an ordered analysis or study came back with.
+
+    The result is text rather than a set of numbered fields on purpose: the
+    catalogue holds hundreds of analyses with different reference ranges, and a
+    doctor reading a case history reads sentences. The nurse who carried the
+    tube is not the author here — whoever writes the result signs it.
+    """
+
+    result = TextAreaField(
+        'Netije',
+        validators=[
+            DataRequired(message='Netijesini ýazyň'),
+            Length(max=8000, message='8000 simwoldan geçmeli däl'),
+        ],
+        render_kw={'rows': 6, 'placeholder': 'Barlagyň netijesi'},
+    )
+    completed_at = DateTimeLocalField(
+        'Ýerine ýetirilen wagty',
+        validators=[Optional()],
+        format='%Y-%m-%dT%H:%M',
+    )
+    submit = SubmitField('Ýatda saklamak')
+
+    def validate_completed_at(self, field):
+        if field.data and field.data > datetime.now():
+            raise ValidationError('Geljekki wagt görkezilip bilinmeýär.')
+
+
+class OrderCancelForm(FlaskForm):
+    """Calling off an order that was never carried out. A reason is required —
+    an order that silently disappears is indistinguishable from one nobody
+    got round to."""
+
+    reason = StringField(
+        'Ýatyrmagyň sebäbi',
+        validators=[
+            DataRequired(message='Sebäbini ýazyň'),
+            Length(max=500, message='500 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Mysal: ýalňyş bellenen, gerek däl'},
+    )
+    submit = SubmitField('Ýatyrmak')
+
+
+class ConsultationForm(FlaskForm):
+    """Calling in a specialist. The service comes from the shared ugur
+    catalogue, the doctor from those who have that ugur assigned to them."""
+
+    direction_id = SelectField(
+        'Ugur',
+        coerce=int,
+        validators=[DataRequired(message='Ugry saýlaň')],
+    )
+    doctor_id = SelectField(
+        'Lukman',
+        coerce=int,
+        validators=[DataRequired(message='Lukmany saýlaň')],
+    )
+    reason = TextAreaField(
+        'Konsultasiýanyň sebäbi',
+        validators=[Optional(), Length(max=500, message='500 simwoldan geçmeli däl')],
+        render_kw={'rows': 2, 'placeholder': 'Näme üçin çagyrylýar'},
+    )
+    submit = SubmitField('Bellemek')
+
+    def __init__(self, *args, directions=None, doctors=None, allowed=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.direction_id.choices = [(d.id, f'{d.name} — {d.price_display} manat')
+                                     for d in (directions or [])]
+        self.doctor_id.choices = [(d.id, d.full_name) for d in (doctors or [])]
+        # {direction_id: {doctor_id}} — which doctor may take which ugur is
+        # decided in the admin section; the form only accepts pairs from there,
+        # and the same map narrows the dropdown in the browser.
+        self._allowed = allowed or {}
+
+    def validate_doctor_id(self, field):
+        if self.direction_id.data and field.data not in self._allowed.get(self.direction_id.data, set()):
+            raise ValidationError('Bu ugur boýunça saýlanan lukman bellenmedik.')
+
+
+class ConsultationConclusionForm(FlaskForm):
+    """The specialist's finding, entered by the attending doctor or the head."""
+
+    conclusion = TextAreaField(
+        'Konsultantyň netijesi',
+        validators=[
+            DataRequired(message='Netijesini ýazyň'),
+            Length(max=8000, message='8000 simwoldan geçmeli däl'),
+        ],
+        render_kw={'rows': 6, 'placeholder': 'Konsultantyň gözden geçirmesi we maslahaty'},
+    )
+    performed_at = DateTimeLocalField(
+        'Konsultasiýanyň wagty',
+        validators=[Optional()],
+        format='%Y-%m-%dT%H:%M',
+    )
+    submit = SubmitField('Ýatda saklamak')
+
+    def validate_performed_at(self, field):
+        if field.data and field.data > datetime.now():
+            raise ValidationError('Geljekki wagt görkezilip bilinmeýär.')

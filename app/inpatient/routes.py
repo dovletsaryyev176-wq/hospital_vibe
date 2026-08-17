@@ -12,6 +12,8 @@ from app.inpatient.forms import (HospitalizationForm, BedAssignmentForm,
                                  DiagnosisForm, DischargeForm, VitalRecordForm,
                                  OperationForm, OperationCancelForm,
                                  AdmissionExamForm, AllergyForm, AllergyRemoveForm,
+                                 OrderResultForm, OrderCancelForm,
+                                 ConsultationForm, ConsultationConclusionForm,
                                  valid_phone)
 from app.extensions import db
 from app.models import (Room, Bed, Meal, Patient, User, Hospitalization, HospitalizationRelative,
@@ -22,6 +24,9 @@ from app.models import (Room, Bed, Meal, Patient, User, Hospitalization, Hospita
                         HospitalizationDiagnosis, HospitalizationVitalRecord,
                         Operation, HospitalizationOperation,
                         HospitalizationAdmissionExam, PatientAllergy,
+                        Analysis, CombinedAnalysis, AnalysisTool, Blank, DoctorDirection,
+                        HospitalizationAnalysisOrder, HospitalizationToolOrder,
+                        HospitalizationBlankOrder, HospitalizationConsultation,
                         format_quantity, user_departments, meal_departments)
 
 
@@ -2197,6 +2202,561 @@ def allergies_remove(allergy_id):
         'inpatient/admission/allergy_remove.html',
         form=form,
         allergy=allergy,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        back=back,
+    )
+
+
+# ── Examination orders: analyses, studies, blanks ─────────────────────────────
+
+# The catalogues are shared with the outpatient section, the orders are not:
+# nothing here is attached to an Examination and nothing goes through the
+# cashier. Ordering is the doctor's word, like the diary and the drug orders.
+ORDER_WRITER_ROLES = ('doctor', 'department_head')
+
+# The three order tables have the same shape, so one set of routes serves all
+# three; `kind` in the URL picks the table. Keeping them apart in the database
+# (and together in the routes) mirrors how the outpatient side stores its own
+# analysis / tool / blank lines.
+ORDER_KINDS = {
+    'analiz': {
+        'model': HospitalizationAnalysisOrder,
+        'catalogue': Analysis,
+        'label': 'Analiz',
+        'relation': 'analysis_orders',
+        'fk': 'analysis_id',
+    },
+    'barlag': {
+        'model': HospitalizationToolOrder,
+        'catalogue': AnalysisTool,
+        'label': 'Instrumental barlag',
+        'relation': 'tool_orders',
+        'fk': 'tool_id',
+    },
+    'blank': {
+        'model': HospitalizationBlankOrder,
+        'catalogue': Blank,
+        'label': 'Blank',
+        'relation': 'blank_orders',
+        'fk': 'blank_id',
+    },
+}
+
+
+def can_order_examinations(hospitalization) -> bool:
+    """Doctors and the head of that department order; everyone else reads."""
+    return (current_user.role in ORDER_WRITER_ROLES
+            and hospitalization.department_id in set(user_department_ids())
+            and hospitalization.is_open)
+
+
+def can_record_order_result(hospitalization) -> bool:
+    """Results are written by the ward itself — the lab has no access here, so
+    whoever types the finding signs it."""
+    return can_order_examinations(hospitalization)
+
+
+def _order_kind(kind):
+    spec = ORDER_KINDS.get(kind)
+    if spec is None:
+        abort(404)
+    return spec
+
+
+def _load_order(kind, order_id):
+    """An order plus the stay it belongs to, both checked against the viewer's
+    departments. Returns (spec, record, hospitalization) or aborts/None."""
+    spec = _order_kind(kind)
+    record = db.session.get(spec['model'], order_id)
+    if record is None:
+        abort(404)
+    hospitalization = _load_visible_hospitalization(record.hospitalization_id)
+    return spec, record, hospitalization
+
+
+def order_catalogue(kind):
+    """Active catalogue rows of one kind, in the order a doctor scans them."""
+    model = ORDER_KINDS[kind]['catalogue']
+    query = model.query.filter_by(is_active=True)
+    if kind == 'analiz':
+        query = query.options(joinedload(Analysis.responsible))
+    elif kind == 'barlag':
+        query = query.options(joinedload(AnalysisTool.category),
+                              joinedload(AnalysisTool.subcategory))
+    return query.order_by(model.name).all()
+
+
+def active_combined_analyses():
+    """Ready-made panels, each with the analyses that would actually be ordered.
+
+    Ordering a panel writes its analyses as separate rows — what is carried out
+    and priced is the analysis, not the panel. A blocked analysis is left out of
+    both the list and the sum, so the doctor is not shown a line that will
+    quietly not happen; a panel with nothing active left is not offered at all.
+    """
+    panels = []
+    rows = (
+        CombinedAnalysis.query
+        .filter_by(is_active=True)
+        .options(subqueryload(CombinedAnalysis.analyses))
+        .order_by(CombinedAnalysis.name)
+        .all()
+    )
+    for panel in rows:
+        analyses = [a for a in panel.analyses if a.is_active]
+        if analyses:
+            panels.append({
+                'panel': panel,
+                'analyses': analyses,
+                'total': sum(a.price for a in analyses),
+            })
+    return panels
+
+
+def _order_price(kind, row):
+    """What one unit of a catalogue row costs. Tools and blanks keep their price
+    in `total_price`; that is the price of one study, and the count is the
+    order's own quantity."""
+    return row.price if kind == 'analiz' else row.total_price
+
+
+@inpatient_bp.route('/barlaglar/<int:hospitalization_id>')
+@inpatient_main_required
+def orders(hospitalization_id):
+    """Everything ordered for this stay — outstanding first, then what came
+    back, then what was called off."""
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    # (kind, record) pairs — the page needs the kind to build links back into
+    # the right table, and the three tables are shown as one worklist
+    rows = []
+    for kind, spec in ORDER_KINDS.items():
+        rows += [(kind, row) for row in getattr(hospitalization, spec['relation'])]
+    rows.sort(key=lambda pair: pair[1].ordered_at, reverse=True)
+
+    return render_template(
+        'inpatient/orders/list.html',
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        pending=[pair for pair in rows if pair[1].is_ordered],
+        completed=[pair for pair in rows if pair[1].is_completed],
+        cancelled=[pair for pair in rows if pair[1].is_cancelled],
+        may_order=can_order_examinations(hospitalization),
+        may_record=can_record_order_result(hospitalization),
+    )
+
+
+@inpatient_bp.route('/barlaglar/<int:hospitalization_id>/goshmak', methods=['GET', 'POST'])
+@inpatient_required(*ORDER_WRITER_ROLES)
+def orders_add(hospitalization_id):
+    """One page for all three catalogues: tick what is needed, set how many.
+
+    Every submitted id is re-checked against the active catalogue — a page left
+    open while an item was blocked must produce a message, not a crash.
+    """
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.orders', hospitalization_id=hospitalization.id)
+
+    if not hospitalization.is_open:
+        flash('Syrkaw çykarylan — barlag bellemek bolmaýar.', 'danger')
+        return redirect(back)
+
+    catalogues = {kind: order_catalogue(kind) for kind in ORDER_KINDS}
+    combined = active_combined_analyses()
+
+    if request.method == 'POST':
+        note = (request.form.get('note') or '').strip()[:500] or None
+        errors = []
+        created = 0
+
+        # A panel is expanded into its analyses; a panel whose analysis is also
+        # ticked separately must not produce the row twice, so the panel that
+        # brought an analysis in is remembered per analysis id.
+        panel_of = {}
+        combined_by_id = {entry['panel'].id: entry for entry in combined}
+        for cid in dict.fromkeys(request.form.getlist('combined_ids', type=int)):
+            entry = combined_by_id.get(cid)
+            if entry is None:
+                errors.append('Saýlanan toplumlaryň käbiri elýeterli däl.')
+                continue
+            for analysis in entry['analyses']:
+                panel_of.setdefault(analysis.id, cid)
+
+        for kind, spec in ORDER_KINDS.items():
+            by_id = {row.id: row for row in catalogues[kind]}
+            picked = dict.fromkeys(request.form.getlist(f'{kind}_ids', type=int))
+            if kind == 'analiz':
+                # analyses pulled in by a panel are ordered even if not ticked
+                picked = dict.fromkeys(list(picked) + [aid for aid in panel_of
+                                                       if aid not in picked])
+
+            for item_id in picked:
+                row = by_id.get(item_id)
+                if row is None:
+                    errors.append(f'Saýlanan «{spec["label"]}» elýeterli däl ýa-da bloklanan.')
+                    continue
+
+                quantity = max(1, request.form.get(f'{kind}_qty_{item_id}', 1, type=int))
+                order = spec['model'](
+                    hospitalization_id=hospitalization.id,
+                    quantity=quantity,
+                    # snapshotted at ordering, like every other priced row of a
+                    # stay — a later catalogue change must not rewrite this
+                    price=_order_price(kind, row),
+                    is_insurance=row.is_insurance,
+                    note=note,
+                    ordered_by_id=current_user.id,
+                    **{spec['fk']: row.id},
+                )
+                if kind == 'analiz' and item_id in panel_of:
+                    order.combined_analysis_id = panel_of[item_id]
+                db.session.add(order)
+                created += 1
+
+        if not created:
+            for message in dict.fromkeys(errors):
+                flash(message, 'danger')
+            if not errors:
+                flash('Iň bolmanda bir barlag saýlaň.', 'warning')
+            return redirect(url_for('inpatient.orders_add',
+                                    hospitalization_id=hospitalization.id))
+
+        db.session.commit()
+        for message in dict.fromkeys(errors):
+            flash(message, 'warning')
+        flash(f'{created} sany barlag bellenildi.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/orders/add.html',
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        catalogues=catalogues,
+        combined=combined,
+        kinds=ORDER_KINDS,
+        back=back,
+    )
+
+
+@inpatient_bp.route('/barlag/<kind>/<int:order_id>/netije', methods=['GET', 'POST'])
+@inpatient_required(*ORDER_WRITER_ROLES)
+def orders_result(kind, order_id):
+    """Writing down what came back. An order carries its result once; a
+    correction is an edit of the same row, since the finding is one fact."""
+    spec, record, hospitalization = _load_order(kind, order_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.orders', hospitalization_id=hospitalization.id)
+
+    if record.is_cancelled:
+        flash('Ýatyrylan barlaga netije ýazyp bolmaýar.', 'danger')
+        return redirect(back)
+
+    if not can_record_order_result(hospitalization):
+        flash('Siz bu barlaga netije ýazyp bilmeýärsiňiz.', 'danger')
+        return redirect(back)
+
+    form = OrderResultForm()
+
+    if request.method == 'GET':
+        form.result.data = record.result
+        form.completed_at.data = record.completed_at or datetime.now().replace(second=0, microsecond=0)
+
+    if form.validate_on_submit():
+        record.result = form.result.data.strip()
+        record.completed_at = form.completed_at.data or datetime.now()
+        record.completed_by_id = current_user.id
+        record.status = spec['model'].STATUS_COMPLETED
+        db.session.commit()
+        flash(f'«{record.name_display}» netijesi ýazyldy.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/orders/result.html',
+        form=form,
+        record=record,
+        kind=kind,
+        label=spec['label'],
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        back=back,
+    )
+
+
+@inpatient_bp.route('/barlag/<kind>/<int:order_id>/yatyrmak', methods=['GET', 'POST'])
+@inpatient_required(*ORDER_WRITER_ROLES)
+def orders_cancel(kind, order_id):
+    """Calling off an order nobody carried out yet."""
+    spec, record, hospitalization = _load_order(kind, order_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.orders', hospitalization_id=hospitalization.id)
+
+    # a result that is already on record is a fact, not a plan
+    if not record.is_ordered:
+        flash('Diňe ýerine ýetirilmedik barlagy ýatyryp bolýar.', 'danger')
+        return redirect(back)
+
+    if not can_order_examinations(hospitalization):
+        flash('Siz bu barlagy ýatyryp bilmeýärsiňiz.', 'danger')
+        return redirect(back)
+
+    form = OrderCancelForm()
+
+    if form.validate_on_submit():
+        record.status = spec['model'].STATUS_CANCELLED
+        record.cancelled_at = datetime.now()
+        record.cancelled_by_id = current_user.id
+        record.cancel_reason = form.reason.data.strip()
+        db.session.commit()
+        flash(f'«{record.name_display}» ýatyryldy.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/orders/cancel.html',
+        form=form,
+        record=record,
+        label=spec['label'],
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        back=back,
+    )
+
+
+# ── Consultations ─────────────────────────────────────────────────────────────
+
+# Who may call a specialist in and write down what they said. The consultant
+# themselves is not given access to another department's case history — see
+# HospitalizationConsultation.
+CONSULTATION_WRITER_ROLES = ORDER_WRITER_ROLES
+
+
+def can_manage_consultations(hospitalization) -> bool:
+    return (current_user.role in CONSULTATION_WRITER_ROLES
+            and hospitalization.department_id in set(user_department_ids())
+            and hospitalization.is_open)
+
+
+def consultation_choices():
+    """(directions, doctors, allowed) for the consultation form.
+
+    Only ugurlar that somebody can actually take are offered: which doctor
+    holds which ugur is set in the admin section, and an ugur with nobody
+    behind it would be a dead end in the form.
+    """
+    doctors = (
+        User.query
+        .filter(User.role.in_(('doctor', 'department_head')),
+                User.is_active == True)  # noqa: E712
+        .options(subqueryload(User.directions))
+        .order_by(User.full_name)
+        .all()
+    )
+
+    allowed = {}
+    for doctor in doctors:
+        for direction in doctor.directions:
+            if direction.is_active:
+                allowed.setdefault(direction.id, set()).add(doctor.id)
+
+    directions = (
+        DoctorDirection.query
+        .filter(DoctorDirection.is_active == True,  # noqa: E712
+                DoctorDirection.id.in_(allowed.keys() or [0]))
+        .order_by(DoctorDirection.name)
+        .all()
+    )
+    offered = {d.id for d in directions}
+    doctors = [d for d in doctors
+               if any(direction.id in offered for direction in d.directions)]
+    return directions, doctors, allowed
+
+
+@inpatient_bp.route('/konsultasiyalar/<int:hospitalization_id>')
+@inpatient_main_required
+def consultations(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    rows = (
+        HospitalizationConsultation.query
+        .options(joinedload(HospitalizationConsultation.direction),
+                 joinedload(HospitalizationConsultation.doctor),
+                 joinedload(HospitalizationConsultation.ordered_by),
+                 joinedload(HospitalizationConsultation.completed_by),
+                 joinedload(HospitalizationConsultation.cancelled_by))
+        .filter_by(hospitalization_id=hospitalization.id)
+        .order_by(HospitalizationConsultation.ordered_at.desc())
+        .all()
+    )
+
+    return render_template(
+        'inpatient/consultations/list.html',
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        pending=[c for c in rows if c.is_ordered],
+        completed=[c for c in rows if c.is_completed],
+        cancelled=[c for c in rows if c.is_cancelled],
+        may_manage=can_manage_consultations(hospitalization),
+    )
+
+
+@inpatient_bp.route('/konsultasiyalar/<int:hospitalization_id>/goshmak', methods=['GET', 'POST'])
+@inpatient_required(*CONSULTATION_WRITER_ROLES)
+def consultations_add(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.consultations', hospitalization_id=hospitalization.id)
+
+    if not hospitalization.is_open:
+        flash('Syrkaw çykarylan — konsultasiýa bellemek bolmaýar.', 'danger')
+        return redirect(back)
+
+    directions, doctors, allowed = consultation_choices()
+    if not directions:
+        flash('Ugurlara lukman bellenmedik. Dolandyryjy ilki ugurlary lukmanlara bellemeli.',
+              'warning')
+        return redirect(back)
+
+    form = ConsultationForm(directions=directions, doctors=doctors, allowed=allowed)
+
+    if form.validate_on_submit():
+        direction = next((d for d in directions if d.id == form.direction_id.data), None)
+        if direction is None:
+            flash('Saýlanan ugur elýeterli däl. Sahypany täzeläň.', 'danger')
+            return redirect(url_for('inpatient.consultations_add',
+                                    hospitalization_id=hospitalization.id))
+
+        record = HospitalizationConsultation(
+            hospitalization_id=hospitalization.id,
+            direction_id=direction.id,
+            doctor_id=form.doctor_id.data,
+            # snapshotted at ordering, like every other priced row of a stay
+            price=direction.price,
+            is_insurance=direction.is_insurance,
+            reason=(form.reason.data or '').strip() or None,
+            ordered_by_id=current_user.id,
+        )
+        db.session.add(record)
+        db.session.commit()
+        flash(f'«{direction.name}» konsultasiýasy bellenildi.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/consultations/form.html',
+        form=form,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        directions=directions,
+        doctors=doctors,
+        allowed={did: sorted(ids) for did, ids in allowed.items()},
+        back=back,
+    )
+
+
+@inpatient_bp.route('/konsultasiya/<int:consultation_id>/netije', methods=['GET', 'POST'])
+@inpatient_required(*CONSULTATION_WRITER_ROLES)
+def consultations_conclusion(consultation_id):
+    """The specialist's finding, written down by the ward over their name."""
+    record = db.session.get(HospitalizationConsultation, consultation_id)
+    if record is None:
+        abort(404)
+
+    hospitalization = _load_visible_hospitalization(record.hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.consultations', hospitalization_id=hospitalization.id)
+
+    if record.is_cancelled:
+        flash('Ýatyrylan konsultasiýa netije ýazyp bolmaýar.', 'danger')
+        return redirect(back)
+
+    if not can_manage_consultations(hospitalization):
+        flash('Siz bu konsultasiýa netije ýazyp bilmeýärsiňiz.', 'danger')
+        return redirect(back)
+
+    form = ConsultationConclusionForm()
+
+    if request.method == 'GET':
+        form.conclusion.data = record.conclusion
+        form.performed_at.data = record.performed_at or datetime.now().replace(second=0, microsecond=0)
+
+    if form.validate_on_submit():
+        record.conclusion = form.conclusion.data.strip()
+        record.performed_at = form.performed_at.data or datetime.now()
+        record.completed_at = datetime.now()
+        record.completed_by_id = current_user.id
+        record.status = HospitalizationConsultation.STATUS_COMPLETED
+        db.session.commit()
+        flash(f'«{record.direction.name}» konsultasiýasynyň netijesi ýazyldy.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/consultations/conclusion.html',
+        form=form,
+        record=record,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        back=back,
+    )
+
+
+@inpatient_bp.route('/konsultasiya/<int:consultation_id>/yatyrmak', methods=['GET', 'POST'])
+@inpatient_required(*CONSULTATION_WRITER_ROLES)
+def consultations_cancel(consultation_id):
+    record = db.session.get(HospitalizationConsultation, consultation_id)
+    if record is None:
+        abort(404)
+
+    hospitalization = _load_visible_hospitalization(record.hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.consultations', hospitalization_id=hospitalization.id)
+
+    if not record.is_ordered:
+        flash('Diňe geçirilmedik konsultasiýany ýatyryp bolýar.', 'danger')
+        return redirect(back)
+
+    if not can_manage_consultations(hospitalization):
+        flash('Siz bu konsultasiýany ýatyryp bilmeýärsiňiz.', 'danger')
+        return redirect(back)
+
+    form = OrderCancelForm()
+
+    if form.validate_on_submit():
+        record.status = HospitalizationConsultation.STATUS_CANCELLED
+        record.cancelled_at = datetime.now()
+        record.cancelled_by_id = current_user.id
+        record.cancel_reason = form.reason.data.strip()
+        db.session.commit()
+        flash(f'«{record.direction.name}» konsultasiýasy ýatyryldy.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/consultations/cancel.html',
+        form=form,
+        record=record,
         hospitalization=hospitalization,
         patient=hospitalization.patient,
         back=back,

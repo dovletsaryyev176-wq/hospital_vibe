@@ -177,6 +177,24 @@
                 <span class="badge bg-dark text-white ms-1">{{ current.diagnoses | length }}</span>
               {% endif %}
             </a>
+            <a href="{{ url_for('inpatient.orders', hospitalization_id=current.id) }}"
+               class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-clipboard2-pulse me-1"></i>Barlaglar
+              {% if current.pending_examination_orders %}
+                <span class="badge bg-warning text-dark ms-1">{{ current.pending_examination_orders | length }}</span>
+              {% elif current.examination_orders %}
+                <span class="badge bg-primary text-white ms-1">{{ current.examination_orders | length }}</span>
+              {% endif %}
+            </a>
+            <a href="{{ url_for('inpatient.consultations', hospitalization_id=current.id) }}"
+               class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-person-badge me-1"></i>Konsultasiýalar
+              {% if current.pending_consultations %}
+                <span class="badge bg-warning text-dark ms-1">{{ current.pending_consultations | length }}</span>
+              {% elif current.consultations %}
+                <span class="badge bg-primary text-white ms-1">{{ current.consultations | length }}</span>
+              {% endif %}
+            </a>
             <a href="{{ url_for('inpatient.vitals', hospitalization_id=current.id) }}"
                class="btn btn-outline-danger btn-sm">
               <i class="bi bi-thermometer-half me-1"></i>Ölçegler

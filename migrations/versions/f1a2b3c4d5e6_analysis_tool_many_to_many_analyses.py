@@ -52,7 +52,10 @@ def downgrade():
         ')'
     )
 
-    op.alter_column('analysis_tools', 'analysis_id', nullable=False)
+    # MySQL rewrites the whole column definition on MODIFY, so it needs the type
+    # spelled out — without existing_type the downgrade cannot run at all.
+    op.alter_column('analysis_tools', 'analysis_id',
+                    existing_type=sa.Integer(), nullable=False)
 
     op.create_foreign_key(
         'analysis_tools_analysis_id_fkey',

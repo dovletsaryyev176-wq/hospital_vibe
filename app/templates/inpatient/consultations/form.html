@@ -1,0 +1,83 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Konsultasiýa bellemek{% endblock %}
+{% block page_title %}Konsultasiýa bellemek{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+
+    {% include 'inpatient/_patient_header.html' %}
+
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center gap-2">
+        <a href="{{ back }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-person-badge me-2 text-primary"></i>Hünärmeni çagyrmak
+        </h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="mb-3">
+            {{ form.direction_id.label(class='form-label fw-medium') }}
+            {{ form.direction_id(class='form-select' + (' is-invalid' if form.direction_id.errors else ''),
+                                 id='direction-select') }}
+            {% for e in form.direction_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div class="mb-3">
+            {{ form.doctor_id.label(class='form-label fw-medium') }}
+            {{ form.doctor_id(class='form-select' + (' is-invalid' if form.doctor_id.errors else ''),
+                              id='doctor-select') }}
+            {% for e in form.doctor_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            <div class="form-text">Diňe şu ugur bellenen lukmanlar görkezilýär.</div>
+          </div>
+
+          <div>
+            {{ form.reason.label(class='form-label fw-medium') }}
+            {{ form.reason(class='form-control' + (' is-invalid' if form.reason.errors else '')) }}
+            {% for e in form.reason.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ back }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Which doctor may take which ugur is set in the admin section; the dropdown
+  // shows only that pairing, and the server checks the same map again.
+  const allowed = {{ allowed | tojson }};
+  const directionSelect = document.getElementById('direction-select');
+  const doctorSelect = document.getElementById('doctor-select');
+  const allOptions = Array.from(doctorSelect.options).map(o => ({value: o.value, text: o.text}));
+
+  function narrowDoctors() {
+    const ids = (allowed[directionSelect.value] || []).map(String);
+    const previous = doctorSelect.value;
+    doctorSelect.innerHTML = '';
+    allOptions
+      .filter(o => ids.includes(o.value))
+      .forEach(o => doctorSelect.add(new Option(o.text, o.value, false, o.value === previous)));
+    if (!doctorSelect.options.length) {
+      doctorSelect.add(new Option('— Bu ugur boýunça lukman ýok —', ''));
+    }
+  }
+
+  directionSelect.addEventListener('change', narrowDoctors);
+  narrowDoctors();
+</script>
+{% endblock %}
