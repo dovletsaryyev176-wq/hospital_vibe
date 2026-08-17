@@ -1,0 +1,32 @@
+{# Patient strip shown on every page that belongs to one stay #}
+<a href="{{ url_for('inpatient.patients_detail', patient_id=patient.id) }}"
+   class="btn btn-sm btn-outline-secondary mb-3">
+  <i class="bi bi-arrow-left me-1"></i>Syrkawyň kartasy
+</a>
+
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body py-3 px-4 d-flex flex-wrap align-items-center gap-3">
+    <div>
+      <h6 class="mb-0 fw-semibold">{{ patient.full_name }}</h6>
+      <div class="text-muted small">
+        {{ patient.birth_year }} ý. ({{ patient.age }} ýaş) ·
+        {{ hospitalization.department.name }} ·
+        Kesel taryhy: {{ hospitalization.history_number }}
+      </div>
+      {% if hospitalization.current_diagnosis %}
+        <div class="small mt-1">
+          <span class="text-muted">{{ hospitalization.current_diagnosis.kind_display }}:</span>
+          <span class="fw-medium">{{ hospitalization.current_diagnosis.full_text }}</span>
+        </div>
+      {% endif %}
+    </div>
+    <div class="ms-auto text-end">
+      {% if hospitalization.is_open %}
+        <span class="badge bg-success-subtle text-success">Ýatyr</span>
+      {% else %}
+        <span class="badge bg-secondary-subtle text-secondary">Çykarylan</span>
+      {% endif %}
+      <div class="text-muted small mt-1">{{ hospitalization.bed_days }} gün</div>
+    </div>
+  </div>
+</div>

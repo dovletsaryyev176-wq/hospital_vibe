@@ -157,6 +157,13 @@ class CombinedAnalysis(db.Model):
 class Patient(db.Model):
     __tablename__ = 'patients'
 
+    # Whether anyone has actually asked about allergies. «Nothing on record» and
+    # «asked, nothing found» look the same in a list of zero rows, and only one
+    # of them is safe to prescribe against — hence the explicit review stamp.
+    ALLERGY_UNKNOWN = 'unknown'
+    ALLERGY_NONE = 'none'
+    ALLERGY_PRESENT = 'present'
+
     id = db.Column(db.Integer, primary_key=True)
     full_name = db.Column(db.String(150), nullable=False)
     birth_year = db.Column(db.Integer, nullable=False)
@@ -167,12 +174,88 @@ class Patient(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
+    allergies_reviewed_at = db.Column(db.DateTime, nullable=True)
+    allergies_reviewed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    allergies = db.relationship('PatientAllergy', back_populates='patient',
+                                cascade='all, delete-orphan',
+                                order_by='PatientAllergy.created_at.desc()')
+    allergies_reviewed_by = db.relationship('User', foreign_keys=[allergies_reviewed_by_id])
+
     @property
     def age(self) -> int:
         return datetime.now().year - self.birth_year
 
+    @property
+    def active_allergies(self):
+        """Allergies still in force — a withdrawn one is kept but not warned about."""
+        return [a for a in self.allergies if a.is_active]
+
+    @property
+    def allergy_status(self) -> str:
+        if self.active_allergies:
+            return self.ALLERGY_PRESENT
+        return self.ALLERGY_NONE if self.allergies_reviewed_at else self.ALLERGY_UNKNOWN
+
+    @property
+    def has_dangerous_allergy(self) -> bool:
+        return any(a.is_dangerous for a in self.active_allergies)
+
     def __repr__(self) -> str:
         return f'<Patient {self.full_name}>'
+
+
+class PatientAllergy(db.Model):
+    """A substance this patient reacts to. Kept on the patient, not on a stay —
+    an allergy does not end at discharge.
+
+    Rows are never deleted: one entered by mistake is withdrawn with a reason,
+    so it stays visible that it was once believed and by whom.
+    """
+    __tablename__ = 'patient_allergies'
+
+    SEVERITY_MILD = 'mild'
+    SEVERITY_MODERATE = 'moderate'
+    SEVERITY_SEVERE = 'severe'
+    SEVERITY_ANAPHYLAXIS = 'anaphylaxis'
+
+    SEVERITIES = {
+        SEVERITY_MILD: 'Ýeňil',
+        SEVERITY_MODERATE: 'Orta',
+        SEVERITY_SEVERE: 'Agyr',
+        SEVERITY_ANAPHYLAXIS: 'Anafilaksiýa',
+    }
+    DANGEROUS = (SEVERITY_SEVERE, SEVERITY_ANAPHYLAXIS)
+
+    id = db.Column(db.Integer, primary_key=True)
+    patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'), nullable=False, index=True)
+
+    substance = db.Column(db.String(200), nullable=False)
+    reaction = db.Column(db.String(500), nullable=True)
+    severity = db.Column(db.String(20), nullable=False, default=SEVERITY_MODERATE)
+    note = db.Column(db.String(500), nullable=True)
+
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    recorded_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    removed_at = db.Column(db.DateTime, nullable=True)
+    removed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    remove_reason = db.Column(db.String(500), nullable=True)
+
+    patient = db.relationship('Patient', back_populates='allergies')
+    recorded_by = db.relationship('User', foreign_keys=[recorded_by_id])
+    removed_by = db.relationship('User', foreign_keys=[removed_by_id])
+
+    @property
+    def severity_display(self) -> str:
+        return self.SEVERITIES.get(self.severity, self.severity)
+
+    @property
+    def is_dangerous(self) -> bool:
+        return self.severity in self.DANGEROUS
+
+    def __repr__(self) -> str:
+        return f'<PatientAllergy {self.substance} patient={self.patient_id}>'
 
 
 user_directions = db.Table(
@@ -632,6 +715,24 @@ class Hospitalization(db.Model):
     STATUS_ACTIVE = 'active'
     STATUS_DISCHARGED = 'discharged'
 
+    # How the stay ended. Recorded together with the closing epicrisis — a
+    # discharge without an outcome says nothing about what happened.
+    OUTCOME_RECOVERED = 'recovered'
+    OUTCOME_IMPROVED = 'improved'
+    OUTCOME_UNCHANGED = 'unchanged'
+    OUTCOME_WORSENED = 'worsened'
+    OUTCOME_TRANSFERRED = 'transferred'
+    OUTCOME_DIED = 'died'
+
+    OUTCOMES = {
+        OUTCOME_RECOVERED: 'Sagaldy',
+        OUTCOME_IMPROVED: 'Ýagdaýy gowulaşdy',
+        OUTCOME_UNCHANGED: 'Ýagdaýy üýtgemedi',
+        OUTCOME_WORSENED: 'Ýagdaýy erbetleşdi',
+        OUTCOME_TRANSFERRED: 'Başga edara geçirildi',
+        OUTCOME_DIED: 'Aradan çykdy',
+    }
+
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'), nullable=False, index=True)
     department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=False, index=True)
@@ -642,6 +743,12 @@ class Hospitalization(db.Model):
     admitted_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     discharged_at = db.Column(db.DateTime, nullable=True)
     discharged_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    # filled in when the stay is closed; nullable because stays opened before
+    # the discharge summary existed have none
+    outcome = db.Column(db.String(20), nullable=True)
+    epicrisis = db.Column(db.Text, nullable=True)
+    recommendations = db.Column(db.Text, nullable=True)
 
     room_id = db.Column(db.Integer, db.ForeignKey('rooms.id'), nullable=True)
     bed_id = db.Column(db.Integer, db.ForeignKey('beds.id'), nullable=True)
@@ -680,6 +787,26 @@ class Hospitalization(db.Model):
                                        back_populates='hospitalization',
                                        cascade='all, delete-orphan',
                                        order_by='HospitalizationMealAssignment.started_at')
+    medication_orders = db.relationship('HospitalizationMedicationOrder',
+                                        back_populates='hospitalization',
+                                        cascade='all, delete-orphan',
+                                        order_by='HospitalizationMedicationOrder.started_at.desc()')
+    medication_dispenses = db.relationship('HospitalizationMedicationDispense',
+                                           back_populates='hospitalization',
+                                           cascade='all, delete-orphan',
+                                           order_by='HospitalizationMedicationDispense.given_at.desc()')
+    diagnoses = db.relationship('HospitalizationDiagnosis', back_populates='hospitalization',
+                                cascade='all, delete-orphan',
+                                order_by='HospitalizationDiagnosis.created_at.desc()')
+    vital_records = db.relationship('HospitalizationVitalRecord', back_populates='hospitalization',
+                                    cascade='all, delete-orphan',
+                                    order_by='HospitalizationVitalRecord.measured_at.desc()')
+    operations = db.relationship('HospitalizationOperation', back_populates='hospitalization',
+                                 cascade='all, delete-orphan',
+                                 order_by='HospitalizationOperation.created_at.desc()')
+    admission_exam = db.relationship('HospitalizationAdmissionExam',
+                                     back_populates='hospitalization',
+                                     cascade='all, delete-orphan', uselist=False)
 
     @property
     def is_open(self) -> bool:
@@ -704,6 +831,12 @@ class Hospitalization(db.Model):
         return [m for m in self.meal_assignments if m.ended_at is None]
 
     @property
+    def active_medication_orders(self):
+        """Drug orders the patient is on right now."""
+        return [o for o in self.medication_orders
+                if o.status == HospitalizationMedicationOrder.STATUS_ACTIVE]
+
+    @property
     def current_doctor_assignment(self):
         return next((a for a in self.doctor_assignments if a.ended_at is None), None)
 
@@ -712,6 +845,60 @@ class Hospitalization(db.Model):
         if not self.has_bed:
             return '—'
         return f'{self.room.name} / {self.bed.name}'
+
+    def _latest_diagnosis(self, kind):
+        """Diagnoses are append-only; a correction is a newer row of the same
+        kind, so the newest one of a kind is the one that counts."""
+        return next((d for d in self.diagnoses if d.kind == kind), None)
+
+    @property
+    def preliminary_diagnosis(self):
+        return self._latest_diagnosis(HospitalizationDiagnosis.KIND_PRELIMINARY)
+
+    @property
+    def clinical_diagnosis(self):
+        return self._latest_diagnosis(HospitalizationDiagnosis.KIND_CLINICAL)
+
+    @property
+    def final_diagnosis(self):
+        return self._latest_diagnosis(HospitalizationDiagnosis.KIND_FINAL)
+
+    @property
+    def current_diagnosis(self):
+        """The most authoritative diagnosis on record — final beats clinical
+        beats preliminary, regardless of which was written last."""
+        return self.final_diagnosis or self.clinical_diagnosis or self.preliminary_diagnosis
+
+    @property
+    def outcome_display(self) -> str:
+        return self.OUTCOMES.get(self.outcome, '—')
+
+    @property
+    def latest_vitals(self):
+        return self.vital_records[0] if self.vital_records else None
+
+    @property
+    def planned_operations(self):
+        return [o for o in self.operations
+                if o.status == HospitalizationOperation.STATUS_PLANNED]
+
+    @property
+    def performed_operations(self):
+        return [o for o in self.operations
+                if o.status == HospitalizationOperation.STATUS_DONE]
+
+    @property
+    def bed_days(self) -> int:
+        """Calendar days spent in — the day of admission counts as one."""
+        end = self.discharged_at or datetime.now()
+        return max(1, (end.date() - self.admitted_at.date()).days)
+
+    @property
+    def admission_exam_overdue(self) -> bool:
+        """Still no admission examination, and the grace period has run out."""
+        if self.admission_exam is not None or not self.is_open:
+            return False
+        return datetime.now() > self.admitted_at + HospitalizationAdmissionExam.DUE_WITHIN
 
     def __repr__(self) -> str:
         return f'<Hospitalization {self.history_number} patient={self.patient_id}>'
@@ -902,3 +1089,623 @@ class HospitalizationMealAssignment(db.Model):
 
     def __repr__(self) -> str:
         return f'<HospitalizationMealAssignment h={self.hospitalization_id} meal={self.meal_id}>'
+
+
+def format_quantity(value) -> str:
+    """Drug amounts are kept with two decimals, but whole ones must read as
+    whole: 10 tablets is «10», not «10.00»; half a tablet stays «0.5»."""
+    if value is None:
+        return '0'
+    text = f'{value:,.2f}'
+    return text.rstrip('0').rstrip('.') if '.' in text else text
+
+
+class Medicine(db.Model):
+    """A drug in the hospital-wide catalogue, kept by the administrator.
+
+    The catalogue is not bound to departments — what a department actually has
+    is expressed by its stock rows, so a drug never has to be re-registered to
+    move between wards.
+    """
+    __tablename__ = 'medicines'
+
+    UNITS = {
+        'tablet': 'tabletka',
+        'ampoule': 'ampula',
+        'vial': 'flakon',
+        'ml': 'ml',
+        'g': 'gram',
+        'piece': 'sany',
+    }
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    unit = db.Column(db.String(20), nullable=False, default='piece')
+    note = db.Column(db.String(500), nullable=True)
+    price = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    is_insurance = db.Column(db.Boolean, default=False, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    @property
+    def unit_display(self) -> str:
+        return self.UNITS.get(self.unit, self.unit)
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.price:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<Medicine {self.name}>'
+
+
+class DepartmentMedicineStock(db.Model):
+    """How much of one drug a department has right now.
+
+    The running balance lives here so the warehouse page is one query, while
+    every change that produced it is kept in MedicineStockMovement. The two are
+    always written together, in one transaction.
+    """
+    __tablename__ = 'department_medicine_stocks'
+    __table_args__ = (
+        db.UniqueConstraint('department_id', 'medicine_id', name='uq_department_medicine'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=False, index=True)
+    medicine_id = db.Column(db.Integer, db.ForeignKey('medicines.id'), nullable=False, index=True)
+    quantity = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    department = db.relationship('Department')
+    medicine = db.relationship('Medicine')
+
+    @property
+    def quantity_display(self) -> str:
+        return format_quantity(self.quantity)
+
+    def __repr__(self) -> str:
+        return f'<DepartmentMedicineStock dep={self.department_id} med={self.medicine_id}>'
+
+
+class MedicineStockMovement(db.Model):
+    """One change of a department's stock — the only way a balance may move.
+
+    Quantity is signed: a receipt is positive, a dispense or a write-off is
+    negative. balance_after is the remainder right after this row was written,
+    so the journal reads like a bank statement and any drift is visible.
+    """
+    __tablename__ = 'medicine_stock_movements'
+
+    KIND_IN = 'in'
+    KIND_OUT = 'out'
+    KIND_WRITEOFF = 'writeoff'
+    KIND_CORRECTION = 'correction'
+
+    KINDS = {
+        KIND_IN: 'Girdeji',
+        KIND_OUT: 'Syrkawa berildi',
+        KIND_WRITEOFF: 'Hasapdan öçürildi',
+        KIND_CORRECTION: 'Düzediş',
+    }
+
+    id = db.Column(db.Integer, primary_key=True)
+    department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=False, index=True)
+    medicine_id = db.Column(db.Integer, db.ForeignKey('medicines.id'), nullable=False, index=True)
+    kind = db.Column(db.String(20), nullable=False)
+    quantity = db.Column(db.Numeric(10, 2), nullable=False)
+    balance_after = db.Column(db.Numeric(10, 2), nullable=False)
+    note = db.Column(db.String(500), nullable=True)
+    dispense_id = db.Column(db.Integer, db.ForeignKey('hospitalization_medication_dispenses.id'),
+                            nullable=True, index=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    department = db.relationship('Department')
+    medicine = db.relationship('Medicine')
+    dispense = db.relationship('HospitalizationMedicationDispense', foreign_keys=[dispense_id])
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+
+    @property
+    def kind_display(self) -> str:
+        return self.KINDS.get(self.kind, self.kind)
+
+    @property
+    def is_incoming(self) -> bool:
+        return self.quantity > 0
+
+    @property
+    def quantity_display(self) -> str:
+        sign = '+' if self.is_incoming else '−'
+        return f'{sign}{format_quantity(abs(self.quantity))}'
+
+    @property
+    def balance_after_display(self) -> str:
+        return format_quantity(self.balance_after)
+
+    def __repr__(self) -> str:
+        return f'<MedicineStockMovement {self.kind} {self.quantity} med={self.medicine_id}>'
+
+
+class HospitalizationMedicationOrder(db.Model):
+    """A doctor's drug order (bellenme) for a hospitalized patient.
+
+    dose and quantity_per_dose are deliberately separate: «500 mg» is the
+    clinical instruction, «2 tabletka» is what the nurse takes off the shelf.
+    Merging them would either break the stock count or make the doctor think in
+    packages. Nothing here is deleted — an order that is called off is stopped.
+    """
+    __tablename__ = 'hospitalization_medication_orders'
+
+    STATUS_ACTIVE = 'active'
+    STATUS_STOPPED = 'stopped'
+    STATUS_FINISHED = 'finished'
+
+    STATUSES = {
+        STATUS_ACTIVE: 'Işjeň',
+        STATUS_STOPPED: 'Bes edilen',
+        STATUS_FINISHED: 'Tamamlanan',
+    }
+
+    ROUTES = {
+        'oral': 'Içmek',
+        'im': 'Myşsa içine (m/i)',
+        'iv': 'Wena içine (w/i)',
+        'sc': 'Deri astyna (d/a)',
+        'external': 'Daşyndan',
+        'other': 'Başga',
+    }
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    medicine_id = db.Column(db.Integer, db.ForeignKey('medicines.id'), nullable=False, index=True)
+    doctor_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    dose = db.Column(db.String(100), nullable=False)
+    route = db.Column(db.String(20), nullable=False, default='oral')
+    frequency = db.Column(db.String(100), nullable=True)
+    quantity_per_dose = db.Column(db.Numeric(10, 2), nullable=False, default=1)
+
+    started_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    planned_end_at = db.Column(db.DateTime, nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default=STATUS_ACTIVE, index=True)
+    stopped_at = db.Column(db.DateTime, nullable=True)
+    stopped_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    note = db.Column(db.String(500), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='medication_orders')
+    medicine = db.relationship('Medicine')
+    doctor = db.relationship('User', foreign_keys=[doctor_id])
+    stopped_by = db.relationship('User', foreign_keys=[stopped_by_id])
+    dispenses = db.relationship('HospitalizationMedicationDispense', back_populates='order',
+                                cascade='all, delete-orphan',
+                                order_by='HospitalizationMedicationDispense.given_at.desc()')
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == self.STATUS_ACTIVE
+
+    @property
+    def status_display(self) -> str:
+        return self.STATUSES.get(self.status, self.status)
+
+    @property
+    def route_display(self) -> str:
+        return self.ROUTES.get(self.route, self.route)
+
+    @property
+    def quantity_per_dose_display(self) -> str:
+        return format_quantity(self.quantity_per_dose)
+
+    @property
+    def live_dispenses(self):
+        """Dispenses that still count — a cancelled one is kept but not counted."""
+        return [d for d in self.dispenses if not d.is_cancelled]
+
+    @property
+    def dispensed_total(self):
+        return sum((d.quantity for d in self.live_dispenses), start=0)
+
+    @property
+    def dispensed_total_display(self) -> str:
+        return format_quantity(self.dispensed_total)
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationMedicationOrder h={self.hospitalization_id} med={self.medicine_id}>'
+
+
+class HospitalizationMedicationDispense(db.Model):
+    """One act of handing a drug to a patient, written by the senior nurse.
+
+    Price and insurance flag are snapshotted here, exactly as bed stays and
+    meals do it — what a past dispense cost must not change when the catalogue
+    price does. A dispense is never deleted: a mistake made within
+    CANCEL_WINDOW is cancelled, which returns the amount to the stock through a
+    compensating movement.
+    """
+    __tablename__ = 'hospitalization_medication_dispenses'
+
+    CANCEL_WINDOW = timedelta(hours=24)
+
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('hospitalization_medication_orders.id'),
+                         nullable=False, index=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    medicine_id = db.Column(db.Integer, db.ForeignKey('medicines.id'), nullable=False, index=True)
+    department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=False, index=True)
+
+    quantity = db.Column(db.Numeric(10, 2), nullable=False)
+    price = db.Column(db.Numeric(10, 2), nullable=False)
+    is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    given_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    given_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    note = db.Column(db.String(500), nullable=True)
+
+    is_cancelled = db.Column(db.Boolean, nullable=False, default=False)
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    cancelled_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    order = db.relationship('HospitalizationMedicationOrder', back_populates='dispenses')
+    hospitalization = db.relationship('Hospitalization', back_populates='medication_dispenses')
+    medicine = db.relationship('Medicine')
+    department = db.relationship('Department')
+    given_by = db.relationship('User', foreign_keys=[given_by_id])
+    cancelled_by = db.relationship('User', foreign_keys=[cancelled_by_id])
+
+    @property
+    def quantity_display(self) -> str:
+        return format_quantity(self.quantity)
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.price:,.2f}'
+
+    @property
+    def total(self):
+        return self.price * self.quantity
+
+    @property
+    def total_display(self) -> str:
+        return f'{self.total:,.2f}'
+
+    @property
+    def cancel_deadline(self):
+        return self.given_at + self.CANCEL_WINDOW
+
+    def is_cancellable_by(self, user) -> bool:
+        return (not self.is_cancelled
+                and user.id == self.given_by_id
+                and datetime.now() <= self.cancel_deadline)
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationMedicationDispense order={self.order_id} qty={self.quantity}>'
+
+
+class HospitalizationDiagnosis(db.Model):
+    """A diagnosis written on a stay — preliminary on admission, clinical once
+    the picture is clear, final at discharge.
+
+    Rows are append-only: correcting a diagnosis adds a newer row of the same
+    kind rather than overwriting the old one, so it stays visible what was
+    thought when. The newest row of a kind is the one in force.
+    """
+    __tablename__ = 'hospitalization_diagnoses'
+
+    KIND_PRELIMINARY = 'preliminary'
+    KIND_CLINICAL = 'clinical'
+    KIND_FINAL = 'final'
+
+    KINDS = {
+        KIND_PRELIMINARY: 'Çaklama diagnoz',
+        KIND_CLINICAL: 'Kliniki diagnoz',
+        KIND_FINAL: 'Jemleýji diagnoz',
+    }
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    kind = db.Column(db.String(20), nullable=False, index=True)
+    text = db.Column(db.String(500), nullable=False)
+    # ICD-10 is kept as a free code: there is no classifier table in the system
+    # yet, and forcing one would block writing a diagnosis at all
+    code = db.Column(db.String(20), nullable=True)
+    note = db.Column(db.String(500), nullable=True)
+
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='diagnoses')
+    author = db.relationship('User', foreign_keys=[author_id])
+
+    @property
+    def kind_display(self) -> str:
+        return self.KINDS.get(self.kind, self.kind)
+
+    @property
+    def full_text(self) -> str:
+        return f'{self.text} ({self.code})' if self.code else self.text
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationDiagnosis {self.kind} h={self.hospitalization_id}>'
+
+
+class HospitalizationVitalRecord(db.Model):
+    """One round of measurements on a patient — the ward nurse's temperature
+    sheet (temperatura sanawy).
+
+    This is the nurse's own record and is deliberately separate from the
+    doctor's diary: the nurse measures several times a day, the doctor writes a
+    note once. Entries are never deleted; the author may fix an obvious slip
+    within EDIT_WINDOW of writing it.
+    """
+    __tablename__ = 'hospitalization_vital_records'
+
+    EDIT_WINDOW = timedelta(hours=12)
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+
+    measured_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+
+    temperature = db.Column(db.Numeric(4, 1), nullable=True)
+    pulse = db.Column(db.Integer, nullable=True)
+    # kept as two numbers rather than the diary's «120/80» string — a sheet has
+    # to be filtered, charted and checked for range
+    systolic = db.Column(db.Integer, nullable=True)
+    diastolic = db.Column(db.Integer, nullable=True)
+    respiratory_rate = db.Column(db.Integer, nullable=True)
+    note = db.Column(db.String(500), nullable=True)
+
+    recorded_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='vital_records')
+    recorded_by = db.relationship('User', foreign_keys=[recorded_by_id])
+
+    @property
+    def is_edited(self) -> bool:
+        return self.updated_at is not None
+
+    @property
+    def edit_deadline(self):
+        return self.created_at + self.EDIT_WINDOW
+
+    def is_editable_by(self, user) -> bool:
+        return user.id == self.recorded_by_id and datetime.now() <= self.edit_deadline
+
+    @property
+    def temperature_display(self) -> str:
+        return f'{self.temperature:.1f}' if self.temperature is not None else '—'
+
+    @property
+    def pressure_display(self) -> str:
+        if self.systolic is None or self.diastolic is None:
+            return '—'
+        return f'{self.systolic}/{self.diastolic}'
+
+    @property
+    def has_fever(self) -> bool:
+        return self.temperature is not None and self.temperature >= 37.5
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationVitalRecord h={self.hospitalization_id} at={self.measured_at}>'
+
+
+class Operation(db.Model):
+    """A surgery or procedure in the hospital-wide catalogue, kept by the
+    administrator. Like the drug catalogue it is not bound to departments."""
+    __tablename__ = 'operations'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False, unique=True)
+    note = db.Column(db.String(500), nullable=True)
+    price = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    is_insurance = db.Column(db.Boolean, default=False, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.price:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<Operation {self.name}>'
+
+
+operation_assistants = db.Table(
+    'hospitalization_operation_assistants',
+    db.Column('operation_id', db.Integer, db.ForeignKey('hospitalization_operations.id'),
+              primary_key=True),
+    db.Column('user_id', db.Integer, db.ForeignKey('users.id'), primary_key=True),
+)
+
+
+class HospitalizationOperation(db.Model):
+    """One surgery on a hospitalized patient: planned first, then written up.
+
+    Price and insurance flag are snapshotted when the record is created, as
+    everywhere else in the stay. A cancelled operation keeps its row — it is
+    excluded from the bill by status, never by deletion.
+    """
+    __tablename__ = 'hospitalization_operations'
+
+    STATUS_PLANNED = 'planned'
+    STATUS_DONE = 'done'
+    STATUS_CANCELLED = 'cancelled'
+
+    STATUSES = {
+        STATUS_PLANNED: 'Meýilleşdirilen',
+        STATUS_DONE: 'Geçirilen',
+        STATUS_CANCELLED: 'Ýatyrylan',
+    }
+
+    ANESTHESIA = {
+        'none': 'Ýok',
+        'local': 'Ýerli agyrsyzlandyrma',
+        'regional': 'Regionar agyrsyzlandyrma',
+        'spinal': 'Spinal agyrsyzlandyrma',
+        'general': 'Umumy narkoz',
+    }
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    operation_id = db.Column(db.Integer, db.ForeignKey('operations.id'), nullable=False, index=True)
+
+    surgeon_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    anesthesiologist_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    anesthesia = db.Column(db.String(20), nullable=False, default='none')
+
+    planned_at = db.Column(db.DateTime, nullable=True)
+    performed_at = db.Column(db.DateTime, nullable=True)
+
+    status = db.Column(db.String(20), nullable=False, default=STATUS_PLANNED, index=True)
+
+    indication = db.Column(db.String(500), nullable=True)
+    protocol = db.Column(db.Text, nullable=True)
+    complications = db.Column(db.String(500), nullable=True)
+
+    price = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    performed_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    cancelled_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    cancel_reason = db.Column(db.String(500), nullable=True)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='operations')
+    operation = db.relationship('Operation')
+    surgeon = db.relationship('User', foreign_keys=[surgeon_id])
+    anesthesiologist = db.relationship('User', foreign_keys=[anesthesiologist_id])
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+    performed_by = db.relationship('User', foreign_keys=[performed_by_id])
+    cancelled_by = db.relationship('User', foreign_keys=[cancelled_by_id])
+    assistants = db.relationship('User', secondary=operation_assistants, lazy='subquery')
+
+    @property
+    def is_planned(self) -> bool:
+        return self.status == self.STATUS_PLANNED
+
+    @property
+    def is_done(self) -> bool:
+        return self.status == self.STATUS_DONE
+
+    @property
+    def status_display(self) -> str:
+        return self.STATUSES.get(self.status, self.status)
+
+    @property
+    def anesthesia_display(self) -> str:
+        return self.ANESTHESIA.get(self.anesthesia, self.anesthesia)
+
+    @property
+    def price_display(self) -> str:
+        return f'{self.price:,.2f}'
+
+    @property
+    def happened_at(self):
+        """When it took place, or is meant to."""
+        return self.performed_at or self.planned_at
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationOperation {self.status} h={self.hospitalization_id}>'
+
+
+class HospitalizationAdmissionExam(db.Model):
+    """The doctor's examination on admission (ilkinji gözden geçirme).
+
+    One per stay — this is the opening document of the case history, not a
+    progress note, so it is deliberately a different shape from the diary:
+    history of the illness and of the life, status by systems, the reasoning
+    behind the diagnosis and the plan. The author may correct it within
+    EDIT_WINDOW; after that it is fixed like every other record here.
+
+    Allergies are asked about here but stored on the patient — see
+    PatientAllergy — because they outlive the stay.
+    """
+    __tablename__ = 'hospitalization_admission_exams'
+    __table_args__ = (
+        db.UniqueConstraint('hospitalization_id', name='uq_admission_exam_hospitalization'),
+    )
+
+    EDIT_WINDOW = timedelta(hours=24)
+    # how long after admission the exam may be missing before it is chased up
+    DUE_WITHIN = timedelta(hours=24)
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+
+    complaints = db.Column(db.Text, nullable=False)
+    anamnesis_morbi = db.Column(db.Text, nullable=False)
+    anamnesis_vitae = db.Column(db.Text, nullable=True)
+    objective_status = db.Column(db.Text, nullable=False)
+    local_status = db.Column(db.Text, nullable=True)
+    diagnosis_rationale = db.Column(db.Text, nullable=True)
+    examination_plan = db.Column(db.Text, nullable=True)
+    treatment_plan = db.Column(db.Text, nullable=True)
+
+    temperature = db.Column(db.Numeric(4, 1), nullable=True)
+    pulse = db.Column(db.Integer, nullable=True)
+    systolic = db.Column(db.Integer, nullable=True)
+    diastolic = db.Column(db.Integer, nullable=True)
+    # height and weight live here rather than on the nurse's sheet: they are
+    # taken once on admission and are what drug doses are calculated from
+    height = db.Column(db.Integer, nullable=True)
+    weight = db.Column(db.Numeric(5, 1), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=True)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='admission_exam')
+    author = db.relationship('User', foreign_keys=[author_id])
+
+    @property
+    def is_edited(self) -> bool:
+        return self.updated_at is not None
+
+    @property
+    def edit_deadline(self):
+        return self.created_at + self.EDIT_WINDOW
+
+    def is_editable_by(self, user) -> bool:
+        return user.id == self.author_id and datetime.now() <= self.edit_deadline
+
+    @property
+    def pressure_display(self) -> str:
+        if self.systolic is None or self.diastolic is None:
+            return '—'
+        return f'{self.systolic}/{self.diastolic}'
+
+    @property
+    def temperature_display(self) -> str:
+        return f'{self.temperature:.1f}' if self.temperature is not None else '—'
+
+    @property
+    def weight_display(self) -> str:
+        return f'{self.weight:g}' if self.weight is not None else '—'
+
+    @property
+    def bmi(self):
+        """Body mass index, when both height and weight were taken."""
+        if not self.height or not self.weight:
+            return None
+        metres = self.height / 100
+        return round(float(self.weight) / (metres * metres), 1)
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationAdmissionExam h={self.hospitalization_id}>'

@@ -1,0 +1,107 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Çykarmak — {{ patient.full_name }}{% endblock %}
+{% block page_title %}Syrkawy çykarmak{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    {% set hospitalization = current %}
+    {% include 'inpatient/_patient_header.html' %}
+
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-box-arrow-right me-2 text-danger"></i>Çykaryş epikrizi
+        </h6>
+      </div>
+      <div class="card-body px-4 py-4">
+
+        <!-- Stay summary the head writes the epicrisis from -->
+        <div class="row g-3 mb-4">
+          <div class="col-sm-3">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Ýatan güni</div>
+            <div class="fw-medium">{{ current.bed_days }}</div>
+          </div>
+          <div class="col-sm-3">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Gündelik</div>
+            <div class="fw-medium">{{ current.diary_entries | length }}</div>
+          </div>
+          <div class="col-sm-3">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Operasiýa</div>
+            <div class="fw-medium">{{ current.performed_operations | length }}</div>
+          </div>
+          <div class="col-sm-3">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Berlen derman</div>
+            <div class="fw-medium">{{ current.medication_dispenses | length }}</div>
+          </div>
+        </div>
+
+        {% if current.planned_operations %}
+        <div class="alert alert-warning py-2 px-3 small">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Meýilleşdirilen {{ current.planned_operations | length }} operasiýa bar — çykarylanda
+          olar awtomatiki ýatyrylar.
+        </div>
+        {% endif %}
+
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-sm-7">
+              {{ form.diagnosis.label(class='form-label fw-medium') }}
+              {{ form.diagnosis(class='form-control' + (' is-invalid' if form.diagnosis.errors else '')) }}
+              {% for e in form.diagnosis.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              {% if current.preliminary_diagnosis %}
+                <div class="form-text">
+                  Çaklama diagnoz: {{ current.preliminary_diagnosis.full_text }}
+                </div>
+              {% endif %}
+            </div>
+
+            <div class="col-sm-5">
+              {{ form.diagnosis_code.label(class='form-label fw-medium') }}
+              {{ form.diagnosis_code(class='form-control font-monospace' + (' is-invalid' if form.diagnosis_code.errors else '')) }}
+              {% for e in form.diagnosis_code.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.outcome.label(class='form-label fw-medium') }}
+              {{ form.outcome(class='form-select' + (' is-invalid' if form.outcome.errors else '')) }}
+              {% for e in form.outcome.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.epicrisis.label(class='form-label fw-medium') }}
+              {{ form.epicrisis(class='form-control' + (' is-invalid' if form.epicrisis.errors else '')) }}
+              {% for e in form.epicrisis.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.recommendations.label(class='form-label fw-medium') }}
+              {{ form.recommendations(class='form-control' + (' is-invalid' if form.recommendations.errors else '')) }}
+              {% for e in form.recommendations.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span class="text-muted small">
+              <i class="bi bi-info-circle me-1"></i>
+              Çykarylandan soň ýazgylary üýtgedip bolmaýar.
+            </span>
+            <div class="d-flex gap-2">
+              <a href="{{ url_for('inpatient.patients_detail', patient_id=patient.id) }}"
+                 class="btn btn-outline-secondary">Gaýtarmak</a>
+              {{ form.submit(class='btn btn-danger px-4') }}
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

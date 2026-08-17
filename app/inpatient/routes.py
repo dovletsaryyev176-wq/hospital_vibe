@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, time
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 from flask import render_template, redirect, url_for, flash, request, abort
 from flask_login import current_user, logout_user
@@ -6,12 +7,22 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, subqueryload
 from app.inpatient import inpatient_bp
 from app.inpatient.forms import (HospitalizationForm, BedAssignmentForm,
-                                 DoctorAssignmentForm, DiaryEntryForm, valid_phone)
+                                 DoctorAssignmentForm, DiaryEntryForm,
+                                 StockReceiptForm, StockAdjustForm, MedicationOrderForm,
+                                 DiagnosisForm, DischargeForm, VitalRecordForm,
+                                 OperationForm, OperationCancelForm,
+                                 AdmissionExamForm, AllergyForm, AllergyRemoveForm,
+                                 valid_phone)
 from app.extensions import db
 from app.models import (Room, Bed, Meal, Patient, User, Hospitalization, HospitalizationRelative,
                         HospitalizationBedStay, HospitalizationDoctorAssignment,
                         HospitalizationDiaryEntry, HospitalizationMealAssignment,
-                        user_departments, meal_departments)
+                        Medicine, DepartmentMedicineStock, MedicineStockMovement,
+                        HospitalizationMedicationOrder, HospitalizationMedicationDispense,
+                        HospitalizationDiagnosis, HospitalizationVitalRecord,
+                        Operation, HospitalizationOperation,
+                        HospitalizationAdmissionExam, PatientAllergy,
+                        format_quantity, user_departments, meal_departments)
 
 
 def inpatient_required(*roles):
@@ -104,41 +115,117 @@ def department_doctors(department_id):
     )
 
 
+def department_medics(department_id):
+    """Everyone in a department who may stand at the table — doctors and the
+    head. Wider than department_doctors on purpose: a head operates too."""
+    return (
+        User.query
+        .join(user_departments, user_departments.c.user_id == User.id)
+        .filter(user_departments.c.department_id == department_id,
+                User.role.in_(('doctor', 'department_head')),
+                User.is_active == True)  # noqa: E712
+        .order_by(User.full_name)
+        .all()
+    )
+
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @inpatient_bp.route('/')
 @inpatient_bp.route('/dashboard')
 @inpatient_main_required
 def dashboard():
+    """The ward at a glance: how full it is, who moved today, and what is left
+    hanging — a patient without a bed or without an attending doctor."""
     departments = current_user.active_departments
     dep_ids = [d.id for d in departments]
 
     room_counts = {}
     bed_counts = {}
+    lying_counts = {}
+    admitted_today = {}
+    discharged_today = {}
+
     if dep_ids:
-        rows = (
+        def _grouped(query):
+            return dict(query.all())
+
+        room_counts = _grouped(
             db.session.query(Room.department_id, db.func.count(Room.id))
             .filter(Room.department_id.in_(dep_ids), Room.is_active == True)  # noqa: E712
             .group_by(Room.department_id)
-            .all()
         )
-        room_counts = dict(rows)
-
-        rows = (
+        bed_counts = _grouped(
             db.session.query(Room.department_id, db.func.count(Bed.id))
             .join(Bed, Bed.room_id == Room.id)
             .filter(Room.department_id.in_(dep_ids),
                     Room.is_active == True, Bed.is_active == True)  # noqa: E712
             .group_by(Room.department_id)
+        )
+        lying_counts = _grouped(
+            db.session.query(Hospitalization.department_id, db.func.count(Hospitalization.id))
+            .filter(Hospitalization.department_id.in_(dep_ids),
+                    Hospitalization.status == Hospitalization.STATUS_ACTIVE)
+            .group_by(Hospitalization.department_id)
+        )
+
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        admitted_today = _grouped(
+            db.session.query(Hospitalization.department_id, db.func.count(Hospitalization.id))
+            .filter(Hospitalization.department_id.in_(dep_ids),
+                    Hospitalization.admitted_at >= today)
+            .group_by(Hospitalization.department_id)
+        )
+        discharged_today = _grouped(
+            db.session.query(Hospitalization.department_id, db.func.count(Hospitalization.id))
+            .filter(Hospitalization.department_id.in_(dep_ids),
+                    Hospitalization.discharged_at >= today)
+            .group_by(Hospitalization.department_id)
+        )
+
+    # Whatever still needs a hand. Scoped to the viewer's departments like
+    # everything else in the section.
+    needs_attention = []
+    if dep_ids:
+        # stays past the grace period with no admission examination written
+        exam_written = db.session.query(HospitalizationAdmissionExam.hospitalization_id)
+        exam_due_by = datetime.now() - HospitalizationAdmissionExam.DUE_WITHIN
+
+        needs_attention = (
+            Hospitalization.query
+            .options(joinedload(Hospitalization.patient),
+                     joinedload(Hospitalization.department),
+                     joinedload(Hospitalization.admission_exam))
+            .filter(Hospitalization.department_id.in_(dep_ids),
+                    Hospitalization.status == Hospitalization.STATUS_ACTIVE,
+                    db.or_(Hospitalization.bed_id.is_(None),
+                           Hospitalization.doctor_id.is_(None),
+                           db.and_(Hospitalization.admitted_at < exam_due_by,
+                                   ~Hospitalization.id.in_(exam_written))))
+            .order_by(Hospitalization.admitted_at)
+            .limit(20)
             .all()
         )
-        bed_counts = dict(rows)
+
+    totals = {
+        'beds': sum(bed_counts.values()),
+        'lying': sum(lying_counts.values()),
+        'admitted_today': sum(admitted_today.values()),
+        'discharged_today': sum(discharged_today.values()),
+    }
+    totals['free'] = max(0, totals['beds'] - totals['lying'])
+    totals['occupancy'] = round(totals['lying'] * 100 / totals['beds']) if totals['beds'] else 0
 
     return render_template(
         'inpatient/dashboard.html',
         departments=departments,
         room_counts=room_counts,
         bed_counts=bed_counts,
+        lying_counts=lying_counts,
+        admitted_today=admitted_today,
+        discharged_today=discharged_today,
+        needs_attention=needs_attention,
+        totals=totals,
     )
 
 
@@ -249,6 +336,8 @@ def patients_detail(patient_id):
         .joinedload(HospitalizationDoctorAssignment.doctor),
         subqueryload(Hospitalization.doctor_assignments)
         .joinedload(HospitalizationDoctorAssignment.assigned_by),
+        # past stays print their closing diagnosis in the list
+        subqueryload(Hospitalization.diagnoses),
     )
     past = (
         Hospitalization.query
@@ -340,6 +429,14 @@ def patients_admit(patient_id):
             )
             for row in relatives:
                 hospitalization.relatives.append(HospitalizationRelative(**row))
+            # a stay is opened because of something — the reason goes on record
+            # in the same transaction, never as an afterthought
+            hospitalization.diagnoses.append(HospitalizationDiagnosis(
+                kind=HospitalizationDiagnosis.KIND_PRELIMINARY,
+                text=form.diagnosis.data.strip(),
+                code=(form.diagnosis_code.data or '').strip() or None,
+                author_id=current_user.id,
+            ))
             db.session.add(hospitalization)
             try:
                 db.session.commit()
@@ -363,9 +460,12 @@ def patients_admit(patient_id):
     )
 
 
-@inpatient_bp.route('/syrkawlar/<int:patient_id>/cykarmak', methods=['POST'])
+@inpatient_bp.route('/syrkawlar/<int:patient_id>/cykarmak', methods=['GET', 'POST'])
 @inpatient_required('department_head')
 def patients_discharge(patient_id):
+    """Closing a stay: the final diagnosis, the outcome and the epicrisis are
+    written in the same act that ends it — a discharge is a document, not a
+    status flip."""
     patient = db.session.get(Patient, patient_id)
     if patient is None:
         abort(404)
@@ -379,27 +479,67 @@ def patients_discharge(patient_id):
         flash('Diňe öz bölümiňiziň syrkawyny çykaryp bilersiňiz.', 'danger')
         return redirect(url_for('inpatient.patients_list'))
 
-    discharged_at = datetime.now()
-    current.status = Hospitalization.STATUS_DISCHARGED
-    current.discharged_at = discharged_at
-    current.discharged_by_id = current_user.id
+    form = DischargeForm()
 
-    open_stay = current.current_bed_stay
-    if open_stay is not None:
-        open_stay.ended_at = discharged_at
+    if request.method == 'GET':
+        # start from what is already known, so the head corrects instead of retypes
+        known = current.final_diagnosis or current.clinical_diagnosis or current.preliminary_diagnosis
+        if known is not None:
+            form.diagnosis.data = known.text
+            form.diagnosis_code.data = known.code
 
-    open_doctor = current.current_doctor_assignment
-    if open_doctor is not None:
-        open_doctor.ended_at = discharged_at
+    if form.validate_on_submit():
+        discharged_at = datetime.now()
 
-    for meal_assignment in current.active_meal_assignments:
-        meal_assignment.ended_at = discharged_at
-        meal_assignment.ended_by_id = current_user.id
+        current.status = Hospitalization.STATUS_DISCHARGED
+        current.discharged_at = discharged_at
+        current.discharged_by_id = current_user.id
+        current.outcome = form.outcome.data
+        current.epicrisis = form.epicrisis.data.strip()
+        current.recommendations = (form.recommendations.data or '').strip() or None
 
-    db.session.commit()
+        current.diagnoses.append(HospitalizationDiagnosis(
+            kind=HospitalizationDiagnosis.KIND_FINAL,
+            text=form.diagnosis.data.strip(),
+            code=(form.diagnosis_code.data or '').strip() or None,
+            author_id=current_user.id,
+        ))
 
-    flash(f'«{patient.full_name}» ýatymlaýyn bölümden çykaryldy.', 'success')
-    return redirect(url_for('inpatient.patients_list'))
+        open_stay = current.current_bed_stay
+        if open_stay is not None:
+            open_stay.ended_at = discharged_at
+
+        open_doctor = current.current_doctor_assignment
+        if open_doctor is not None:
+            open_doctor.ended_at = discharged_at
+
+        for meal_assignment in current.active_meal_assignments:
+            meal_assignment.ended_at = discharged_at
+            meal_assignment.ended_by_id = current_user.id
+
+        for order in current.active_medication_orders:
+            order.status = HospitalizationMedicationOrder.STATUS_FINISHED
+            order.stopped_at = discharged_at
+            order.stopped_by_id = current_user.id
+
+        # a still-planned operation cannot happen to a discharged patient
+        for operation in current.planned_operations:
+            operation.status = HospitalizationOperation.STATUS_CANCELLED
+            operation.cancelled_at = discharged_at
+            operation.cancelled_by_id = current_user.id
+            operation.cancel_reason = 'Syrkaw çykaryldy'
+
+        db.session.commit()
+
+        flash(f'«{patient.full_name}» ýatymlaýyn bölümden çykaryldy.', 'success')
+        return redirect(url_for('inpatient.patients_detail', patient_id=patient.id))
+
+    return render_template(
+        'inpatient/patients/discharge.html',
+        form=form,
+        patient=patient,
+        current=current,
+    )
 
 
 # ── Bed assignment (senior nurse) ─────────────────────────────────────────────
@@ -797,3 +937,1267 @@ def meals_stop(assignment_id):
 
     flash(f'«{assignment.meal.name}» bes edildi.', 'success')
     return redirect(back)
+
+
+# ── Ward drug store (ammar) ───────────────────────────────────────────────────
+
+MOVEMENTS_PER_PAGE = 30
+
+# The senior nurse keeps the store; the head of the department only looks at it
+STOCK_VIEW_ROLES = ('senior_nurse', 'department_head')
+
+# Who writes drug orders — the same people who write the diary
+MEDICATION_WRITER_ROLES = ('doctor', 'department_head')
+
+
+def parse_quantity(raw):
+    """A positive drug amount with two decimals, or None if the input is not one.
+
+    Amounts arrive from plain inline forms (the dispense button sits in a table
+    row), so they are parsed here instead of through WTForms.
+    """
+    try:
+        value = Decimal((raw or '').strip().replace(',', '.'))
+    except (InvalidOperation, AttributeError):
+        return None
+    # is_finite() first — comparing a NaN raises instead of returning False.
+    # The upper bound is what Numeric(10, 2) can hold.
+    if not value.is_finite() or value <= 0 or value > Decimal('99999999.99'):
+        return None
+    return value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def active_medicines():
+    return Medicine.query.filter_by(is_active=True).order_by(Medicine.name).all()
+
+
+def selected_department_id(dep_ids):
+    """Which department's store is being looked at — ?dep=, else the first one.
+    A department the user is not attached to is never accepted."""
+    requested = request.args.get('dep', 0, type=int)
+    if requested and requested in dep_ids:
+        return requested
+    return dep_ids[0] if dep_ids else None
+
+
+def department_stock(department_id, only_positive=False):
+    """Stock rows of a department, drug name first."""
+    query = (
+        DepartmentMedicineStock.query
+        .options(joinedload(DepartmentMedicineStock.medicine))
+        .join(Medicine, DepartmentMedicineStock.medicine_id == Medicine.id)
+        .filter(DepartmentMedicineStock.department_id == department_id)
+    )
+    if only_positive:
+        query = query.filter(DepartmentMedicineStock.quantity > 0)
+    return query.order_by(Medicine.name).all()
+
+
+def stock_quantities(department_id):
+    """{medicine_id: remaining quantity} for one department."""
+    rows = (
+        db.session.query(DepartmentMedicineStock.medicine_id, DepartmentMedicineStock.quantity)
+        .filter(DepartmentMedicineStock.department_id == department_id)
+        .all()
+    )
+    return {medicine_id: quantity for medicine_id, quantity in rows}
+
+
+def stock_quantities_display(department_id, medicines):
+    """{medicine id as string: formatted remainder} — for the balance hint the
+    drug pickers show. Keyed by string because it is handed to the page as JSON.
+    """
+    quantities = stock_quantities(department_id)
+    return {str(m.id): format_quantity(quantities.get(m.id, 0)) for m in medicines}
+
+
+def locked_stock(department_id, medicine_id):
+    """The stock row for (department, drug), created on first touch and locked
+    for update — two nurses must not be able to spend the same remainder twice.
+    The lock is real on MySQL; on SQLite it is a no-op, as with bed assignment.
+    """
+    def fetch():
+        return (
+            DepartmentMedicineStock.query
+            .filter_by(department_id=department_id, medicine_id=medicine_id)
+            .with_for_update()
+            .first()
+        )
+
+    row = fetch()
+    if row is not None:
+        return row
+
+    try:
+        with db.session.begin_nested():
+            row = DepartmentMedicineStock(
+                department_id=department_id,
+                medicine_id=medicine_id,
+                quantity=Decimal('0'),
+            )
+            db.session.add(row)
+            db.session.flush()
+    except IntegrityError:
+        # another nurse booked the very first receipt of this drug at the same
+        # moment — the unique index rejected us, so take their row
+        row = fetch()
+    return row
+
+
+def apply_movement(stock, kind, delta, note=None, dispense=None):
+    """Move a stock balance and journal it in one go. The caller commits.
+
+    delta is signed: a receipt is positive, a dispense or write-off negative.
+    Nothing else in the module may touch DepartmentMedicineStock.quantity.
+    """
+    stock.quantity = (stock.quantity or Decimal('0')) + delta
+    stock.updated_at = datetime.now()
+    movement = MedicineStockMovement(
+        department_id=stock.department_id,
+        medicine_id=stock.medicine_id,
+        kind=kind,
+        quantity=delta,
+        balance_after=stock.quantity,
+        note=note,
+        dispense=dispense,
+        created_by_id=current_user.id,
+    )
+    db.session.add(movement)
+    return movement
+
+
+def _store_department(dep_ids):
+    """Resolve the department whose store is being worked on, or flash + None."""
+    department_id = selected_department_id(dep_ids)
+    if department_id is None:
+        flash('Size bölüm bellenmedik. Dolandyryja ýüz tutuň.', 'danger')
+    return department_id
+
+
+@inpatient_bp.route('/ammar')
+@inpatient_required(*STOCK_VIEW_ROLES)
+def stock():
+    dep_ids = user_department_ids()
+    department_id = _store_department(dep_ids)
+    if department_id is None:
+        return redirect(url_for('inpatient.dashboard'))
+
+    rows = department_stock(department_id)
+    empty_count = sum(1 for row in rows if row.quantity <= 0)
+
+    return render_template(
+        'inpatient/stock/list.html',
+        departments=[d for d in current_user.active_departments if d.id in dep_ids],
+        department_id=department_id,
+        rows=rows,
+        empty_count=empty_count,
+        may_edit=current_user.role == 'senior_nurse',
+    )
+
+
+@inpatient_bp.route('/ammar/girdeji', methods=['GET', 'POST'])
+@inpatient_required('senior_nurse')
+def stock_receipt():
+    dep_ids = user_department_ids()
+    department_id = _store_department(dep_ids)
+    if department_id is None:
+        return redirect(url_for('inpatient.dashboard'))
+
+    medicines = active_medicines()
+    form = StockReceiptForm(medicines=medicines)
+    back = url_for('inpatient.stock', dep=department_id)
+
+    if form.validate_on_submit():
+        medicine = next((m for m in medicines if m.id == form.medicine_id.data), None)
+        if medicine is None:
+            flash('Bu derman elýeterli däl. Sanawy täzeläň.', 'danger')
+            return redirect(url_for('inpatient.stock_receipt', dep=department_id))
+
+        quantity = form.quantity.data
+        stock_row = locked_stock(department_id, medicine.id)
+        apply_movement(stock_row, MedicineStockMovement.KIND_IN, quantity,
+                       note=(form.note.data or '').strip() or None)
+        db.session.commit()
+
+        flash(f'«{medicine.name}» — {format_quantity(quantity)} {medicine.unit_display} '
+              f'girdeji ýazyldy. Galyndy: {format_quantity(stock_row.quantity)}.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/stock/receipt.html',
+        form=form,
+        department_id=department_id,
+        medicines=medicines,
+        quantities=stock_quantities_display(department_id, medicines),
+        units={str(m.id): m.unit_display for m in medicines},
+        back=back,
+    )
+
+
+@inpatient_bp.route('/ammar/duzedis', methods=['GET', 'POST'])
+@inpatient_required('senior_nurse')
+def stock_adjust():
+    dep_ids = user_department_ids()
+    department_id = _store_department(dep_ids)
+    if department_id is None:
+        return redirect(url_for('inpatient.dashboard'))
+
+    # only what the ward actually holds may be written off or corrected
+    rows = department_stock(department_id)
+    medicines = [row.medicine for row in rows]
+    form = StockAdjustForm(medicines=medicines)
+    back = url_for('inpatient.stock', dep=department_id)
+
+    if form.validate_on_submit():
+        medicine = next((m for m in medicines if m.id == form.medicine_id.data), None)
+        if medicine is None:
+            flash('Bu derman ammarda ýok. Sanawy täzeläň.', 'danger')
+            return redirect(url_for('inpatient.stock_adjust', dep=department_id))
+
+        quantity = form.quantity.data
+        is_writeoff = form.kind.data == MedicineStockMovement.KIND_WRITEOFF
+        stock_row = locked_stock(department_id, medicine.id)
+
+        if is_writeoff and stock_row.quantity < quantity:
+            # read what we need before the rollback — it expires the objects,
+            # and a stock row created just above would not survive it at all
+            remaining, unit = format_quantity(stock_row.quantity), medicine.unit_display
+            db.session.rollback()
+            flash(f'Ammarda ýeterlik derman ýok. Galyndy: {remaining} {unit}.', 'danger')
+            return redirect(url_for('inpatient.stock_adjust', dep=department_id))
+
+        delta = -quantity if is_writeoff else quantity
+        apply_movement(stock_row, form.kind.data, delta, note=form.note.data.strip())
+        db.session.commit()
+
+        flash(f'«{medicine.name}» — galyndy: '
+              f'{format_quantity(stock_row.quantity)} {medicine.unit_display}.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/stock/adjust.html',
+        form=form,
+        department_id=department_id,
+        medicines=medicines,
+        quantities=stock_quantities_display(department_id, medicines),
+        units={str(m.id): m.unit_display for m in medicines},
+        back=back,
+    )
+
+
+@inpatient_bp.route('/ammar/hereketler')
+@inpatient_required(*STOCK_VIEW_ROLES)
+def stock_movements():
+    dep_ids = user_department_ids()
+    department_id = _store_department(dep_ids)
+    if department_id is None:
+        return redirect(url_for('inpatient.dashboard'))
+
+    medicine_filter = request.args.get('medicine', 0, type=int)
+    kind_filter = request.args.get('kind', '').strip()
+    page = request.args.get('page', 1, type=int)
+
+    query = (
+        MedicineStockMovement.query
+        .options(joinedload(MedicineStockMovement.medicine),
+                 joinedload(MedicineStockMovement.created_by))
+        .filter(MedicineStockMovement.department_id == department_id)
+    )
+    if medicine_filter:
+        query = query.filter(MedicineStockMovement.medicine_id == medicine_filter)
+    if kind_filter in MedicineStockMovement.KINDS:
+        query = query.filter(MedicineStockMovement.kind == kind_filter)
+
+    pagination = query.order_by(MedicineStockMovement.created_at.desc(),
+                                MedicineStockMovement.id.desc()).paginate(
+        page=page, per_page=MOVEMENTS_PER_PAGE, error_out=False)
+
+    return render_template(
+        'inpatient/stock/movements.html',
+        departments=[d for d in current_user.active_departments if d.id in dep_ids],
+        department_id=department_id,
+        movements=pagination.items,
+        pagination=pagination,
+        medicines=[row.medicine for row in department_stock(department_id)],
+        medicine_filter=medicine_filter,
+        kind_filter=kind_filter,
+        kinds=MedicineStockMovement.KINDS,
+    )
+
+
+# ── Medication orders and dispensing (dermanlar) ──────────────────────────────
+
+def can_order_medication(hospitalization) -> bool:
+    """Doctors and the head of that department prescribe; nurses dispense."""
+    return (current_user.role in MEDICATION_WRITER_ROLES
+            and hospitalization.department_id in set(user_department_ids())
+            and hospitalization.is_open)
+
+
+def can_dispense(hospitalization) -> bool:
+    """Only the senior nurse of that department, and only while the patient lies in."""
+    return (current_user.role == 'senior_nurse'
+            and hospitalization.department_id in set(user_department_ids())
+            and hospitalization.is_open)
+
+
+@inpatient_bp.route('/dermanlar/<int:hospitalization_id>')
+@inpatient_main_required
+def medications(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    orders = (
+        HospitalizationMedicationOrder.query
+        .options(joinedload(HospitalizationMedicationOrder.medicine),
+                 joinedload(HospitalizationMedicationOrder.doctor),
+                 joinedload(HospitalizationMedicationOrder.stopped_by),
+                 subqueryload(HospitalizationMedicationOrder.dispenses)
+                 .joinedload(HospitalizationMedicationDispense.given_by))
+        .filter_by(hospitalization_id=hospitalization.id)
+        .order_by(HospitalizationMedicationOrder.started_at.desc())
+        .all()
+    )
+    active = [o for o in orders if o.is_active]
+    finished = [o for o in orders if not o.is_active]
+
+    dispenses = (
+        HospitalizationMedicationDispense.query
+        .options(joinedload(HospitalizationMedicationDispense.medicine),
+                 joinedload(HospitalizationMedicationDispense.given_by),
+                 joinedload(HospitalizationMedicationDispense.cancelled_by))
+        .filter_by(hospitalization_id=hospitalization.id)
+        .order_by(HospitalizationMedicationDispense.given_at.desc())
+        .all()
+    )
+
+    return render_template(
+        'inpatient/medications/list.html',
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        active=active,
+        finished=finished,
+        dispenses=dispenses,
+        quantities=stock_quantities(hospitalization.department_id),
+        may_order=can_order_medication(hospitalization),
+        may_dispense=can_dispense(hospitalization),
+    )
+
+
+@inpatient_bp.route('/dermanlar/<int:hospitalization_id>/bellemek', methods=['GET', 'POST'])
+@inpatient_required(*MEDICATION_WRITER_ROLES)
+def medications_add(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.medications', hospitalization_id=hospitalization.id)
+
+    if not hospitalization.is_open:
+        flash('Syrkaw çykarylan — derman bellemek bolmaýar.', 'danger')
+        return redirect(back)
+
+    medicines = active_medicines()
+    form = MedicationOrderForm(medicines=medicines)
+
+    if form.validate_on_submit():
+        medicine = next((m for m in medicines if m.id == form.medicine_id.data), None)
+        if medicine is None:
+            flash('Bu derman elýeterli däl. Sanawy täzeläň.', 'danger')
+            return redirect(url_for('inpatient.medications_add',
+                                    hospitalization_id=hospitalization.id))
+
+        planned_end_at = None
+        if form.planned_end_at.data:
+            # a plan is given as a day; the order runs to the end of it
+            planned_end_at = datetime.combine(form.planned_end_at.data, time(23, 59))
+
+        order = HospitalizationMedicationOrder(
+            hospitalization_id=hospitalization.id,
+            medicine_id=medicine.id,
+            doctor_id=current_user.id,
+            dose=form.dose.data.strip(),
+            route=form.route.data,
+            frequency=(form.frequency.data or '').strip() or None,
+            quantity_per_dose=form.quantity_per_dose.data,
+            planned_end_at=planned_end_at,
+            note=(form.note.data or '').strip() or None,
+        )
+        db.session.add(order)
+        db.session.commit()
+
+        flash(f'«{medicine.name}» bellenildi.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/medications/add.html',
+        form=form,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        medicines=medicines,
+        quantities=stock_quantities_display(hospitalization.department_id, medicines),
+        units={str(m.id): m.unit_display for m in medicines},
+        back=back,
+    )
+
+
+@inpatient_bp.route('/bellenme/<int:order_id>/besetmek', methods=['POST'])
+@inpatient_required(*MEDICATION_WRITER_ROLES)
+def medications_stop(order_id):
+    order = db.session.get(HospitalizationMedicationOrder, order_id)
+    if order is None:
+        abort(404)
+
+    hospitalization = _load_visible_hospitalization(order.hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.medications', hospitalization_id=hospitalization.id)
+
+    if not order.is_active:
+        flash('Bu bellenme eýýäm bes edilen.', 'info')
+        return redirect(back)
+
+    order.status = HospitalizationMedicationOrder.STATUS_STOPPED
+    order.stopped_at = datetime.now()
+    order.stopped_by_id = current_user.id
+    db.session.commit()
+
+    flash(f'«{order.medicine.name}» bellenmesi bes edildi.', 'success')
+    return redirect(back)
+
+
+@inpatient_bp.route('/bellenme/<int:order_id>/bermek', methods=['POST'])
+@inpatient_required('senior_nurse')
+def medications_dispense(order_id):
+    order = db.session.get(HospitalizationMedicationOrder, order_id)
+    if order is None:
+        abort(404)
+
+    hospitalization = _load_visible_hospitalization(order.hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.medications', hospitalization_id=hospitalization.id)
+
+    if not hospitalization.is_open:
+        flash('Syrkaw çykarylan — derman bermek bolmaýar.', 'danger')
+        return redirect(back)
+
+    # a drug may only leave the store against a live order of a doctor
+    if not order.is_active:
+        flash('Bu bellenme işjeň däl — derman bermek bolmaýar.', 'danger')
+        return redirect(back)
+
+    quantity = parse_quantity(request.form.get('quantity'))
+    if quantity is None:
+        flash('Dogry mukdary giriziň.', 'danger')
+        return redirect(back)
+
+    medicine = order.medicine
+    stock_row = locked_stock(hospitalization.department_id, medicine.id)
+
+    if stock_row.quantity < quantity:
+        # read what we need before the rollback — it expires the objects, and a
+        # stock row created just above would not survive it at all
+        remaining, unit = format_quantity(stock_row.quantity), medicine.unit_display
+        db.session.rollback()
+        flash(f'Ammarda ýeterlik derman ýok. Galyndy: {remaining} {unit}.', 'danger')
+        return redirect(back)
+
+    dispense = HospitalizationMedicationDispense(
+        order_id=order.id,
+        hospitalization_id=hospitalization.id,
+        medicine_id=medicine.id,
+        department_id=hospitalization.department_id,
+        quantity=quantity,
+        price=medicine.price,
+        is_insurance=medicine.is_insurance,
+        given_at=datetime.now(),
+        given_by_id=current_user.id,
+        note=(request.form.get('note') or '').strip()[:500] or None,
+    )
+    db.session.add(dispense)
+    db.session.flush()  # the journal row needs the dispense id
+
+    apply_movement(stock_row, MedicineStockMovement.KIND_OUT, -quantity,
+                   note=f'{hospitalization.history_number} · {hospitalization.patient.full_name}',
+                   dispense=dispense)
+    db.session.commit()
+
+    flash(f'«{medicine.name}» — {format_quantity(quantity)} {medicine.unit_display} berildi. '
+          f'Galyndy: {format_quantity(stock_row.quantity)}.', 'success')
+    return redirect(back)
+
+
+@inpatient_bp.route('/berilme/<int:dispense_id>/yzyna-almak', methods=['POST'])
+@inpatient_required('senior_nurse')
+def medications_dispense_cancel(dispense_id):
+    # locked up front: two clicks on the same row must not refund twice
+    dispense = (
+        HospitalizationMedicationDispense.query
+        .filter_by(id=dispense_id)
+        .with_for_update()
+        .first()
+    )
+    if dispense is None:
+        abort(404)
+
+    hospitalization = _load_visible_hospitalization(dispense.hospitalization_id)
+    if hospitalization is None:
+        db.session.rollback()
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.medications', hospitalization_id=hospitalization.id)
+
+    if not dispense.is_cancellable_by(current_user):
+        already_cancelled = dispense.is_cancelled  # read before the rollback expires it
+        db.session.rollback()
+        if already_cancelled:
+            flash('Bu berilme eýýäm yzyna alnan.', 'info')
+        else:
+            flash('Berilmäni diňe ony ýazan uly şepagat uýasy 24 sagadyň dowamynda '
+                  'yzyna alyp bilýär.', 'danger')
+        return redirect(back)
+
+    cancelled_at = datetime.now()
+    dispense.is_cancelled = True
+    dispense.cancelled_at = cancelled_at
+    dispense.cancelled_by_id = current_user.id
+
+    # the amount goes back on the shelf through a compensating movement — the
+    # original dispense stays in the journal, nothing is erased
+    stock_row = locked_stock(dispense.department_id, dispense.medicine_id)
+    apply_movement(stock_row, MedicineStockMovement.KIND_CORRECTION, dispense.quantity,
+                   note=f'Yzyna alnan berilme #{dispense.id}', dispense=dispense)
+    db.session.commit()
+
+    flash(f'«{dispense.medicine.name}» berilmesi yzyna alyndy. '
+          f'Galyndy: {format_quantity(stock_row.quantity)}.', 'success')
+    return redirect(back)
+
+
+# ── Diagnoses (diagnozlar) ────────────────────────────────────────────────────
+
+# Diagnoses are the doctor's word — the same people who write the diary
+DIAGNOSIS_WRITER_ROLES = DIARY_WRITER_ROLES
+
+
+def can_write_diagnosis(hospitalization) -> bool:
+    return (current_user.role in DIAGNOSIS_WRITER_ROLES
+            and hospitalization.department_id in set(user_department_ids())
+            and hospitalization.is_open)
+
+
+@inpatient_bp.route('/diagnozlar/<int:hospitalization_id>', methods=['GET', 'POST'])
+@inpatient_main_required
+def diagnoses(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    may_write = can_write_diagnosis(hospitalization)
+
+    # the final diagnosis belongs to the discharge form — it is not written
+    # loose here, or a stay could end up "final" while the patient still lies in
+    allowed_kinds = (HospitalizationDiagnosis.KIND_PRELIMINARY,
+                     HospitalizationDiagnosis.KIND_CLINICAL)
+    form = DiagnosisForm(allowed_kinds=allowed_kinds) if may_write else None
+
+    if may_write and form.validate_on_submit():
+        if form.kind.data not in allowed_kinds:
+            flash('Jemleýji diagnoz çykarylanda ýazylýar.', 'danger')
+            return redirect(url_for('inpatient.diagnoses', hospitalization_id=hospitalization.id))
+
+        hospitalization.diagnoses.append(HospitalizationDiagnosis(
+            kind=form.kind.data,
+            text=form.text.data.strip(),
+            code=(form.code.data or '').strip() or None,
+            note=(form.note.data or '').strip() or None,
+            author_id=current_user.id,
+        ))
+        db.session.commit()
+        flash('Diagnoz ýazyldy.', 'success')
+        return redirect(url_for('inpatient.diagnoses', hospitalization_id=hospitalization.id))
+
+    if request.method == 'POST' and not may_write:
+        flash('Siz diagnoz ýazyp bilmeýärsiňiz.', 'danger')
+        return redirect(url_for('inpatient.diagnoses', hospitalization_id=hospitalization.id))
+
+    entries = (
+        HospitalizationDiagnosis.query
+        .options(joinedload(HospitalizationDiagnosis.author))
+        .filter_by(hospitalization_id=hospitalization.id)
+        .order_by(HospitalizationDiagnosis.created_at.desc(),
+                  HospitalizationDiagnosis.id.desc())
+        .all()
+    )
+
+    return render_template(
+        'inpatient/diagnoses/list.html',
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        entries=entries,
+        form=form,
+        may_write=may_write,
+        kinds=HospitalizationDiagnosis.KINDS,
+    )
+
+
+# ── Temperature sheet (temperatura sanawy) ────────────────────────────────────
+
+# Measuring is the ward nurse's job; the senior nurse stands in for her
+VITALS_WRITER_ROLES = ('nurse', 'senior_nurse')
+
+VITALS_PER_PAGE = 40
+
+
+def can_record_vitals(hospitalization) -> bool:
+    return (current_user.role in VITALS_WRITER_ROLES
+            and hospitalization.department_id in set(user_department_ids())
+            and hospitalization.is_open)
+
+
+# Temperature chart geometry. The scale is fixed rather than fitted to the data
+# so two patients' sheets are read the same way, and a flat normal line does not
+# look like a wild swing.
+CHART = {'min': 35.0, 'max': 41.0, 'width': 760.0, 'height': 150.0, 'left': 34.0, 'top': 12.0}
+
+
+def temperature_chart(records):
+    """Screen coordinates for the temperature curve, oldest reading first.
+
+    Returns None when there is nothing to draw. Values outside the printed
+    scale are clamped so one bad reading cannot push the curve off the card.
+    """
+    points = [r for r in records if r.temperature is not None]
+    if not points:
+        return None
+
+    span = CHART['max'] - CHART['min']
+    step = CHART['width'] / (len(points) - 1) if len(points) > 1 else 0.0
+
+    dots = []
+    for index, record in enumerate(points):
+        value = min(max(float(record.temperature), CHART['min']), CHART['max'])
+        x = CHART['left'] + (index * step if step else CHART['width'] / 2)
+        y = CHART['top'] + CHART['height'] - (value - CHART['min']) / span * CHART['height']
+        dots.append({
+            'x': round(x, 1),
+            'y': round(y, 1),
+            'value': record.temperature_display,
+            'when': record.measured_at.strftime('%d.%m %H:%M'),
+            'fever': record.has_fever,
+        })
+
+    # the 37 °C line — where "normal" stops
+    normal_y = CHART['top'] + CHART['height'] - (37.0 - CHART['min']) / span * CHART['height']
+
+    return {
+        'dots': dots,
+        'polyline': ' '.join(f"{d['x']},{d['y']}" for d in dots),
+        'normal_y': round(normal_y, 1),
+        'grid': [
+            {'label': f'{t:g}',
+             'y': round(CHART['top'] + CHART['height']
+                        - (t - CHART['min']) / span * CHART['height'], 1)}
+            for t in (35, 36, 37, 38, 39, 40, 41)
+        ],
+        'view_width': CHART['left'] + CHART['width'] + 16,
+        'view_height': CHART['top'] + CHART['height'] + 28,
+    }
+
+
+@inpatient_bp.route('/olcegler/<int:hospitalization_id>', methods=['GET', 'POST'])
+@inpatient_main_required
+def vitals(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    may_record = can_record_vitals(hospitalization)
+    form = VitalRecordForm() if may_record else None
+
+    if may_record and form.validate_on_submit():
+        db.session.add(HospitalizationVitalRecord(
+            hospitalization_id=hospitalization.id,
+            measured_at=form.measured_at.data,
+            temperature=form.temperature.data,
+            pulse=form.pulse.data,
+            systolic=form.systolic.data,
+            diastolic=form.diastolic.data,
+            respiratory_rate=form.respiratory_rate.data,
+            note=(form.note.data or '').strip() or None,
+            recorded_by_id=current_user.id,
+        ))
+        db.session.commit()
+        flash('Ölçegler ýazyldy.', 'success')
+        return redirect(url_for('inpatient.vitals', hospitalization_id=hospitalization.id))
+
+    if request.method == 'POST' and not may_record:
+        flash('Siz ölçeg ýazyp bilmeýärsiňiz.', 'danger')
+        return redirect(url_for('inpatient.vitals', hospitalization_id=hospitalization.id))
+
+    if may_record and request.method == 'GET':
+        form.measured_at.data = datetime.now().replace(second=0, microsecond=0)
+
+    page = request.args.get('page', 1, type=int)
+    pagination = (
+        HospitalizationVitalRecord.query
+        .options(joinedload(HospitalizationVitalRecord.recorded_by))
+        .filter_by(hospitalization_id=hospitalization.id)
+        .order_by(HospitalizationVitalRecord.measured_at.desc(),
+                  HospitalizationVitalRecord.id.desc())
+        .paginate(page=page, per_page=VITALS_PER_PAGE, error_out=False)
+    )
+
+    return render_template(
+        'inpatient/vitals/list.html',
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        records=pagination.items,
+        pagination=pagination,
+        # the chart reads left-to-right in time, the table newest-first
+        chart=temperature_chart(list(reversed(pagination.items))),
+        form=form,
+        may_record=may_record,
+    )
+
+
+@inpatient_bp.route('/olcegler/yazgy/<int:record_id>', methods=['GET', 'POST'])
+@inpatient_required(*VITALS_WRITER_ROLES)
+def vitals_edit(record_id):
+    record = db.session.get(HospitalizationVitalRecord, record_id)
+    if record is None:
+        abort(404)
+
+    hospitalization = _load_visible_hospitalization(record.hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.vitals', hospitalization_id=hospitalization.id)
+
+    if not record.is_editable_by(current_user):
+        flash('Ýazgyny diňe ony ýazan işgär 12 sagadyň dowamynda üýtgedip bilýär.', 'danger')
+        return redirect(back)
+
+    form = VitalRecordForm(obj=record)
+
+    if form.validate_on_submit():
+        record.measured_at = form.measured_at.data
+        record.temperature = form.temperature.data
+        record.pulse = form.pulse.data
+        record.systolic = form.systolic.data
+        record.diastolic = form.diastolic.data
+        record.respiratory_rate = form.respiratory_rate.data
+        record.note = (form.note.data or '').strip() or None
+        record.updated_at = datetime.now()
+        db.session.commit()
+        flash('Ölçegler üýtgedildi.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/vitals/edit.html',
+        form=form,
+        record=record,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        back=back,
+    )
+
+
+# ── Operations (operasiýalar) ─────────────────────────────────────────────────
+
+# Planning and writing up an operation is the doctor's act
+OPERATION_WRITER_ROLES = ('doctor', 'department_head')
+
+
+def can_manage_operations(hospitalization) -> bool:
+    return (current_user.role in OPERATION_WRITER_ROLES
+            and hospitalization.department_id in set(user_department_ids())
+            and hospitalization.is_open)
+
+
+def active_operations():
+    return Operation.query.filter_by(is_active=True).order_by(Operation.name).all()
+
+
+def _operation_status(form):
+    """Filling in `performed_at` is what turns a plan into a record."""
+    return (HospitalizationOperation.STATUS_DONE if form.performed_at.data
+            else HospitalizationOperation.STATUS_PLANNED)
+
+
+@inpatient_bp.route('/operasiyalar/<int:hospitalization_id>')
+@inpatient_main_required
+def operations(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    rows = (
+        HospitalizationOperation.query
+        .options(joinedload(HospitalizationOperation.operation),
+                 joinedload(HospitalizationOperation.surgeon),
+                 joinedload(HospitalizationOperation.anesthesiologist),
+                 joinedload(HospitalizationOperation.created_by),
+                 joinedload(HospitalizationOperation.cancelled_by),
+                 subqueryload(HospitalizationOperation.assistants))
+        .filter_by(hospitalization_id=hospitalization.id)
+        .order_by(HospitalizationOperation.created_at.desc())
+        .all()
+    )
+
+    return render_template(
+        'inpatient/operations/list.html',
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        planned=[o for o in rows if o.is_planned],
+        done=[o for o in rows if o.is_done],
+        cancelled=[o for o in rows
+                   if o.status == HospitalizationOperation.STATUS_CANCELLED],
+        may_manage=can_manage_operations(hospitalization),
+    )
+
+
+def _save_operation(form, hospitalization, operations_list, medics, record=None):
+    """Write a planned or performed operation. Returns the row, or None if the
+    submitted ids did not survive the re-check against the catalogue."""
+    operation = next((o for o in operations_list if o.id == form.operation_id.data), None)
+    surgeon = next((m for m in medics if m.id == form.surgeon_id.data), None)
+    if operation is None or surgeon is None:
+        return None
+
+    anesthesiologist_id = form.anesthesiologist_id.data or None
+    if anesthesiologist_id and not any(m.id == anesthesiologist_id for m in medics):
+        return None
+
+    assistants = [m for m in medics if m.id in set(form.assistant_ids.data or [])]
+
+    if record is None:
+        record = HospitalizationOperation(
+            hospitalization_id=hospitalization.id,
+            created_by_id=current_user.id,
+            # snapshotted once, at the moment the record is opened — a later
+            # catalogue change must not rewrite what this operation cost
+            price=operation.price,
+            is_insurance=operation.is_insurance,
+        )
+        db.session.add(record)
+
+    record.operation_id = operation.id
+    record.surgeon_id = surgeon.id
+    record.anesthesiologist_id = anesthesiologist_id
+    record.anesthesia = form.anesthesia.data
+    record.planned_at = form.planned_at.data
+    record.performed_at = form.performed_at.data
+    record.indication = (form.indication.data or '').strip() or None
+    record.protocol = (form.protocol.data or '').strip() or None
+    record.complications = (form.complications.data or '').strip() or None
+    record.assistants = assistants
+
+    new_status = _operation_status(form)
+    if new_status == HospitalizationOperation.STATUS_DONE:
+        record.performed_by_id = current_user.id
+    record.status = new_status
+    return record
+
+
+@inpatient_bp.route('/operasiyalar/<int:hospitalization_id>/goshmak', methods=['GET', 'POST'])
+@inpatient_required(*OPERATION_WRITER_ROLES)
+def operations_add(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.operations', hospitalization_id=hospitalization.id)
+
+    if not hospitalization.is_open:
+        flash('Syrkaw çykarylan — operasiýa ýazmak bolmaýar.', 'danger')
+        return redirect(back)
+
+    catalogue = active_operations()
+    medics = department_medics(hospitalization.department_id)
+    form = OperationForm(operations=catalogue, medics=medics)
+
+    if request.method == 'GET':
+        form.surgeon_id.data = hospitalization.doctor_id or (medics[0].id if medics else None)
+
+    if form.validate_on_submit():
+        record = _save_operation(form, hospitalization, catalogue, medics)
+        if record is None:
+            flash('Saýlananlaryň biri elýeterli däl. Sahypany täzeläň.', 'danger')
+            return redirect(url_for('inpatient.operations_add',
+                                    hospitalization_id=hospitalization.id))
+        db.session.commit()
+        flash(f'«{record.operation.name}» ýazyldy.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/operations/form.html',
+        form=form,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        catalogue=catalogue,
+        medics=medics,
+        record=None,
+        back=back,
+    )
+
+
+@inpatient_bp.route('/operasiya/<int:operation_id>/uytgetmek', methods=['GET', 'POST'])
+@inpatient_required(*OPERATION_WRITER_ROLES)
+def operations_edit(operation_id):
+    record = db.session.get(HospitalizationOperation, operation_id)
+    if record is None:
+        abort(404)
+
+    hospitalization = _load_visible_hospitalization(record.hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.operations', hospitalization_id=hospitalization.id)
+
+    if record.status == HospitalizationOperation.STATUS_CANCELLED:
+        flash('Ýatyrylan operasiýany üýtgedip bolmaýar.', 'danger')
+        return redirect(back)
+
+    if not hospitalization.is_open:
+        flash('Syrkaw çykarylan — operasiýany üýtgedip bolmaýar.', 'danger')
+        return redirect(back)
+
+    catalogue = active_operations()
+    # the catalogue row this record points at may have been blocked since; keep
+    # it selectable so editing does not silently change the operation
+    if not any(o.id == record.operation_id for o in catalogue):
+        catalogue = [record.operation] + catalogue
+    medics = department_medics(hospitalization.department_id)
+    if not any(m.id == record.surgeon_id for m in medics):
+        medics = [record.surgeon] + medics
+
+    form = OperationForm(operations=catalogue, medics=medics)
+
+    if not form.is_submitted():
+        form.operation_id.data = record.operation_id
+        form.surgeon_id.data = record.surgeon_id
+        form.anesthesiologist_id.data = record.anesthesiologist_id or 0
+        form.assistant_ids.data = [u.id for u in record.assistants]
+        form.anesthesia.data = record.anesthesia
+        form.planned_at.data = record.planned_at
+        form.performed_at.data = record.performed_at
+        form.indication.data = record.indication
+        form.protocol.data = record.protocol
+        form.complications.data = record.complications
+
+    if form.validate_on_submit():
+        saved = _save_operation(form, hospitalization, catalogue, medics, record=record)
+        if saved is None:
+            flash('Saýlananlaryň biri elýeterli däl. Sahypany täzeläň.', 'danger')
+            return redirect(url_for('inpatient.operations_edit', operation_id=record.id))
+        db.session.commit()
+        flash(f'«{record.operation.name}» täzelendi.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/operations/form.html',
+        form=form,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        catalogue=catalogue,
+        medics=medics,
+        record=record,
+        back=back,
+    )
+
+
+@inpatient_bp.route('/operasiya/<int:operation_id>/yatyrmak', methods=['GET', 'POST'])
+@inpatient_required(*OPERATION_WRITER_ROLES)
+def operations_cancel(operation_id):
+    record = db.session.get(HospitalizationOperation, operation_id)
+    if record is None:
+        abort(404)
+
+    hospitalization = _load_visible_hospitalization(record.hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.operations', hospitalization_id=hospitalization.id)
+
+    # only a plan may be called off — an operation that happened is a fact
+    if not record.is_planned:
+        flash('Diňe meýilleşdirilen operasiýany ýatyryp bolýar.', 'danger')
+        return redirect(back)
+
+    form = OperationCancelForm()
+
+    if form.validate_on_submit():
+        record.status = HospitalizationOperation.STATUS_CANCELLED
+        record.cancelled_at = datetime.now()
+        record.cancelled_by_id = current_user.id
+        record.cancel_reason = form.reason.data.strip()
+        db.session.commit()
+        flash(f'«{record.operation.name}» ýatyryldy.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/operations/cancel.html',
+        form=form,
+        record=record,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        back=back,
+    )
+
+
+# ── Admission examination (ilkinji gözden geçirme) ────────────────────────────
+
+# The opening document of the case history — the doctor's word, like the diary
+ADMISSION_EXAM_WRITER_ROLES = DIARY_WRITER_ROLES
+
+# Allergies are asked about by the doctor, but the senior nurse hears about a
+# reaction at the moment she hands a drug over — she must be able to write it down
+ALLERGY_WRITER_ROLES = ('doctor', 'department_head', 'senior_nurse')
+
+
+def can_write_admission_exam(hospitalization) -> bool:
+    return (current_user.role in ADMISSION_EXAM_WRITER_ROLES
+            and hospitalization.department_id in set(user_department_ids())
+            and hospitalization.is_open)
+
+
+def can_edit_allergies(hospitalization) -> bool:
+    return (current_user.role in ALLERGY_WRITER_ROLES
+            and hospitalization.department_id in set(user_department_ids())
+            and hospitalization.is_open)
+
+
+def _apply_admission_exam(form, exam):
+    exam.complaints = form.complaints.data.strip()
+    exam.anamnesis_morbi = form.anamnesis_morbi.data.strip()
+    exam.anamnesis_vitae = (form.anamnesis_vitae.data or '').strip() or None
+    exam.objective_status = form.objective_status.data.strip()
+    exam.local_status = (form.local_status.data or '').strip() or None
+    exam.diagnosis_rationale = (form.diagnosis_rationale.data or '').strip() or None
+    exam.examination_plan = (form.examination_plan.data or '').strip() or None
+    exam.treatment_plan = (form.treatment_plan.data or '').strip() or None
+    exam.temperature = form.temperature.data
+    exam.pulse = form.pulse.data
+    exam.systolic = form.systolic.data
+    exam.diastolic = form.diastolic.data
+    exam.height = form.height.data
+    exam.weight = form.weight.data
+
+
+@inpatient_bp.route('/gozden-gecirme/<int:hospitalization_id>', methods=['GET', 'POST'])
+@inpatient_main_required
+def admission_exam(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    patient = hospitalization.patient
+    exam = hospitalization.admission_exam
+    # one exam per stay: once it exists, writing means editing it
+    may_write = exam is None and can_write_admission_exam(hospitalization)
+
+    form = AdmissionExamForm() if may_write else None
+    allergy_form = AllergyForm() if can_edit_allergies(hospitalization) else None
+
+    if may_write and form.validate_on_submit():
+        exam = HospitalizationAdmissionExam(
+            hospitalization_id=hospitalization.id,
+            author_id=current_user.id,
+        )
+        _apply_admission_exam(form, exam)
+        db.session.add(exam)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            # two doctors opened the blank form at once — the unique index
+            # rejects the second, and their text would otherwise be lost
+            db.session.rollback()
+            flash('Bu ýatyş üçin gözden geçirme eýýäm ýazyldy.', 'warning')
+        else:
+            flash('Ilkinji gözden geçirme ýazyldy.', 'success')
+        return redirect(url_for('inpatient.admission_exam',
+                                hospitalization_id=hospitalization.id))
+
+    if request.method == 'POST' and not may_write:
+        flash('Siz gözden geçirme ýazyp bilmeýärsiňiz.', 'danger')
+        return redirect(url_for('inpatient.admission_exam',
+                                hospitalization_id=hospitalization.id))
+
+    return render_template(
+        'inpatient/admission/exam.html',
+        hospitalization=hospitalization,
+        patient=patient,
+        exam=exam,
+        form=form,
+        allergy_form=allergy_form,
+        may_write=may_write,
+        may_edit_allergies=can_edit_allergies(hospitalization),
+        severities=PatientAllergy.SEVERITIES,
+    )
+
+
+@inpatient_bp.route('/gozden-gecirme/<int:exam_id>/uytgetmek', methods=['GET', 'POST'])
+@inpatient_required(*ADMISSION_EXAM_WRITER_ROLES)
+def admission_exam_edit(exam_id):
+    exam = db.session.get(HospitalizationAdmissionExam, exam_id)
+    if exam is None:
+        abort(404)
+
+    hospitalization = _load_visible_hospitalization(exam.hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.admission_exam', hospitalization_id=hospitalization.id)
+
+    if not exam.is_editable_by(current_user):
+        flash('Gözden geçirmäni diňe awtory ýazylandan soň 24 sagadyň dowamynda '
+              'üýtgedip bilýär.', 'danger')
+        return redirect(back)
+
+    form = AdmissionExamForm(obj=exam)
+
+    if form.validate_on_submit():
+        _apply_admission_exam(form, exam)
+        exam.updated_at = datetime.now()
+        db.session.commit()
+        flash('Gözden geçirme üýtgedildi.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/admission/edit.html',
+        form=form,
+        exam=exam,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        back=back,
+    )
+
+
+# ── Allergies (allergiýa) ─────────────────────────────────────────────────────
+
+@inpatient_bp.route('/allergiya/<int:hospitalization_id>/goshmak', methods=['POST'])
+@inpatient_required(*ALLERGY_WRITER_ROLES)
+def allergies_add(hospitalization_id):
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.admission_exam', hospitalization_id=hospitalization.id)
+
+    if not hospitalization.is_open:
+        flash('Syrkaw çykarylan — allergiýa goşmak bolmaýar.', 'danger')
+        return redirect(back)
+
+    form = AllergyForm()
+    if not form.validate_on_submit():
+        for field in form:
+            for error in field.errors:
+                flash(error, 'danger')
+        return redirect(back)
+
+    patient = hospitalization.patient
+    substance = form.substance.data.strip()
+
+    if any(a.substance.lower() == substance.lower() for a in patient.active_allergies):
+        flash(f'«{substance}» eýýäm hasaba alnan.', 'info')
+        return redirect(back)
+
+    patient.allergies.append(PatientAllergy(
+        substance=substance,
+        reaction=(form.reaction.data or '').strip() or None,
+        severity=form.severity.data,
+        note=(form.note.data or '').strip() or None,
+        recorded_by_id=current_user.id,
+    ))
+    # writing one down is itself an answer to "was this asked?"
+    patient.allergies_reviewed_at = datetime.now()
+    patient.allergies_reviewed_by_id = current_user.id
+    db.session.commit()
+
+    flash(f'Allergiýa «{substance}» hasaba alyndy.', 'success')
+    return redirect(back)
+
+
+@inpatient_bp.route('/allergiya/<int:hospitalization_id>/yok', methods=['POST'])
+@inpatient_required(*ALLERGY_WRITER_ROLES)
+def allergies_mark_none(hospitalization_id):
+    """Record that allergies were asked about and none were found. Without this
+    an empty list is indistinguishable from nobody having asked."""
+    hospitalization = _load_visible_hospitalization(hospitalization_id)
+    if hospitalization is None:
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.admission_exam', hospitalization_id=hospitalization.id)
+    patient = hospitalization.patient
+
+    if patient.active_allergies:
+        flash('Syrkawda hasaba alnan allergiýa bar — ilki ony aýyryň.', 'danger')
+        return redirect(back)
+
+    patient.allergies_reviewed_at = datetime.now()
+    patient.allergies_reviewed_by_id = current_user.id
+    db.session.commit()
+
+    flash('Allergiýa ýok diýip bellenildi.', 'success')
+    return redirect(back)
+
+
+@inpatient_bp.route('/allergiya/<int:allergy_id>/ayyrmak', methods=['GET', 'POST'])
+@inpatient_required(*ALLERGY_WRITER_ROLES)
+def allergies_remove(allergy_id):
+    allergy = db.session.get(PatientAllergy, allergy_id)
+    if allergy is None:
+        abort(404)
+
+    # the patient must be lying in one of the user's departments right now
+    hospitalization = active_hospitalization(allergy.patient_id)
+    if hospitalization is None or hospitalization.department_id not in set(user_department_ids()):
+        flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    back = url_for('inpatient.admission_exam', hospitalization_id=hospitalization.id)
+
+    if not allergy.is_active:
+        flash('Bu allergiýa eýýäm aýrylan.', 'info')
+        return redirect(back)
+
+    form = AllergyRemoveForm()
+
+    if form.validate_on_submit():
+        allergy.is_active = False
+        allergy.removed_at = datetime.now()
+        allergy.removed_by_id = current_user.id
+        allergy.remove_reason = form.reason.data.strip()
+        db.session.commit()
+        flash(f'Allergiýa «{allergy.substance}» aýryldy.', 'success')
+        return redirect(back)
+
+    return render_template(
+        'inpatient/admission/allergy_remove.html',
+        form=form,
+        allergy=allergy,
+        hospitalization=hospitalization,
+        patient=hospitalization.patient,
+        back=back,
+    )

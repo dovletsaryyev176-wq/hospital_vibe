@@ -252,6 +252,14 @@
        class="nav-link {% if 'admin.meals' in request.endpoint %}active{% endif %}">
       <i class="bi bi-cup-hot"></i> Naharlar
     </a>
+    <a href="{{ url_for('admin.medicines_list') }}"
+       class="nav-link {% if 'admin.medicines' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-capsule"></i> Dermanlar
+    </a>
+    <a href="{{ url_for('admin.operations_list') }}"
+       class="nav-link {% if 'admin.operations' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-scissors"></i> Operasiýalar
+    </a>
 
     <div class="nav-section mt-2">Hasabatlar</div>
     <a href="{{ url_for('admin.daily_report') }}"

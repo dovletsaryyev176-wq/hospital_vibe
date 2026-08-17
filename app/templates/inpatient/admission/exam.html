@@ -1,0 +1,251 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Ilkinji gözden geçirme{% endblock %}
+{% block page_title %}Ilkinji gözden geçirme{% endblock %}
+
+{% macro section(label, value) %}
+  {% if value %}
+  <div class="mb-3">
+    <div class="text-muted mb-1" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">
+      {{ label }}
+    </div>
+    <div style="white-space:pre-wrap">{{ value }}</div>
+  </div>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+
+{% include 'inpatient/_patient_header.html' %}
+{% include 'inpatient/_allergy_alert.html' %}
+
+<!-- Allergies -->
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex flex-wrap align-items-center gap-2">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-exclamation-octagon me-2 text-danger"></i>Allergoanamnez
+    </h6>
+    {% if patient.allergy_status == 'present' %}
+      <span class="badge bg-danger-subtle text-danger">{{ patient.active_allergies | length }}</span>
+    {% elif patient.allergy_status == 'none' %}
+      <span class="badge bg-success-subtle text-success">Allergiýa ýok</span>
+    {% else %}
+      <span class="badge bg-warning-subtle text-warning">Anyklanmadyk</span>
+    {% endif %}
+
+    {% if patient.allergies_reviewed_at %}
+      <span class="text-muted small ms-auto">
+        Anyklanan: {{ patient.allergies_reviewed_at.strftime('%d.%m.%Y') }}
+        {% if patient.allergies_reviewed_by %}· {{ patient.allergies_reviewed_by.full_name }}{% endif %}
+      </span>
+    {% endif %}
+  </div>
+
+  <div class="card-body px-4 py-3">
+    {% if patient.active_allergies %}
+    <div class="table-responsive mb-3">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th>Serişde</th>
+            <th style="width:140px">Agyrlygy</th>
+            <th>Reaksiýasy</th>
+            <th style="width:160px">Ýazan</th>
+            {% if may_edit_allergies %}<th style="width:60px"></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in patient.active_allergies %}
+          <tr>
+            <td class="fw-semibold">{{ a.substance }}</td>
+            <td>
+              {% if a.is_dangerous %}
+                <span class="badge bg-danger">{{ a.severity_display }}</span>
+              {% else %}
+                <span class="badge bg-warning text-dark">{{ a.severity_display }}</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {{ a.reaction or '—' }}
+              {% if a.note %}<div class="text-muted">{{ a.note }}</div>{% endif %}
+            </td>
+            <td class="text-muted small">
+              {{ a.recorded_by.full_name }}
+              <div>{{ a.created_at.strftime('%d.%m.%Y') }}</div>
+            </td>
+            {% if may_edit_allergies %}
+            <td class="text-end">
+              <a href="{{ url_for('inpatient.allergies_remove', allergy_id=a.id) }}"
+                 class="btn btn-sm btn-outline-secondary" title="Aýyrmak">
+                <i class="bi bi-x-lg"></i>
+              </a>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% elif patient.allergy_status == 'none' %}
+      <p class="text-success small mb-3">
+        <i class="bi bi-check-circle me-1"></i>Syrkawda belli allergiýa ýok diýip bellenilen.
+      </p>
+    {% else %}
+      <p class="text-warning small mb-3">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        Allergiýa heniz soralmadyk. Derman bermezden öň anyklaň.
+      </p>
+    {% endif %}
+
+    {% if may_edit_allergies %}
+      <form method="POST" action="{{ url_for('inpatient.allergies_add', hospitalization_id=hospitalization.id) }}"
+            class="border-top pt-3" novalidate>
+        {{ allergy_form.hidden_tag() }}
+        <div class="row g-2 align-items-end">
+          <div class="col-md-3">
+            {{ allergy_form.substance.label(class='form-label fw-medium small') }}
+            {{ allergy_form.substance(class='form-control form-control-sm') }}
+          </div>
+          <div class="col-md-2">
+            {{ allergy_form.severity.label(class='form-label fw-medium small') }}
+            {{ allergy_form.severity(class='form-select form-select-sm') }}
+          </div>
+          <div class="col-md-3">
+            {{ allergy_form.reaction.label(class='form-label fw-medium small') }}
+            {{ allergy_form.reaction(class='form-control form-control-sm') }}
+          </div>
+          <div class="col-md-2">
+            {{ allergy_form.note.label(class='form-label fw-medium small') }}
+            {{ allergy_form.note(class='form-control form-control-sm') }}
+          </div>
+          <div class="col-md-2">
+            {{ allergy_form.submit(class='btn btn-sm btn-danger w-100') }}
+          </div>
+        </div>
+      </form>
+
+      {% if patient.allergy_status == 'unknown' %}
+      <form method="POST" action="{{ url_for('inpatient.allergies_mark_none', hospitalization_id=hospitalization.id) }}"
+            class="mt-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-outline-success">
+          <i class="bi bi-check-lg me-1"></i>Allergiýa ýok diýip bellemek
+        </button>
+      </form>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+<!-- The examination itself -->
+{% if exam %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex flex-wrap align-items-center gap-2">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-clipboard2-pulse me-2 text-primary"></i>Gözden geçirme
+    </h6>
+    {% if exam.is_edited %}
+      <span class="badge bg-warning-subtle text-warning">üýtgedilen</span>
+    {% endif %}
+    <span class="text-muted small ms-auto">
+      {{ exam.created_at.strftime('%d.%m.%Y %H:%M') }} · {{ exam.author.full_name }}
+    </span>
+    {% if exam.is_editable_by(current_user) %}
+      <a href="{{ url_for('inpatient.admission_exam_edit', exam_id=exam.id) }}"
+         class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-pencil me-1"></i>Üýtgetmek
+      </a>
+    {% endif %}
+  </div>
+  <div class="card-body px-4 py-4">
+
+    {% if exam.temperature is not none or exam.pulse is not none
+          or exam.systolic is not none or exam.height or exam.weight %}
+    <div class="row g-3 mb-4 pb-3 border-bottom">
+      <div class="col-6 col-md-2">
+        <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">t °C</div>
+        <div class="fw-semibold">{{ exam.temperature_display }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Puls</div>
+        <div class="fw-semibold">{{ exam.pulse if exam.pulse is not none else '—' }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Basyş</div>
+        <div class="fw-semibold">{{ exam.pressure_display }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Boýy</div>
+        <div class="fw-semibold">{{ exam.height ~ ' sm' if exam.height else '—' }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Agramy</div>
+        <div class="fw-semibold">{{ exam.weight_display ~ ' kg' if exam.weight else '—' }}</div>
+      </div>
+      <div class="col-6 col-md-2">
+        <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">BMI</div>
+        <div class="fw-semibold">{{ exam.bmi or '—' }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {{ section('Şikaýatlary', exam.complaints) }}
+    {{ section('Keseliň anamnezi', exam.anamnesis_morbi) }}
+    {{ section('Ýaşaýyş anamnezi', exam.anamnesis_vitae) }}
+    {{ section('Obýektiw ýagdaýy', exam.objective_status) }}
+    {{ section('Lokal status', exam.local_status) }}
+    {{ section('Diagnozyň esaslandyrylyşy', exam.diagnosis_rationale) }}
+    {{ section('Barlag meýilnamasy', exam.examination_plan) }}
+    {{ section('Bejergi meýilnamasy', exam.treatment_plan) }}
+  </div>
+</div>
+
+{% elif may_write %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white border-bottom py-3 px-4">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-clipboard2-pulse me-2 text-primary"></i>Gözden geçirmäni ýazmak
+    </h6>
+  </div>
+  <div class="card-body px-4 py-4">
+    {% if hospitalization.admission_exam_overdue %}
+    <div class="alert alert-warning py-2 px-3 small">
+      <i class="bi bi-clock-history me-1"></i>
+      Syrkaw {{ hospitalization.admitted_at.strftime('%d.%m.%Y %H:%M') }}-da ýatyryldy —
+      gözden geçirme gijikdirildi.
+    </div>
+    {% endif %}
+
+    <form method="POST" novalidate>
+      {{ form.hidden_tag() }}
+      {% include 'inpatient/admission/_fields.html' %}
+
+      <hr class="my-4">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span class="text-muted small">
+          <i class="bi bi-info-circle me-1"></i>
+          Ýazylandan soň 24 sagadyň dowamynda düzedip bolýar.
+        </span>
+        {{ form.submit(class='btn btn-primary px-4') }}
+      </div>
+    </form>
+  </div>
+</div>
+
+{% else %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-clipboard2 opacity-25" style="font-size:2.5rem"></i>
+    <div class="mt-2">Ilkinji gözden geçirme ýazylmadyk.</div>
+    <div class="small">
+      {% if hospitalization.is_open %}
+        Ony bejeriji lukman ýazýar.
+      {% else %}
+        Syrkaw çykarylan — indi ýazyp bolmaýar.
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

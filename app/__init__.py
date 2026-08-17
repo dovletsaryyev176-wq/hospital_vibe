@@ -18,7 +18,11 @@ def create_app(config_class=Config):
     login_manager.login_message = 'Войдите в систему для доступа.'
     login_manager.login_message_category = 'warning'
 
-    from app.models import User
+    from app.models import User, format_quantity
+
+    # drug amounts must read as «10» / «0.5», never «10.00» — used wherever a
+    # stock remainder is printed
+    app.jinja_env.filters['quantity'] = format_quantity
 
     @login_manager.user_loader
     def load_user(user_id):

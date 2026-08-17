@@ -1,0 +1,188 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Temperatura sanawy{% endblock %}
+{% block page_title %}Temperatura sanawy{% endblock %}
+
+{% block content %}
+
+{% include 'inpatient/_patient_header.html' %}
+
+<!-- Temperature curve -->
+{% if chart %}
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-graph-up me-2 text-danger"></i>Temperatura egrisi
+    </h6>
+    <span class="text-muted small ms-auto">{{ chart.dots | length }} ölçeg</span>
+  </div>
+  <div class="card-body px-4 py-3">
+    <div style="overflow-x:auto">
+      <svg viewBox="0 0 {{ chart.view_width }} {{ chart.view_height }}"
+           style="width:100%;min-width:600px;height:auto" role="img"
+           aria-label="Temperatura egrisi">
+        <!-- grid -->
+        {% for line in chart.grid %}
+          <line x1="34" y1="{{ line.y }}" x2="{{ chart.view_width - 16 }}" y2="{{ line.y }}"
+                stroke="#e9ecef" stroke-width="1"/>
+          <text x="26" y="{{ line.y + 4 }}" text-anchor="end"
+                font-size="10" fill="#adb5bd">{{ line.label }}</text>
+        {% endfor %}
+
+        <!-- 37 °C: the line between normal and fever -->
+        <line x1="34" y1="{{ chart.normal_y }}" x2="{{ chart.view_width - 16 }}" y2="{{ chart.normal_y }}"
+              stroke="#dc3545" stroke-width="1" stroke-dasharray="4 3" opacity=".55"/>
+
+        <!-- curve -->
+        {% if chart.dots | length > 1 %}
+          <polyline points="{{ chart.polyline }}" fill="none" stroke="#0d6efd"
+                    stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        {% endif %}
+
+        {% for dot in chart.dots %}
+          <circle cx="{{ dot.x }}" cy="{{ dot.y }}" r="3.5"
+                  fill="{{ '#dc3545' if dot.fever else '#0d6efd' }}">
+            <title>{{ dot.when }} — {{ dot.value }} °C</title>
+          </circle>
+        {% endfor %}
+      </svg>
+    </div>
+    <div class="text-muted small mt-2">
+      <span class="d-inline-flex align-items-center gap-1 me-3">
+        <span style="width:10px;height:10px;border-radius:50%;background:#0d6efd;display:inline-block"></span>
+        Kadaly
+      </span>
+      <span class="d-inline-flex align-items-center gap-1">
+        <span style="width:10px;height:10px;border-radius:50%;background:#dc3545;display:inline-block"></span>
+        37,5 °C we ýokary
+      </span>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- New measurement -->
+{% if may_record %}
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-thermometer-half me-2 text-primary"></i>Ölçegleri ýazmak
+    </h6>
+  </div>
+  <div class="card-body px-4 py-4">
+    <form method="POST" novalidate>
+      {{ form.hidden_tag() }}
+      {% include 'inpatient/vitals/_fields.html' %}
+      <div class="d-flex justify-content-end mt-3">
+        {{ form.submit(class='btn btn-primary px-4') }}
+      </div>
+    </form>
+  </div>
+</div>
+{% elif hospitalization.is_open %}
+<div class="alert alert-light border py-2 px-3 small">
+  <i class="bi bi-eye me-1 text-muted"></i>
+  Ölçegleri şepagat uýasy ýazýar. Siz diňe görüp bilýärsiňiz.
+</div>
+{% else %}
+<div class="alert alert-light border py-2 px-3 small">
+  <i class="bi bi-lock me-1 text-muted"></i>
+  Syrkaw çykarylan — sanaw ýapyldy.
+</div>
+{% endif %}
+
+<!-- Sheet -->
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-list-columns me-2 text-muted"></i>Ölçegleriň sanawy
+    </h6>
+    <span class="badge bg-secondary-subtle text-secondary ms-2">{{ pagination.total }}</span>
+  </div>
+
+  {% if records %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:150px">Ölçenen wagty</th>
+          <th class="text-end" style="width:110px">t °C</th>
+          <th class="text-end" style="width:100px">Puls</th>
+          <th class="text-end" style="width:120px">Basyş</th>
+          <th class="text-end" style="width:110px">Dem alşy</th>
+          <th>Bellik</th>
+          <th style="width:160px">Ýazan</th>
+          <th class="pe-4" style="width:60px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td class="ps-4 text-nowrap small">
+            {{ r.measured_at.strftime('%d.%m.%Y %H:%M') }}
+            {% if r.is_edited %}
+              <span class="badge bg-warning-subtle text-warning ms-1" style="font-size:.6rem">üýtgedilen</span>
+            {% endif %}
+          </td>
+          <td class="text-end font-monospace fw-semibold {% if r.has_fever %}text-danger{% endif %}">
+            {{ r.temperature_display }}
+          </td>
+          <td class="text-end font-monospace">{{ r.pulse if r.pulse is not none else '—' }}</td>
+          <td class="text-end font-monospace">{{ r.pressure_display }}</td>
+          <td class="text-end font-monospace">
+            {{ r.respiratory_rate if r.respiratory_rate is not none else '—' }}
+          </td>
+          <td class="text-muted small">{{ r.note or '—' }}</td>
+          <td class="text-muted small">{{ r.recorded_by.full_name }}</td>
+          <td class="pe-4 text-end">
+            {% if r.is_editable_by(current_user) %}
+              <a href="{{ url_for('inpatient.vitals_edit', record_id=r.id) }}"
+                 class="btn btn-sm btn-outline-secondary" title="Üýtgetmek">
+                <i class="bi bi-pencil"></i>
+              </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pagination.pages > 1 %}
+  <div class="card-footer bg-white px-4 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="text-muted small">Jemi: {{ pagination.total }}</span>
+    <nav aria-label="Sahypa">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('inpatient.vitals', hospitalization_id=hospitalization.id, page=pagination.prev_num) }}">
+            <i class="bi bi-chevron-left"></i>
+          </a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('inpatient.vitals', hospitalization_id=hospitalization.id, page=p) }}">{{ p }}</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('inpatient.vitals', hospitalization_id=hospitalization.id, page=pagination.next_num) }}">
+            <i class="bi bi-chevron-right"></i>
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="card-body text-center text-muted py-4">
+    <i class="bi bi-thermometer opacity-25" style="font-size:2rem"></i>
+    <div class="mt-2 small">Heniz ölçeg ýazylmady.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

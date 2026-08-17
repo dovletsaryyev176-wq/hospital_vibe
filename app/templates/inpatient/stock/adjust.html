@@ -1,0 +1,98 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Hasapdan öçürmek / düzediş{% endblock %}
+{% block page_title %}Hasapdan öçürmek / düzediş{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center gap-2">
+        <a href="{{ back }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-sliders me-2 text-danger"></i>Galyndyny düzetmek
+        </h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        {% if medicines %}
+        <div class="alert alert-light border py-2 px-3 small mb-4">
+          <i class="bi bi-info-circle me-1 text-muted"></i>
+          Her üýtgeme hereketleriň žurnalyna sebäbi bilen ýazylýar we pozulmaýar.
+        </div>
+
+        <form method="POST" action="{{ url_for('inpatient.stock_adjust', dep=department_id) }}" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-12">
+              {{ form.medicine_id.label(class='form-label fw-medium') }}
+              {{ form.medicine_id(class='form-select' + (' is-invalid' if form.medicine_id.errors else ''),
+                                  id='medicine-select') }}
+              {% for e in form.medicine_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              <div class="form-text" id="stock-hint"></div>
+            </div>
+
+            <div class="col-sm-7">
+              {{ form.kind.label(class='form-label fw-medium') }}
+              {{ form.kind(class='form-select' + (' is-invalid' if form.kind.errors else '')) }}
+              {% for e in form.kind.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-5">
+              {{ form.quantity.label(class='form-label fw-medium') }}
+              <div class="input-group">
+                {{ form.quantity(class='form-control text-end' + (' is-invalid' if form.quantity.errors else ''),
+                                 type='number') }}
+                <span class="input-group-text" id="unit-label">—</span>
+                {% for e in form.quantity.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              </div>
+            </div>
+
+            <div class="col-12">
+              {{ form.note.label(class='form-label fw-medium') }}
+              {{ form.note(class='form-control' + (' is-invalid' if form.note.errors else '')) }}
+              {% for e in form.note.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ back }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            {{ form.submit(class='btn btn-danger px-4') }}
+          </div>
+        </form>
+        {% else %}
+        <div class="text-center text-muted py-4">
+          <i class="bi bi-box opacity-25" style="font-size:2.5rem"></i>
+          <div class="mt-2">Ammar boş — düzeder ýaly zat ýok.</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const stockQuantities = {{ quantities | tojson }};
+  const stockUnits = {{ units | tojson }};
+  const select = document.getElementById('medicine-select');
+
+  function refreshHint() {
+    if (!select) return;
+    const id = select.value;
+    const unit = stockUnits[id] || '';
+    document.getElementById('unit-label').textContent = unit || '—';
+    document.getElementById('stock-hint').textContent =
+      id ? 'Häzirki galyndy: ' + (stockQuantities[id] || '0') + ' ' + unit : '';
+  }
+
+  if (select) {
+    select.addEventListener('change', refreshHint);
+    refreshHint();
+  }
+</script>
+{% endblock %}

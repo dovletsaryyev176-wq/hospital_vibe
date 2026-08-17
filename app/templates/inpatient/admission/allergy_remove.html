@@ -1,0 +1,65 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Allergiýany aýyrmak{% endblock %}
+{% block page_title %}Allergiýany aýyrmak{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+
+    {% include 'inpatient/_patient_header.html' %}
+
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center gap-2">
+        <a href="{{ back }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-exclamation-octagon me-2 text-danger"></i>{{ allergy.substance }}
+        </h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        <div class="row g-3 mb-4">
+          <div class="col-sm-4">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Agyrlygy</div>
+            <div class="fw-medium">{{ allergy.severity_display }}</div>
+          </div>
+          <div class="col-sm-8">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Reaksiýasy</div>
+            <div class="fw-medium">{{ allergy.reaction or '—' }}</div>
+          </div>
+          <div class="col-12">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Ýazan</div>
+            <div class="small">
+              {{ allergy.recorded_by.full_name }} ·
+              {{ allergy.created_at.strftime('%d.%m.%Y %H:%M') }}
+            </div>
+          </div>
+        </div>
+
+        <div class="alert alert-warning py-2 px-3 small mb-4">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Ýazgy pozulmaýar — aýrylan diýip bellenilýär we sebäbi bilen taryhda galýar.
+          Aýrylandan soň duýduryş görkezilmez.
+        </div>
+
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+          <div>
+            {{ form.reason.label(class='form-label fw-medium') }}
+            {{ form.reason(class='form-control' + (' is-invalid' if form.reason.errors else '')) }}
+            {% for e in form.reason.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ back }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            {{ form.submit(class='btn btn-danger px-4') }}
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

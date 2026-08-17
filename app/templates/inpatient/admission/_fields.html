@@ -1,0 +1,93 @@
+{# Admission examination fields, shared by the create and edit forms #}
+<div class="row g-3">
+  <div class="col-12">
+    {{ form.complaints.label(class='form-label fw-medium') }}
+    {{ form.complaints(class='form-control' + (' is-invalid' if form.complaints.errors else '')) }}
+    {% for e in form.complaints.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-12">
+    {{ form.anamnesis_morbi.label(class='form-label fw-medium') }}
+    {{ form.anamnesis_morbi(class='form-control' + (' is-invalid' if form.anamnesis_morbi.errors else '')) }}
+    {% for e in form.anamnesis_morbi.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-12">
+    {{ form.anamnesis_vitae.label(class='form-label fw-medium') }}
+    {{ form.anamnesis_vitae(class='form-control' + (' is-invalid' if form.anamnesis_vitae.errors else '')) }}
+    {% for e in form.anamnesis_vitae.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+</div>
+
+<hr class="my-4">
+<div class="text-muted mb-3" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">
+  Ýatyrylan pursatdaky ölçegler
+</div>
+
+<div class="row g-3">
+  <div class="col-sm-2 col-4">
+    {{ form.temperature.label(class='form-label fw-medium') }}
+    {{ form.temperature(class='form-control text-end' + (' is-invalid' if form.temperature.errors else ''), type='number') }}
+    {% for e in form.temperature.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="col-sm-2 col-4">
+    {{ form.pulse.label(class='form-label fw-medium') }}
+    {{ form.pulse(class='form-control text-end' + (' is-invalid' if form.pulse.errors else ''), type='number') }}
+    {% for e in form.pulse.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="col-sm-2 col-4">
+    {{ form.systolic.label(class='form-label fw-medium') }}
+    {{ form.systolic(class='form-control text-end' + (' is-invalid' if form.systolic.errors else ''), type='number') }}
+    {% for e in form.systolic.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="col-sm-2 col-4">
+    {{ form.diastolic.label(class='form-label fw-medium') }}
+    {{ form.diastolic(class='form-control text-end' + (' is-invalid' if form.diastolic.errors else ''), type='number') }}
+    {% for e in form.diastolic.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="col-sm-2 col-4">
+    {{ form.height.label(class='form-label fw-medium') }}
+    {{ form.height(class='form-control text-end' + (' is-invalid' if form.height.errors else ''), type='number') }}
+    {% for e in form.height.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+  <div class="col-sm-2 col-4">
+    {{ form.weight.label(class='form-label fw-medium') }}
+    {{ form.weight(class='form-control text-end' + (' is-invalid' if form.weight.errors else ''), type='number') }}
+    {% for e in form.weight.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+    <div class="form-text">Derman dozalary şundan hasaplanýar.</div>
+  </div>
+</div>
+
+<hr class="my-4">
+
+<div class="row g-3">
+  <div class="col-12">
+    {{ form.objective_status.label(class='form-label fw-medium') }}
+    {{ form.objective_status(class='form-control' + (' is-invalid' if form.objective_status.errors else '')) }}
+    {% for e in form.objective_status.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-12">
+    {{ form.local_status.label(class='form-label fw-medium') }}
+    {{ form.local_status(class='form-control' + (' is-invalid' if form.local_status.errors else '')) }}
+    {% for e in form.local_status.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-12">
+    {{ form.diagnosis_rationale.label(class='form-label fw-medium') }}
+    {{ form.diagnosis_rationale(class='form-control' + (' is-invalid' if form.diagnosis_rationale.errors else '')) }}
+    {% for e in form.diagnosis_rationale.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-md-6">
+    {{ form.examination_plan.label(class='form-label fw-medium') }}
+    {{ form.examination_plan(class='form-control' + (' is-invalid' if form.examination_plan.errors else '')) }}
+    {% for e in form.examination_plan.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-md-6">
+    {{ form.treatment_plan.label(class='form-label fw-medium') }}
+    {{ form.treatment_plan(class='form-control' + (' is-invalid' if form.treatment_plan.errors else '')) }}
+    {% for e in form.treatment_plan.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+</div>

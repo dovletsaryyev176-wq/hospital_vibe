@@ -1,0 +1,138 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Derman bellemek{% endblock %}
+{% block page_title %}Derman bellemek{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+
+    <div class="card border-0 shadow-sm rounded-3 mb-3">
+      <div class="card-body py-3 px-4">
+        <h6 class="mb-0 fw-semibold">{{ patient.full_name }}</h6>
+        <div class="text-muted small">
+          {{ patient.birth_year }} ý. ({{ patient.age }} ýaş) ·
+          {{ hospitalization.department.name }} ·
+          Kesel taryhy: {{ hospitalization.history_number }}
+        </div>
+      </div>
+    </div>
+
+    {% include 'inpatient/_allergy_alert.html' %}
+
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center gap-2">
+        <a href="{{ back }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-capsule me-2 text-primary"></i>Täze bellenme
+        </h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        {% if medicines %}
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-12">
+              {{ form.medicine_id.label(class='form-label fw-medium') }}
+              {{ form.medicine_id(class='form-select' + (' is-invalid' if form.medicine_id.errors else ''),
+                                  id='medicine-select') }}
+              {% for e in form.medicine_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              <div class="form-text" id="stock-hint"></div>
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.dose.label(class='form-label fw-medium') }}
+              {{ form.dose(class='form-control' + (' is-invalid' if form.dose.errors else '')) }}
+              {% for e in form.dose.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              <div class="form-text">Syrkawa berilýän kliniki doza: 500 mg, 1 ampula.</div>
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.quantity_per_dose.label(class='form-label fw-medium') }}
+              <div class="input-group">
+                {{ form.quantity_per_dose(class='form-control text-end' + (' is-invalid' if form.quantity_per_dose.errors else ''),
+                                          type='number') }}
+                <span class="input-group-text" id="unit-label">—</span>
+                {% for e in form.quantity_per_dose.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              </div>
+              <div class="form-text">Ammardan şonça öçüriler.</div>
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.route.label(class='form-label fw-medium') }}
+              {{ form.route(class='form-select' + (' is-invalid' if form.route.errors else '')) }}
+              {% for e in form.route.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.frequency.label(class='form-label fw-medium') }}
+              {{ form.frequency(class='form-control' + (' is-invalid' if form.frequency.errors else '')) }}
+              {% for e in form.frequency.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.planned_end_at.label(class='form-label fw-medium') }}
+              {{ form.planned_end_at(class='form-control' + (' is-invalid' if form.planned_end_at.errors else ''),
+                                     type='date') }}
+              {% for e in form.planned_end_at.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              <div class="form-text">Islege görä.</div>
+            </div>
+
+            <div class="col-12">
+              {{ form.note.label(class='form-label fw-medium') }}
+              {{ form.note(class='form-control' + (' is-invalid' if form.note.errors else '')) }}
+              {% for e in form.note.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ back }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+        {% else %}
+        <div class="text-center text-muted py-4">
+          <i class="bi bi-capsule opacity-25" style="font-size:2.5rem"></i>
+          <div class="mt-2">Aktiw derman ýok.</div>
+          <div class="small">Dermanlar dolandyryjy tarapyndan hasaba alynýar.</div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const stockQuantities = {{ quantities | tojson }};
+  const stockUnits = {{ units | tojson }};
+  const select = document.getElementById('medicine-select');
+
+  function refreshHint() {
+    if (!select) return;
+    const id = select.value;
+    const unit = stockUnits[id] || '';
+    const left = stockQuantities[id] || '0';
+    document.getElementById('unit-label').textContent = unit || '—';
+    const hint = document.getElementById('stock-hint');
+    if (!id) { hint.textContent = ''; return; }
+    if (left === '0') {
+      hint.innerHTML = '<span class="text-danger">Bölümiň ammarynda ýok — bellemek bolýar, '
+        + 'ýöne uly şepagat uýasy girdeji ýazýança berip bilmez.</span>';
+    } else {
+      hint.textContent = 'Bölümiň ammarynda: ' + left + ' ' + unit;
+    }
+  }
+
+  if (select) {
+    select.addEventListener('change', refreshHint);
+    refreshHint();
+  }
+</script>
+{% endblock %}

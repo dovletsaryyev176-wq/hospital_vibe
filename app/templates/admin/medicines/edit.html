@@ -1,0 +1,92 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}Dermany üýtgetmek — {{ medicine.name }}{% endblock %}
+{% block page_title %}Dermany üýtgetmek{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card shadow-sm table-card">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2">
+        <a href="{{ url_for('admin.medicines_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold text-truncate">{{ medicine.name }}</h6>
+        {% if medicine.is_active %}
+          <span class="badge bg-success-subtle text-success ms-auto flex-shrink-0">Aktiw</span>
+        {% else %}
+          <span class="badge bg-secondary-subtle text-secondary ms-auto flex-shrink-0">Bloklanan</span>
+        {% endif %}
+      </div>
+      <div class="card-body px-4 py-4">
+        <form id="toggle-medicine-edit" method="POST"
+              action="{{ url_for('admin.medicines_toggle', medicine_id=medicine.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        </form>
+
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-12">
+              {{ form.name.label(class='form-label fw-medium') }}
+              {{ form.name(class='form-control' + (' is-invalid' if form.name.errors else '')) }}
+              {% for e in form.name.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-5">
+              {{ form.unit.label(class='form-label fw-medium') }}
+              {{ form.unit(class='form-select' + (' is-invalid' if form.unit.errors else '')) }}
+              {% for e in form.unit.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              <div class="form-text">Birligi üýtgetmek ammardaky galyndyny gaýtadan hasaplamaýar.</div>
+            </div>
+
+            <div class="col-sm-7">
+              {{ form.price.label(class='form-label fw-medium') }}
+              <div class="input-group">
+                {{ form.price(class='form-control text-end' + (' is-invalid' if form.price.errors else '')) }}
+                <span class="input-group-text">manat</span>
+                {% for e in form.price.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              </div>
+              <div class="form-text">Öň berlen dermanlaryň bahasy üýtgemeýär.</div>
+            </div>
+
+            <div class="col-12">
+              {{ form.note.label(class='form-label fw-medium') }}
+              {{ form.note(class='form-control' + (' is-invalid' if form.note.errors else '')) }}
+              {% for e in form.note.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              <div class="form-check">
+                {{ form.is_insurance(class='form-check-input') }}
+                {{ form.is_insurance.label(class='form-check-label') }}
+              </div>
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-between align-items-center">
+            {% if medicine.is_active %}
+              <button type="button" class="btn btn-outline-danger btn-sm"
+                      onclick="confirmAction('toggle-medicine-edit', 'Dermany bloklamak «{{ medicine.name }}»?')">
+                <i class="bi bi-slash-circle me-1"></i>Bloklamak
+              </button>
+            {% else %}
+              <button type="button" class="btn btn-outline-success btn-sm"
+                      onclick="confirmAction('toggle-medicine-edit', 'Dermany aktiwleşdirmek «{{ medicine.name }}»?')">
+                <i class="bi bi-check-circle me-1"></i>Aktiwleşdirmek
+              </button>
+            {% endif %}
+
+            <div class="d-flex gap-2">
+              <a href="{{ url_for('admin.medicines_list') }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+              {{ form.submit(class='btn btn-primary px-4') }}
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

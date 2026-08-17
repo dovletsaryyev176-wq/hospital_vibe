@@ -1,0 +1,42 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Ölçegleri üýtgetmek{% endblock %}
+{% block page_title %}Ölçegleri üýtgetmek{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    {% include 'inpatient/_patient_header.html' %}
+
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center gap-2">
+        <a href="{{ back }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-pencil me-2 text-primary"></i>{{ record.measured_at.strftime('%d.%m.%Y %H:%M') }}
+        </h6>
+      </div>
+      <div class="card-body px-4 py-4">
+        <div class="alert alert-light border py-2 px-3 small mb-4">
+          <i class="bi bi-clock-history me-1 text-muted"></i>
+          Düzediş möhleti: {{ record.edit_deadline.strftime('%d.%m.%Y %H:%M') }}-a çenli.
+        </div>
+
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+          {% include 'inpatient/vitals/_fields.html' %}
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ back }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

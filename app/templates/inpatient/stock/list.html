@@ -1,0 +1,99 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Derman ammary{% endblock %}
+{% block page_title %}Derman ammary{% endblock %}
+
+{% block content %}
+
+{% include 'inpatient/stock/_nav.html' %}
+
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex flex-wrap align-items-center gap-2">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-capsule me-2 text-primary"></i>Ammardaky galyndylar
+    </h6>
+    <span class="badge bg-secondary-subtle text-secondary">{{ rows | length }}</span>
+
+    {% if may_edit %}
+      <div class="ms-auto d-flex gap-2">
+        <a href="{{ url_for('inpatient.stock_receipt', dep=department_id) }}" class="btn btn-sm btn-success">
+          <i class="bi bi-box-arrow-in-down me-1"></i>Girdeji
+        </a>
+        <a href="{{ url_for('inpatient.stock_adjust', dep=department_id) }}"
+           class="btn btn-sm btn-outline-danger {% if not rows %}disabled{% endif %}">
+          <i class="bi bi-sliders me-1"></i>Öçürmek / düzediş
+        </a>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if rows %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Derman</th>
+          <th style="width:130px">Birligi</th>
+          <th class="text-end" style="width:140px">Galyndy</th>
+          <th class="text-end" style="width:140px">Bahasy</th>
+          <th class="pe-4" style="width:170px">Soňky üýtgeme</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr {% if row.quantity <= 0 %}class="table-light text-muted"{% endif %}>
+          <td class="ps-4 fw-medium">
+            {{ row.medicine.name }}
+            {% if not row.medicine.is_active %}
+              <span class="badge bg-secondary-subtle text-secondary ms-1" style="font-size:.6rem">bloklanan</span>
+            {% endif %}
+            {% if row.medicine.note %}
+              <div class="text-muted small">{{ row.medicine.note }}</div>
+            {% endif %}
+          </td>
+          <td><span class="badge bg-secondary-subtle text-secondary">{{ row.medicine.unit_display }}</span></td>
+          <td class="text-end font-monospace fw-semibold">
+            {% if row.quantity > 0 %}
+              {{ row.quantity_display }}
+            {% else %}
+              <span class="badge bg-warning-subtle text-warning">gutardy</span>
+            {% endif %}
+          </td>
+          <td class="text-end text-nowrap">
+            {{ row.medicine.price_display }}
+            {% if row.medicine.is_insurance %}
+              <span class="badge bg-info-subtle text-info ms-1" style="font-size:.6rem">ätiýaç.</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small pe-4">{{ row.updated_at.strftime('%d.%m.%Y %H:%M') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card-footer bg-white text-muted small px-4">
+    Jemi {{ rows | length }} derman
+    {% if empty_count %}· galyndysy gutaran: {{ empty_count }}{% endif %}
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-box text-muted opacity-25" style="font-size:2.5rem"></i>
+    <div class="mt-2">Ammar boş.</div>
+    {% if may_edit %}
+      <a href="{{ url_for('inpatient.stock_receipt', dep=department_id) }}" class="btn btn-sm btn-success mt-3">
+        <i class="bi bi-box-arrow-in-down me-1"></i>Ilkinji girdejini ýazmak
+      </a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if not may_edit %}
+<div class="alert alert-light border py-2 px-3 small mt-3">
+  <i class="bi bi-eye me-1 text-muted"></i>
+  Ammary uly şepagat uýasy ýöredýär. Siz diňe görüp bilýärsiňiz.
+</div>
+{% endif %}
+
+{% endblock %}

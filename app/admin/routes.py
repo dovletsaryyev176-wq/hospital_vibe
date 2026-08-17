@@ -6,11 +6,12 @@ from sqlalchemy.orm import joinedload, contains_eager
 from app.admin import admin_bp
 from app.admin.forms import (UserForm, AnalysisForm, DirectionForm, DirectionCategoryForm, CombinedAnalysisForm,
                              AnalysisToolForm, BlankForm, AnalysisToolCategoryForm, AnalysisToolSubcategoryForm,
-                             DepartmentForm, RoomTypeForm, RoomForm, BedForm, MealForm)
+                             DepartmentForm, RoomTypeForm, RoomForm, BedForm, MealForm, MedicineForm,
+                             OperationForm)
 from app.extensions import db
 from app.models import (User, Analysis, DoctorDirection, DoctorDirectionCategory, CombinedAnalysis, Examination,
                         AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory,
-                        Department, RoomType, Room, Bed, Meal)
+                        Department, RoomType, Room, Bed, Meal, Medicine, Operation)
 
 
 def admin_required(f):
@@ -94,7 +95,8 @@ def users_create():
             full_name=form.full_name.data.strip(),
             role=form.role.data,
             phone_number=form.phone_number.data.strip(),
-            cabinet=form.cabinet.data.strip() or None,
+            # optional — None when the key is missing from the POST altogether
+            cabinet=(form.cabinet.data or '').strip() or None,
         )
         user.set_password(form.password.data)
         selected_ids = form.direction_ids.data or []
@@ -131,7 +133,7 @@ def users_edit(user_id):
         user.username = form.username.data.strip()
         user.role = form.role.data
         user.phone_number = form.phone_number.data.strip()
-        user.cabinet = form.cabinet.data.strip() or None
+        user.cabinet = (form.cabinet.data or '').strip() or None
 
         selected_ids = form.direction_ids.data or []
         user.directions = DoctorDirection.query.filter(DoctorDirection.id.in_(selected_ids)).all() if selected_ids else []
@@ -1438,3 +1440,175 @@ def meals_toggle(meal_id):
     action = 'aktiw' if meal.is_active else 'bloklanan'
     flash(f'Nahar «{meal.name}» {action}.', 'success')
     return redirect(url_for('admin.meals_list'))
+
+
+# ── Medicines (Dermanlar) ─────────────────────────────────────────────────────
+
+@admin_bp.route('/medicines')
+@admin_required
+def medicines_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+    unit_filter = request.args.get('unit', '').strip()
+
+    query = Medicine.query
+
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(Medicine.name.ilike(like), Medicine.note.ilike(like)))
+    if status_filter == 'active':
+        query = query.filter(Medicine.is_active == True)  # noqa: E712
+    elif status_filter == 'blocked':
+        query = query.filter(Medicine.is_active == False)  # noqa: E712
+    if unit_filter in Medicine.UNITS:
+        query = query.filter(Medicine.unit == unit_filter)
+
+    medicines = query.order_by(Medicine.name).all()
+
+    return render_template(
+        'admin/medicines/list.html',
+        medicines=medicines,
+        search=search,
+        status_filter=status_filter,
+        unit_filter=unit_filter,
+        units=Medicine.UNITS,
+    )
+
+
+@admin_bp.route('/medicines/create', methods=['GET', 'POST'])
+@admin_required
+def medicines_create():
+    form = MedicineForm()
+    if form.validate_on_submit():
+        medicine = Medicine(
+            name=form.name.data.strip(),
+            unit=form.unit.data,
+            note=(form.note.data or '').strip() or None,
+            price=form.price.data,
+            is_insurance=form.is_insurance.data,
+        )
+        db.session.add(medicine)
+        db.session.commit()
+        flash(f'Derman «{medicine.name}» döredilen.', 'success')
+        return redirect(url_for('admin.medicines_list'))
+    return render_template('admin/medicines/create.html', form=form)
+
+
+@admin_bp.route('/medicines/<int:medicine_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def medicines_edit(medicine_id):
+    medicine = db.session.get(Medicine, medicine_id)
+    if medicine is None:
+        abort(404)
+    form = MedicineForm(editing_medicine=medicine)
+    if not form.is_submitted():
+        form.name.data = medicine.name
+        form.unit.data = medicine.unit
+        form.note.data = medicine.note
+        form.price.data = medicine.price
+        form.is_insurance.data = medicine.is_insurance
+    if form.validate_on_submit():
+        medicine.name = form.name.data.strip()
+        medicine.unit = form.unit.data
+        medicine.note = (form.note.data or '').strip() or None
+        medicine.price = form.price.data
+        medicine.is_insurance = form.is_insurance.data
+        db.session.commit()
+        flash(f'Derman «{medicine.name}» maglumatlary täzelenen.', 'success')
+        return redirect(url_for('admin.medicines_list'))
+    return render_template('admin/medicines/edit.html', form=form, medicine=medicine)
+
+
+@admin_bp.route('/medicines/<int:medicine_id>/toggle', methods=['POST'])
+@admin_required
+def medicines_toggle(medicine_id):
+    medicine = db.session.get(Medicine, medicine_id)
+    if medicine is None:
+        abort(404)
+    medicine.is_active = not medicine.is_active
+    db.session.commit()
+    action = 'aktiw' if medicine.is_active else 'bloklanan'
+    flash(f'Derman «{medicine.name}» {action}.', 'success')
+    return redirect(url_for('admin.medicines_list'))
+
+
+# ── Operations (Operasiýalar) ─────────────────────────────────────────────────
+
+@admin_bp.route('/operations')
+@admin_required
+def operations_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+
+    query = Operation.query
+
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(Operation.name.ilike(like), Operation.note.ilike(like)))
+    if status_filter == 'active':
+        query = query.filter(Operation.is_active == True)  # noqa: E712
+    elif status_filter == 'blocked':
+        query = query.filter(Operation.is_active == False)  # noqa: E712
+
+    operations = query.order_by(Operation.name).all()
+
+    return render_template(
+        'admin/operations/list.html',
+        operations=operations,
+        search=search,
+        status_filter=status_filter,
+    )
+
+
+@admin_bp.route('/operations/create', methods=['GET', 'POST'])
+@admin_required
+def operations_create():
+    form = OperationForm()
+    if form.validate_on_submit():
+        operation = Operation(
+            name=form.name.data.strip(),
+            note=(form.note.data or '').strip() or None,
+            price=form.price.data,
+            is_insurance=form.is_insurance.data,
+        )
+        db.session.add(operation)
+        db.session.commit()
+        flash(f'Operasiýa «{operation.name}» döredilen.', 'success')
+        return redirect(url_for('admin.operations_list'))
+    return render_template('admin/operations/create.html', form=form)
+
+
+@admin_bp.route('/operations/<int:operation_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def operations_edit(operation_id):
+    operation = db.session.get(Operation, operation_id)
+    if operation is None:
+        abort(404)
+    form = OperationForm(editing_operation=operation)
+    if not form.is_submitted():
+        form.name.data = operation.name
+        form.note.data = operation.note
+        form.price.data = operation.price
+        form.is_insurance.data = operation.is_insurance
+    if form.validate_on_submit():
+        operation.name = form.name.data.strip()
+        operation.note = (form.note.data or '').strip() or None
+        operation.price = form.price.data
+        operation.is_insurance = form.is_insurance.data
+        db.session.commit()
+        flash(f'Operasiýa «{operation.name}» maglumatlary täzelenen.', 'success')
+        return redirect(url_for('admin.operations_list'))
+    return render_template('admin/operations/edit.html', form=form, operation=operation)
+
+
+@admin_bp.route('/operations/<int:operation_id>/toggle', methods=['POST'])
+@admin_required
+def operations_toggle(operation_id):
+    operation = db.session.get(Operation, operation_id)
+    if operation is None:
+        abort(404)
+    operation.is_active = not operation.is_active
+    db.session.commit()
+    action = 'aktiw' if operation.is_active else 'bloklanan'
+    flash(f'Operasiýa «{operation.name}» {action}.', 'success')
+    return redirect(url_for('admin.operations_list'))

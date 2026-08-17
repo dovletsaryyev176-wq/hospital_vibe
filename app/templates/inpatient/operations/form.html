@@ -1,0 +1,137 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}{% if record %}Operasiýany üýtgetmek{% else %}Operasiýa ýazmak{% endif %}{% endblock %}
+{% block page_title %}{% if record %}Operasiýany üýtgetmek{% else %}Operasiýa ýazmak{% endif %}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    {% include 'inpatient/_patient_header.html' %}
+    {% include 'inpatient/_allergy_alert.html' %}
+
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center gap-2">
+        <a href="{{ back }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-scissors me-2 text-primary"></i>
+          {% if record %}{{ record.operation.name }}{% else %}Täze operasiýa{% endif %}
+        </h6>
+        {% if record %}
+          <span class="badge bg-secondary-subtle text-secondary ms-auto">{{ record.status_display }}</span>
+        {% endif %}
+      </div>
+      <div class="card-body px-4 py-4">
+        {% if catalogue and medics %}
+
+        <div class="alert alert-light border py-2 px-3 small mb-4">
+          <i class="bi bi-info-circle me-1 text-muted"></i>
+          «Geçirilen wagty» dolduryldy — operasiýa geçirilen hasaplanýar. Boş bolsa —
+          meýilleşdirilen bolup galýar.
+        </div>
+
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-12">
+              {{ form.operation_id.label(class='form-label fw-medium') }}
+              {{ form.operation_id(class='form-select' + (' is-invalid' if form.operation_id.errors else '')) }}
+              {% for e in form.operation_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              {% if not record %}
+                <div class="form-text">Bahasy ýazylan pursatda berkidilýär.</div>
+              {% endif %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.planned_at.label(class='form-label fw-medium') }}
+              {{ form.planned_at(class='form-control' + (' is-invalid' if form.planned_at.errors else '')) }}
+              {% for e in form.planned_at.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.performed_at.label(class='form-label fw-medium') }}
+              {{ form.performed_at(class='form-control' + (' is-invalid' if form.performed_at.errors else '')) }}
+              {% for e in form.performed_at.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.surgeon_id.label(class='form-label fw-medium') }}
+              {{ form.surgeon_id(class='form-select' + (' is-invalid' if form.surgeon_id.errors else '')) }}
+              {% for e in form.surgeon_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.anesthesiologist_id.label(class='form-label fw-medium') }}
+              {{ form.anesthesiologist_id(class='form-select' + (' is-invalid' if form.anesthesiologist_id.errors else '')) }}
+              {% for e in form.anesthesiologist_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.anesthesia.label(class='form-label fw-medium') }}
+              {{ form.anesthesia(class='form-select' + (' is-invalid' if form.anesthesia.errors else '')) }}
+              {% for e in form.anesthesia.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-sm-6">
+              {{ form.assistant_ids.label(class='form-label fw-medium') }}
+              <div class="border rounded p-2{% if form.assistant_ids.errors %} border-danger{% endif %}"
+                   style="max-height:150px;overflow-y:auto">
+                {% for val, label in form.assistant_ids.choices %}
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox"
+                           name="assistant_ids" value="{{ val }}" id="assistant_{{ val }}"
+                           {% if val in (form.assistant_ids.data or []) %}checked{% endif %}>
+                    <label class="form-check-label" for="assistant_{{ val }}">{{ label }}</label>
+                  </div>
+                {% endfor %}
+              </div>
+              {% for e in form.assistant_ids.errors %}<div class="text-danger small mt-1">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.indication.label(class='form-label fw-medium') }}
+              {{ form.indication(class='form-control' + (' is-invalid' if form.indication.errors else '')) }}
+              {% for e in form.indication.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.protocol.label(class='form-label fw-medium') }}
+              {{ form.protocol(class='form-control' + (' is-invalid' if form.protocol.errors else '')) }}
+              {% for e in form.protocol.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.complications.label(class='form-label fw-medium') }}
+              {{ form.complications(class='form-control' + (' is-invalid' if form.complications.errors else '')) }}
+              {% for e in form.complications.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-end gap-2">
+            <a href="{{ back }}" class="btn btn-outline-secondary">Gaýtarmak</a>
+            {{ form.submit(class='btn btn-primary px-4') }}
+          </div>
+        </form>
+
+        {% else %}
+        <div class="text-center text-muted py-4">
+          <i class="bi bi-scissors opacity-25" style="font-size:2.5rem"></i>
+          {% if not catalogue %}
+            <div class="mt-2">Aktiw operasiýa ýok.</div>
+            <div class="small">Operasiýalar dolandyryjy tarapyndan hasaba alynýar.</div>
+          {% else %}
+            <div class="mt-2">Bu bölümde lukman ýok.</div>
+            <div class="small">Lukmanlary bölüme dolandyryjy baglaýar.</div>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

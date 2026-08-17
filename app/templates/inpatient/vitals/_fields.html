@@ -1,0 +1,49 @@
+{# Measurement fields, shared by the sheet's inline form and the edit page #}
+<div class="row g-3">
+  <div class="col-sm-4">
+    {{ form.measured_at.label(class='form-label fw-medium') }}
+    {{ form.measured_at(class='form-control' + (' is-invalid' if form.measured_at.errors else '')) }}
+    {% for e in form.measured_at.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-sm-2 col-6">
+    {{ form.temperature.label(class='form-label fw-medium') }}
+    {{ form.temperature(class='form-control text-end' + (' is-invalid' if form.temperature.errors else ''),
+                        type='number') }}
+    {% for e in form.temperature.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-sm-2 col-6">
+    {{ form.pulse.label(class='form-label fw-medium') }}
+    {{ form.pulse(class='form-control text-end' + (' is-invalid' if form.pulse.errors else ''),
+                  type='number') }}
+    {% for e in form.pulse.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-sm-2 col-6">
+    {{ form.systolic.label(class='form-label fw-medium') }}
+    {{ form.systolic(class='form-control text-end' + (' is-invalid' if form.systolic.errors else ''),
+                     type='number') }}
+    {% for e in form.systolic.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-sm-2 col-6">
+    {{ form.diastolic.label(class='form-label fw-medium') }}
+    {{ form.diastolic(class='form-control text-end' + (' is-invalid' if form.diastolic.errors else ''),
+                      type='number') }}
+    {% for e in form.diastolic.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-sm-2 col-6">
+    {{ form.respiratory_rate.label(class='form-label fw-medium') }}
+    {{ form.respiratory_rate(class='form-control text-end' + (' is-invalid' if form.respiratory_rate.errors else ''),
+                             type='number') }}
+    {% for e in form.respiratory_rate.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="col-sm-10">
+    {{ form.note.label(class='form-label fw-medium') }}
+    {{ form.note(class='form-control' + (' is-invalid' if form.note.errors else '')) }}
+    {% for e in form.note.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+  </div>
+</div>

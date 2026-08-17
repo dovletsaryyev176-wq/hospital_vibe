@@ -3,6 +3,26 @@
 {% block title %}Umumy{% endblock %}
 {% block page_title %}Ýatymlaýyn bölüm{% endblock %}
 
+{% macro stat(icon, color, label, value, hint='') %}
+<div class="col-6 col-xl-3">
+  <div class="card border-0 shadow-sm rounded-3 h-100">
+    <div class="card-body d-flex align-items-center gap-3 py-3">
+      <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+           style="width:44px;height:44px;background:{{ color }}1a">
+        <i class="bi bi-{{ icon }}" style="font-size:1.2rem;color:{{ color }}"></i>
+      </div>
+      <div class="min-w-0">
+        <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">
+          {{ label }}
+        </div>
+        <div class="fs-4 fw-semibold lh-1">{{ value }}</div>
+        {% if hint %}<div class="text-muted" style="font-size:.7rem">{{ hint }}</div>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
 {% block content %}
 
 <div class="card border-0 shadow-sm rounded-3 mb-4">
@@ -19,6 +39,74 @@
 </div>
 
 {% if departments %}
+
+  <!-- Totals across the viewer's departments -->
+  <div class="row g-3 mb-4">
+    {{ stat('people-fill', '#0d6efd', 'Ýatýan syrkawlar', totals.lying,
+            totals.beds ~ ' krowatdan') }}
+    {{ stat('door-open-fill', '#198754', 'Boş krowat', totals.free,
+            'Doluş: ' ~ totals.occupancy ~ '%') }}
+    {{ stat('box-arrow-in-right', '#fd7e14', 'Şu gün ýatyrylan', totals.admitted_today) }}
+    {{ stat('box-arrow-right', '#6f42c1', 'Şu gün çykarylan', totals.discharged_today) }}
+  </div>
+
+  <!-- Needs attention -->
+  {% if needs_attention %}
+  <div class="card border-0 shadow-sm rounded-3 mb-4">
+    <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+      <h6 class="mb-0 fw-semibold">
+        <i class="bi bi-exclamation-triangle me-2 text-warning"></i>Üns talap edýär
+      </h6>
+      <span class="badge bg-warning-subtle text-warning ms-2">{{ needs_attention | length }}</span>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr>
+            <th class="ps-4">Syrkaw</th>
+            <th style="width:150px">Bölüm</th>
+            <th style="width:130px">Kesel taryhy</th>
+            <th style="width:150px">Ýatyrylan</th>
+            <th class="pe-4" style="width:260px">Näme ýetmeýär</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for h in needs_attention %}
+          <tr>
+            <td class="ps-4">
+              <a href="{{ url_for('inpatient.patients_detail', patient_id=h.patient_id) }}"
+                 class="fw-medium text-decoration-none">{{ h.patient.full_name }}</a>
+            </td>
+            <td class="small text-muted">{{ h.department.name }}</td>
+            <td class="small font-monospace">{{ h.history_number }}</td>
+            <td class="small text-nowrap">{{ h.admitted_at.strftime('%d.%m.%Y') }}</td>
+            <td class="pe-4">
+              {% if not h.bed_id %}
+                <span class="badge bg-warning-subtle text-warning me-1">
+                  <i class="bi bi-door-closed me-1"></i>Krowat bellenmedik
+                </span>
+              {% endif %}
+              {% if not h.doctor_id %}
+                <span class="badge bg-warning-subtle text-warning me-1">
+                  <i class="bi bi-person-badge me-1"></i>Lukman bellenmedik
+                </span>
+              {% endif %}
+              {% if h.admission_exam_overdue %}
+                <a href="{{ url_for('inpatient.admission_exam', hospitalization_id=h.id) }}"
+                   class="badge bg-danger-subtle text-danger text-decoration-none">
+                  <i class="bi bi-clipboard2-x me-1"></i>Gözden geçirme ýok
+                </a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Per department -->
   <div class="d-flex align-items-center mb-3">
     <h6 class="mb-0 fw-semibold text-muted text-uppercase" style="font-size:.75rem;letter-spacing:.08em">
       Siziň bölümleriňiz
@@ -28,6 +116,9 @@
 
   <div class="row g-3">
     {% for dep in departments %}
+    {% set beds = bed_counts.get(dep.id, 0) %}
+    {% set lying = lying_counts.get(dep.id, 0) %}
+    {% set occupancy = (lying * 100 // beds) if beds else 0 %}
     <div class="col-md-6 col-xl-4">
       <div class="card border-0 shadow-sm rounded-3 h-100">
         <div class="card-body">
@@ -35,21 +126,52 @@
             <i class="bi bi-diagram-3 text-success" style="font-size:1.25rem"></i>
             <h6 class="fw-semibold mb-0">{{ dep.name }}</h6>
           </div>
-          <div class="d-flex gap-4">
+
+          <div class="d-flex gap-4 mb-3">
             <div>
               <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Palatalar</div>
               <div class="fs-5 fw-semibold">{{ room_counts.get(dep.id, 0) }}</div>
             </div>
             <div>
               <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Krowatlar</div>
-              <div class="fs-5 fw-semibold">{{ bed_counts.get(dep.id, 0) }}</div>
+              <div class="fs-5 fw-semibold">{{ beds }}</div>
+            </div>
+            <div>
+              <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Ýatýanlar</div>
+              <div class="fs-5 fw-semibold">{{ lying }}</div>
             </div>
           </div>
+
+          <div class="progress mb-2" style="height:6px" role="progressbar"
+               aria-valuenow="{{ occupancy }}" aria-valuemin="0" aria-valuemax="100">
+            <div class="progress-bar {% if occupancy >= 90 %}bg-danger{% elif occupancy >= 70 %}bg-warning{% else %}bg-success{% endif %}"
+                 style="width:{{ occupancy if occupancy <= 100 else 100 }}%"></div>
+          </div>
+          <div class="d-flex justify-content-between text-muted" style="font-size:.7rem">
+            <span>Doluş: {{ occupancy }}%</span>
+            <span>Boş: {{ [beds - lying, 0] | max }}</span>
+          </div>
+
+          {% if admitted_today.get(dep.id) or discharged_today.get(dep.id) %}
+          <div class="d-flex gap-2 mt-3">
+            {% if admitted_today.get(dep.id) %}
+              <span class="badge bg-primary-subtle text-primary">
+                <i class="bi bi-arrow-down-right me-1"></i>{{ admitted_today.get(dep.id) }} ýatyryldy
+              </span>
+            {% endif %}
+            {% if discharged_today.get(dep.id) %}
+              <span class="badge bg-secondary-subtle text-secondary">
+                <i class="bi bi-arrow-up-right me-1"></i>{{ discharged_today.get(dep.id) }} çykaryldy
+              </span>
+            {% endif %}
+          </div>
+          {% endif %}
         </div>
       </div>
     </div>
     {% endfor %}
   </div>
+
 {% else %}
   <div class="row justify-content-center">
     <div class="col-lg-6">

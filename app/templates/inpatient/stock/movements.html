@@ -1,0 +1,127 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Ammaryň hereketleri{% endblock %}
+{% block page_title %}Ammaryň hereketleri{% endblock %}
+
+{% block content %}
+
+{% include 'inpatient/stock/_nav.html' %}
+
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white border-bottom py-3 px-4">
+    <form class="d-flex flex-wrap gap-2" method="GET" action="{{ url_for('inpatient.stock_movements') }}">
+      <input type="hidden" name="dep" value="{{ department_id }}">
+      <select name="medicine" class="form-select form-select-sm" style="max-width:260px">
+        <option value="0">Hemme dermanlar</option>
+        {% for m in medicines %}
+          <option value="{{ m.id }}" {% if medicine_filter == m.id %}selected{% endif %}>{{ m.name }}</option>
+        {% endfor %}
+      </select>
+      <select name="kind" class="form-select form-select-sm" style="max-width:200px">
+        <option value="">Hemme hereketler</option>
+        {% for key, label in kinds.items() %}
+          <option value="{{ key }}" {% if kind_filter == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-sm btn-outline-primary">Tapmak</button>
+      {% if medicine_filter or kind_filter %}
+        <a href="{{ url_for('inpatient.stock_movements', dep=department_id) }}"
+           class="btn btn-sm btn-outline-secondary"><i class="bi bi-x-lg"></i></a>
+      {% endif %}
+    </form>
+  </div>
+
+  {% if movements %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:150px">Wagty</th>
+          <th>Derman</th>
+          <th style="width:170px">Hereket</th>
+          <th class="text-end" style="width:110px">Mukdary</th>
+          <th class="text-end" style="width:110px">Galyndy</th>
+          <th>Bellik</th>
+          <th class="pe-4" style="width:170px">Ýazan</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in movements %}
+        <tr>
+          <td class="ps-4 text-nowrap small">{{ m.created_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td class="fw-medium">
+            {{ m.medicine.name }}
+            <span class="text-muted small">· {{ m.medicine.unit_display }}</span>
+          </td>
+          <td>
+            {% if m.kind == 'in' %}
+              <span class="badge bg-success-subtle text-success">{{ m.kind_display }}</span>
+            {% elif m.kind == 'out' %}
+              <span class="badge bg-primary-subtle text-primary">{{ m.kind_display }}</span>
+            {% elif m.kind == 'writeoff' %}
+              <span class="badge bg-danger-subtle text-danger">{{ m.kind_display }}</span>
+            {% else %}
+              <span class="badge bg-warning-subtle text-warning">{{ m.kind_display }}</span>
+            {% endif %}
+          </td>
+          <td class="text-end font-monospace fw-semibold {% if m.is_incoming %}text-success{% else %}text-danger{% endif %}">
+            {{ m.quantity_display }}
+          </td>
+          <td class="text-end font-monospace">{{ m.balance_after_display }}</td>
+          <td class="text-muted small">{{ m.note or '—' }}</td>
+          <td class="text-muted small pe-4">{{ m.created_by.full_name }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pagination.total %}
+  <div class="card-footer bg-white px-4 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="text-muted small">
+      Jemi: {{ pagination.total }}
+      ({{ (pagination.page - 1) * pagination.per_page + 1 }}–{{ [(pagination.page) * pagination.per_page, pagination.total] | min }})
+    </span>
+    {% if pagination.pages > 1 %}
+    <nav aria-label="Sahypa">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('inpatient.stock_movements', page=pagination.prev_num, dep=department_id, medicine=medicine_filter or None, kind=kind_filter or None) }}">
+            <i class="bi bi-chevron-left"></i>
+          </a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('inpatient.stock_movements', page=p, dep=department_id, medicine=medicine_filter or None, kind=kind_filter or None) }}">{{ p }}</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('inpatient.stock_movements', page=pagination.next_num, dep=department_id, medicine=medicine_filter or None, kind=kind_filter or None) }}">
+            <i class="bi bi-chevron-right"></i>
+          </a>
+        </li>
+      </ul>
+    </nav>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-clock-history opacity-25" style="font-size:2.5rem"></i>
+    <div class="mt-2">
+      {% if medicine_filter or kind_filter %}
+        Hereket tapylmady.
+        <a href="{{ url_for('inpatient.stock_movements', dep=department_id) }}">Filtri aýyrmak</a>
+      {% else %}
+        Heniz hereket ýok.
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

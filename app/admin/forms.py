@@ -3,7 +3,8 @@ from flask_wtf import FlaskForm
 from wtforms import StringField, SelectField, SelectMultipleField, PasswordField, DecimalField, IntegerField, BooleanField, TextAreaField, SubmitField
 from wtforms.validators import DataRequired, Length, Optional, NumberRange, ValidationError, Regexp
 from app.models import (User, Analysis, AnalysisTool, Blank, AnalysisToolCategory, AnalysisToolSubcategory,
-                        DoctorDirectionCategory, Department, RoomType, Room, Bed, Meal)
+                        DoctorDirectionCategory, Department, RoomType, Room, Bed, Meal, Medicine,
+                        Operation)
 
 
 PHONE_RE = re.compile(r'^\+?[\d\s\-\(\)]{7,20}$')
@@ -717,3 +718,89 @@ class MealForm(FlaskForm):
         ).first()
         if existing and (self._editing_meal is None or existing.id != self._editing_meal.id):
             raise ValidationError('Bu atly nahar eýýäm hasaba alnan.')
+
+
+class MedicineForm(FlaskForm):
+    """The hospital-wide drug catalogue. Not bound to departments — what a ward
+    actually holds is its stock, not the catalogue."""
+
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Dermanyň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Mysal: Analgin 500 mg'},
+    )
+    unit = SelectField(
+        'Ölçeg birligi',
+        validators=[DataRequired(message='Ölçeg birligini saýlaň')],
+    )
+    note = TextAreaField(
+        'Bellik',
+        validators=[Optional(), Length(max=500, message='Bellik 500 simwoldan geçmeli däl')],
+        render_kw={'placeholder': 'Bellik (islege görä)', 'rows': 2},
+    )
+    price = DecimalField(
+        'Bir birligiň bahasy (manat)',
+        validators=[
+            DataRequired(message='Bahany giriziň'),
+            NumberRange(min=0, message='Baha otrisatel bolup bilmeýär'),
+        ],
+        places=2,
+        render_kw={'placeholder': '0.00', 'step': '0.01', 'min': '0'},
+    )
+    is_insurance = BooleanField('Ätiýaçlandyryş')
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_medicine=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_medicine = editing_medicine
+        self.unit.choices = list(Medicine.UNITS.items())
+
+    def validate_name(self, field):
+        existing = Medicine.query.filter(
+            Medicine.name.ilike(field.data.strip())
+        ).first()
+        if existing and (self._editing_medicine is None or existing.id != self._editing_medicine.id):
+            raise ValidationError('Bu atly derman eýýäm hasaba alnan.')
+
+
+class OperationForm(FlaskForm):
+    """The hospital-wide catalogue of surgeries and procedures."""
+
+    name = StringField(
+        'Ady',
+        validators=[
+            DataRequired(message='Operasiýanyň adyny giriziň'),
+            Length(max=200, message='Ady 200 simwoldan geçmeli däl'),
+        ],
+        render_kw={'placeholder': 'Mysal: Appendektomiýa'},
+    )
+    note = TextAreaField(
+        'Bellik',
+        validators=[Optional(), Length(max=500, message='Bellik 500 simwoldan geçmeli däl')],
+        render_kw={'placeholder': 'Bellik (islege görä)', 'rows': 2},
+    )
+    price = DecimalField(
+        'Bahasy (manat)',
+        validators=[
+            DataRequired(message='Bahany giriziň'),
+            NumberRange(min=0, message='Baha otrisatel bolup bilmeýär'),
+        ],
+        places=2,
+        render_kw={'placeholder': '0.00', 'step': '0.01', 'min': '0'},
+    )
+    is_insurance = BooleanField('Ätiýaçlandyryş')
+    submit = SubmitField('Ýatda saklamak')
+
+    def __init__(self, *args, editing_operation=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._editing_operation = editing_operation
+
+    def validate_name(self, field):
+        existing = Operation.query.filter(
+            Operation.name.ilike(field.data.strip())
+        ).first()
+        if existing and (self._editing_operation is None or existing.id != self._editing_operation.id):
+            raise ValidationError('Bu atly operasiýa eýýäm hasaba alnan.')

@@ -1,0 +1,317 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Dermanlar{% endblock %}
+{% block page_title %}Dermanlar{% endblock %}
+
+{% block content %}
+
+<a href="{{ url_for('inpatient.patients_detail', patient_id=patient.id) }}"
+   class="btn btn-sm btn-outline-secondary mb-3">
+  <i class="bi bi-arrow-left me-1"></i>Syrkawyň kartasy
+</a>
+
+<!-- Patient header -->
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-body py-3 px-4 d-flex flex-wrap align-items-center gap-3">
+    <div>
+      <h6 class="mb-0 fw-semibold">{{ patient.full_name }}</h6>
+      <div class="text-muted small">
+        {{ patient.birth_year }} ý. ({{ patient.age }} ýaş) ·
+        {{ hospitalization.department.name }} ·
+        Kesel taryhy: {{ hospitalization.history_number }}
+      </div>
+    </div>
+    <div class="ms-auto">
+      {% if hospitalization.is_open %}
+        <span class="badge bg-success-subtle text-success">Ýatyr</span>
+      {% else %}
+        <span class="badge bg-secondary-subtle text-secondary">Çykarylan</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% include 'inpatient/_allergy_alert.html' %}
+
+<!-- Active orders -->
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex flex-wrap align-items-center gap-2">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-capsule me-2 text-primary"></i>Işjeň bellenmeler
+    </h6>
+    <span class="badge bg-secondary-subtle text-secondary">{{ active | length }}</span>
+    {% if may_order %}
+      <a href="{{ url_for('inpatient.medications_add', hospitalization_id=hospitalization.id) }}"
+         class="btn btn-sm btn-primary ms-auto">
+        <i class="bi bi-plus-lg me-1"></i>Derman bellemek
+      </a>
+    {% endif %}
+  </div>
+
+  {% if active %}
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Derman</th>
+          <th style="width:150px">Dozasy / ýoly</th>
+          <th style="width:140px">Tertibi</th>
+          <th class="text-end" style="width:110px">Bir gezekde</th>
+          <th class="text-end" style="width:110px">Ammarda</th>
+          <th style="width:150px">Bellän lukman</th>
+          {% if may_dispense or may_order %}<th class="pe-4" style="width:230px">Amallar</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for order in active %}
+        {% set on_hand = quantities.get(order.medicine_id, 0) %}
+        <tr>
+          <td class="ps-4">
+            <div class="fw-medium">{{ order.medicine.name }}</div>
+            <div class="text-muted small">
+              {{ order.started_at.strftime('%d.%m.%Y') }}
+              {% if order.planned_end_at %} — {{ order.planned_end_at.strftime('%d.%m.%Y') }}{% endif %}
+              {% if order.dispensed_total %}
+                · berlen jemi: {{ order.dispensed_total_display }} {{ order.medicine.unit_display }}
+              {% endif %}
+            </div>
+            {% if order.note %}
+              <div class="text-muted small fst-italic">{{ order.note }}</div>
+            {% endif %}
+          </td>
+          <td class="small">
+            <div class="fw-medium">{{ order.dose }}</div>
+            <div class="text-muted">{{ order.route_display }}</div>
+          </td>
+          <td class="small text-muted">{{ order.frequency or '—' }}</td>
+          <td class="text-end font-monospace">
+            {{ order.quantity_per_dose_display }}
+            <div class="text-muted" style="font-size:.7rem">{{ order.medicine.unit_display }}</div>
+          </td>
+          <td class="text-end font-monospace {% if on_hand <= 0 %}text-danger{% endif %}">
+            {% if on_hand > 0 %}
+              {{ on_hand | quantity }}
+            {% else %}
+              <span class="badge bg-danger-subtle text-danger">ýok</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted">{{ order.doctor.full_name }}</td>
+
+          {% if may_dispense or may_order %}
+          <td class="pe-4">
+            <div class="d-flex flex-wrap gap-1">
+              {% if may_dispense %}
+                {% if on_hand > 0 %}
+                  <form method="POST" class="d-flex gap-1"
+                        action="{{ url_for('inpatient.medications_dispense', order_id=order.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="number" name="quantity" class="form-control form-control-sm text-end"
+                           style="width:80px" step="0.01" min="0.01" required
+                           value="{{ order.quantity_per_dose_display }}">
+                    <button type="submit" class="btn btn-sm btn-success text-nowrap">
+                      <i class="bi bi-check-lg me-1"></i>Bermek
+                    </button>
+                  </form>
+                {% else %}
+                  <span class="badge bg-light text-muted border">Ammarda ýok</span>
+                {% endif %}
+              {% endif %}
+
+              {% if may_order %}
+                <form id="stop-order-{{ order.id }}" method="POST"
+                      action="{{ url_for('inpatient.medications_stop', order_id=order.id) }}" class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                </form>
+                <button type="button" class="btn btn-sm btn-outline-danger text-nowrap"
+                        onclick="confirmAction('stop-order-{{ order.id }}', '«{{ order.medicine.name }}» bellenmesi bes edilsinmi?')">
+                  <i class="bi bi-stop-circle me-1"></i>Bes etmek
+                </button>
+              {% endif %}
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-4">
+    <i class="bi bi-capsule opacity-25" style="font-size:2rem"></i>
+    <div class="mt-2 small">Häzir bellenen derman ýok.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% if hospitalization.is_open and not may_order and not may_dispense %}
+<div class="alert alert-light border py-2 px-3 small">
+  <i class="bi bi-eye me-1 text-muted"></i>
+  Derman bellemek lukmanyň, bermek bolsa uly şepagat uýasynyň işi. Siz diňe görüp bilýärsiňiz.
+</div>
+{% elif not hospitalization.is_open %}
+<div class="alert alert-light border py-2 px-3 small">
+  <i class="bi bi-lock me-1 text-muted"></i>
+  Syrkaw çykarylan — bellenmeler ýapyldy.
+</div>
+{% endif %}
+
+<!-- Dispense history -->
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-clipboard-check me-2 text-success"></i>Berlen dermanlar
+    </h6>
+    <span class="badge bg-secondary-subtle text-secondary ms-2">{{ dispenses | length }}</span>
+  </div>
+
+  {% if dispenses %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:150px">Wagty</th>
+          <th>Derman</th>
+          <th class="text-end" style="width:100px">Mukdary</th>
+          <th class="text-end" style="width:130px">Bahasy</th>
+          <th style="width:160px">Beren</th>
+          <th class="pe-4" style="width:150px">Ýagdaýy</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in dispenses %}
+        <tr {% if d.is_cancelled %}class="table-light text-muted"{% endif %}>
+          <td class="ps-4 text-nowrap small">{{ d.given_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td>
+            <span class="{% if d.is_cancelled %}text-decoration-line-through{% else %}fw-medium{% endif %}">
+              {{ d.medicine.name }}
+            </span>
+            {% if d.note %}<div class="text-muted small">{{ d.note }}</div>{% endif %}
+          </td>
+          <td class="text-end font-monospace">
+            {{ d.quantity_display }}
+            <div class="text-muted" style="font-size:.7rem">{{ d.medicine.unit_display }}</div>
+          </td>
+          <td class="text-end text-nowrap">
+            {{ d.total_display }}
+            {% if d.is_insurance %}
+              <span class="badge bg-info-subtle text-info ms-1" style="font-size:.6rem">ätiýaç.</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ d.given_by.full_name }}</td>
+          <td class="pe-4">
+            {% if d.is_cancelled %}
+              <span class="badge bg-secondary-subtle text-secondary">Yzyna alnan</span>
+              <div class="text-muted" style="font-size:.7rem">
+                {{ d.cancelled_by.full_name if d.cancelled_by else '' }}
+              </div>
+            {% elif d.is_cancellable_by(current_user) %}
+              <form id="cancel-dispense-{{ d.id }}" method="POST"
+                    action="{{ url_for('inpatient.medications_dispense_cancel', dispense_id=d.id) }}" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              </form>
+              <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
+                      onclick="confirmAction('cancel-dispense-{{ d.id }}', '«{{ d.medicine.name }}» berilmesi yzyna alynsynmy? Mukdar ammara gaýtarylar.')">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Yzyna almak
+              </button>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-4">
+    <i class="bi bi-clipboard opacity-25" style="font-size:2rem"></i>
+    <div class="mt-2 small">Heniz derman berilmedi.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Closed orders -->
+{% if finished %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-header bg-white border-bottom py-3 px-4">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-clock-history me-2 text-muted"></i>Ýapylan bellenmeler
+    </h6>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Derman</th>
+          <th style="width:150px">Dozasy / ýoly</th>
+          <th style="width:170px">Möhleti</th>
+          <th class="text-end" style="width:120px">Berlen jemi</th>
+          <th style="width:150px">Bellän</th>
+          <th class="pe-4" style="width:170px">Ýagdaýy</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for order in finished %}
+        <tr>
+          <td class="ps-4 fw-medium">{{ order.medicine.name }}</td>
+          <td class="small">
+            <div>{{ order.dose }}</div>
+            <div class="text-muted">{{ order.route_display }}</div>
+          </td>
+          <td class="small text-nowrap">
+            {{ order.started_at.strftime('%d.%m.%Y') }}
+            {% if order.stopped_at %} — {{ order.stopped_at.strftime('%d.%m.%Y') }}{% endif %}
+          </td>
+          <td class="text-end font-monospace">
+            {{ order.dispensed_total_display }}
+            <div class="text-muted" style="font-size:.7rem">{{ order.medicine.unit_display }}</div>
+          </td>
+          <td class="small text-muted">{{ order.doctor.full_name }}</td>
+          <td class="pe-4">
+            <span class="badge bg-secondary-subtle text-secondary">{{ order.status_display }}</span>
+            {% if order.stopped_by %}
+              <div class="text-muted" style="font-size:.7rem">{{ order.stopped_by.full_name }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Confirmation modal -->
+<div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body text-center py-4">
+        <i class="bi bi-question-circle text-warning" style="font-size:2.5rem"></i>
+        <p class="mt-2 mb-0 fw-semibold" id="confirmMessage">Hakykatdanmy?</p>
+      </div>
+      <div class="modal-footer justify-content-center border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+        <button type="button" class="btn btn-primary btn-sm" id="confirmOk">Tassyklamak</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const confirmModal = new bootstrap.Modal(document.getElementById('confirmModal'));
+  let pendingForm = null;
+
+  function confirmAction(formId, message) {
+    document.getElementById('confirmMessage').textContent = message || 'Hakykatdanmy?';
+    pendingForm = document.getElementById(formId);
+    confirmModal.show();
+  }
+
+  document.getElementById('confirmOk').addEventListener('click', function () {
+    if (pendingForm) pendingForm.submit();
+    confirmModal.hide();
+  });
+</script>
+{% endblock %}

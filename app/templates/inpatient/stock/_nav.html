@@ -1,0 +1,25 @@
+{# Department picker + store tabs, shared by the store pages #}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  {% if departments | length > 1 %}
+    <form method="GET" class="d-flex gap-2">
+      <select name="dep" class="form-select form-select-sm" style="min-width:200px"
+              onchange="this.form.submit()">
+        {% for d in departments %}
+          <option value="{{ d.id }}" {% if department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Görkez</button></noscript>
+    </form>
+  {% endif %}
+
+  <div class="btn-group btn-group-sm ms-auto">
+    <a href="{{ url_for('inpatient.stock', dep=department_id) }}"
+       class="btn {% if request.endpoint == 'inpatient.stock' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+      <i class="bi bi-box-seam me-1"></i>Galyndylar
+    </a>
+    <a href="{{ url_for('inpatient.stock_movements', dep=department_id) }}"
+       class="btn {% if request.endpoint == 'inpatient.stock_movements' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+      <i class="bi bi-clock-history me-1"></i>Hereketler
+    </a>
+  </div>
+</div>

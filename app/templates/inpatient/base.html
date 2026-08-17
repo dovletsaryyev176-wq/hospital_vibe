@@ -120,6 +120,14 @@
       <i class="bi bi-people"></i> Syrkawlar
     </a>
 
+    {% if current_user.role in ('senior_nurse', 'department_head') %}
+    <div class="nav-section mt-2">Ammar</div>
+    <a href="{{ url_for('inpatient.stock') }}"
+       class="nav-link {% if 'inpatient.stock' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-capsule"></i> Dermanlar
+    </a>
+    {% endif %}
+
     {% if not current_user.is_inpatient_only() %}
     <div class="nav-section mt-2">Başga bölüm</div>
     <a href="{{ url_for('main.dashboard') }}" class="nav-link">

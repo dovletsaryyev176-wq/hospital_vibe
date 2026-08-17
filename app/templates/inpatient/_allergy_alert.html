@@ -1,0 +1,38 @@
+{# Allergy banner. Shown wherever a drug or an operation is decided on.
+   Expects `patient` in context. Deliberately dumb: it lists what is on record
+   and never tries to match a drug name to an allergy — a substring match would
+   either miss or cry wolf, and both are worse than a nurse reading the list. #}
+
+{% if patient.allergy_status == 'present' %}
+  <div class="alert {% if patient.has_dangerous_allergy %}alert-danger{% else %}alert-warning{% endif %} py-2 px-3 mb-3">
+    <div class="d-flex align-items-start gap-2">
+      <i class="bi bi-exclamation-octagon-fill flex-shrink-0" style="font-size:1.1rem"></i>
+      <div class="small">
+        <span class="fw-semibold">Allergiýa!</span>
+        {% for a in patient.active_allergies %}
+          <span class="badge {% if a.is_dangerous %}bg-danger{% else %}bg-warning text-dark{% endif %} ms-1">
+            {{ a.substance }}
+            <span class="opacity-75">· {{ a.severity_display }}</span>
+          </span>
+        {% endfor %}
+        {% for a in patient.active_allergies if a.reaction %}
+          <div class="mt-1">{{ a.substance }} — {{ a.reaction }}</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+{% elif patient.allergy_status == 'unknown' %}
+  <div class="alert alert-warning py-2 px-3 mb-3">
+    <i class="bi bi-question-octagon me-1"></i>
+    <span class="small">
+      <span class="fw-semibold">Allergiýa anyklanmadyk.</span>
+      Derman bermezden öň syrkawdan soraň we
+      {% if hospitalization is defined %}
+        <a href="{{ url_for('inpatient.admission_exam', hospitalization_id=hospitalization.id) }}">bellige alyň</a>.
+      {% else %}
+        bellige alyň.
+      {% endif %}
+    </span>
+  </div>
+{% endif %}

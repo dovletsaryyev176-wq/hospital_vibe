@@ -117,8 +117,10 @@ def patients_create():
             birth_year=form.birth_year.data,
             citizenship=form.citizenship.data.strip(),
             home_address=form.home_address.data.strip(),
-            passport_number=form.passport_number.data.strip() or None,
-            insurance_number=form.insurance_number.data.strip() or None,
+            # optional fields arrive as None when the key is missing from the
+            # POST altogether, so they are normalised before being stripped
+            passport_number=(form.passport_number.data or '').strip() or None,
+            insurance_number=(form.insurance_number.data or '').strip() or None,
         )
         db.session.add(patient)
         db.session.commit()
@@ -144,8 +146,8 @@ def patients_edit(patient_id):
         patient.birth_year = form.birth_year.data
         patient.citizenship = form.citizenship.data.strip()
         patient.home_address = form.home_address.data.strip()
-        patient.passport_number = form.passport_number.data.strip() or None
-        patient.insurance_number = form.insurance_number.data.strip() or None
+        patient.passport_number = (form.passport_number.data or '').strip() or None
+        patient.insurance_number = (form.insurance_number.data or '').strip() or None
         db.session.commit()
         flash(f'Syrkaw «{patient.full_name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('main.patients_list'))

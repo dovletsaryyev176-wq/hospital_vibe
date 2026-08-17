@@ -44,6 +44,23 @@
                 <div class="invalid-feedback">{{ e }}</div>
               {% endfor %}
             </div>
+
+            <div class="col-sm-8">
+              {{ form.diagnosis.label(class='form-label fw-medium') }}
+              {{ form.diagnosis(class='form-control' + (' is-invalid' if form.diagnosis.errors else '')) }}
+              {% for e in form.diagnosis.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+              <div class="form-text">Soňra kliniki we jemleýji diagnoz goşulýar.</div>
+            </div>
+
+            <div class="col-sm-4">
+              {{ form.diagnosis_code.label(class='form-label fw-medium') }}
+              {{ form.diagnosis_code(class='form-control font-monospace' + (' is-invalid' if form.diagnosis_code.errors else '')) }}
+              {% for e in form.diagnosis_code.errors %}
+                <div class="invalid-feedback">{{ e }}</div>
+              {% endfor %}
+            </div>
           </div>
 
           <hr class="my-4">
