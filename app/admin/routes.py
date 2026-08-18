@@ -135,6 +135,14 @@ def users_edit(user_id):
         user.phone_number = form.phone_number.data.strip()
         user.cabinet = (form.cabinet.data or '').strip() or None
 
+        # Departments belong to the inpatient roles. A role that may not hold
+        # them must not keep the ones it had: the user-departments page refuses
+        # to touch such a user, so an attachment left behind here becomes
+        # invisible and uneditable — and comes back into force the moment the
+        # user is moved to an inpatient role again.
+        if not user.can_have_departments():
+            user.departments = []
+
         selected_ids = form.direction_ids.data or []
         user.directions = DoctorDirection.query.filter(DoctorDirection.id.in_(selected_ids)).all() if selected_ids else []
 
@@ -844,9 +852,16 @@ def daily_report():
         .order_by(func.date(Examination.paid_at).desc())
         .paginate(page=page, per_page=15, error_out=False)
     )
+    # func.date() hands back a date on MySQL and a string on SQLite; the page
+    # prints one day the same way whichever engine answered.
+    rows = [
+        {'day': row.day.strftime('%d.%m.%Y') if hasattr(row.day, 'strftime') else row.day,
+         'cnt': row.cnt}
+        for row in pagination.items
+    ]
     return render_template(
         'admin/reports/daily.html',
-        rows=pagination.items,
+        rows=rows,
         pagination=pagination,
     )
 

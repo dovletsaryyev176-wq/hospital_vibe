@@ -81,9 +81,9 @@
           {% if h.is_paid %}
           <div class="col-sm-6 col-md-3">
             <div class="text-muted small mb-1">Töleg kabul edilen</div>
-            <div class="fw-semibold">{{ h.paid_at.strftime('%d.%m.%Y') }}</div>
+            <div class="fw-semibold">{{ h.paid_at.strftime('%d.%m.%Y') if h.paid_at else '—' }}</div>
             <div class="text-muted small">
-              {{ h.paid_at.strftime('%H:%M') }}{% if h.paid_by %} — {{ h.paid_by.full_name }}{% endif %}
+              {{ h.paid_at.strftime('%H:%M') if h.paid_at else '—' }}{% if h.paid_by %} — {{ h.paid_by.full_name }}{% endif %}
             </div>
           </div>
           <div class="col-sm-6 col-md-3">
@@ -183,7 +183,7 @@
                only their total — it is printed as one undetailed row. #}
             {% if h.unlogged_paid_total > 0 %}
             <tr class="text-muted">
-              <td class="ps-4 small">{{ h.paid_at.strftime('%d.%m.%Y %H:%M') }}</td>
+              <td class="ps-4 small">{{ h.paid_at.strftime('%d.%m.%Y %H:%M') if h.paid_at else '—' }}</td>
               <td class="small">
                 {{ h.paid_by.full_name if h.paid_by else '—' }}
                 <div style="font-size:.7rem">jikme-jiklik ýazylmadyk</div>
@@ -350,7 +350,7 @@
 
 <!-- Pay confirmation modal -->
 {% if not h.is_settled %}
-{% macro pay_row(kind, line) %}
+{% macro pay_row(line) %}
 <tr>
   <td class="small">
     {{ line.bill_name }}
@@ -362,12 +362,12 @@
   <td class="text-center">
     <div class="btn-group btn-group-sm pay-method" role="group"
          data-amount="{{ '%.2f' | format(line.effective_total) }}">
-      <input type="radio" class="btn-check pay-radio" name="pm_{{ kind }}_{{ line.id }}"
-             id="pm_{{ kind }}_{{ line.id }}_cash" value="cash" autocomplete="off" checked>
-      <label class="btn btn-outline-success" for="pm_{{ kind }}_{{ line.id }}_cash">Nagt</label>
-      <input type="radio" class="btn-check pay-radio" name="pm_{{ kind }}_{{ line.id }}"
-             id="pm_{{ kind }}_{{ line.id }}_term" value="terminal" autocomplete="off">
-      <label class="btn btn-outline-primary" for="pm_{{ kind }}_{{ line.id }}_term">Terminal</label>
+      <input type="radio" class="btn-check pay-radio" name="pm_{{ line.bill_ref }}"
+             id="pm_{{ line.bill_ref }}_cash" value="cash" autocomplete="off" checked>
+      <label class="btn btn-outline-success" for="pm_{{ line.bill_ref }}_cash">Nagt</label>
+      <input type="radio" class="btn-check pay-radio" name="pm_{{ line.bill_ref }}"
+             id="pm_{{ line.bill_ref }}_term" value="terminal" autocomplete="off">
+      <label class="btn btn-outline-primary" for="pm_{{ line.bill_ref }}_term">Terminal</label>
     </div>
   </td>
 </tr>
@@ -421,12 +421,12 @@
                 </tr>
               </thead>
               <tbody>
-                {% for kind, title, lines in h.bill_groups %}
+                {% for _kind, title, lines in h.bill_groups %}
                   {% set unsettled = lines | selectattr('payment_method', 'none') | list %}
                   {% if unsettled %}
                     <tr class="table-light"><td colspan="3" class="fw-semibold small">{{ title }}</td></tr>
                     {% for line in unsettled %}
-                      {{ pay_row(kind, line) }}
+                      {{ pay_row(line) }}
                     {% endfor %}
                   {% endif %}
                 {% endfor %}

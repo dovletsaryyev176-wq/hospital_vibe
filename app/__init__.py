@@ -1,12 +1,42 @@
+import logging
+import os
+from logging.handlers import RotatingFileHandler
 from flask import Flask, redirect, url_for
 from flask_login import current_user
+from werkzeug.middleware.proxy_fix import ProxyFix
 from config import Config
 from app.extensions import db, login_manager, migrate, csrf
+
+
+def _configure_logging(app):
+    """Keep a rolling application log.
+
+    A 500 that only ever reached the console is a 500 nobody can look into
+    afterwards, and this runs unattended under waitress.
+    """
+    log_file = app.config.get('LOG_FILE')
+    if not log_file:
+        return
+    directory = os.path.dirname(os.path.abspath(log_file))
+    os.makedirs(directory, exist_ok=True)
+    handler = RotatingFileHandler(log_file, maxBytes=2 * 1024 * 1024,
+                                  backupCount=5, encoding='utf-8')
+    handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s %(name)s: %(message)s'))
+    handler.setLevel(logging.INFO)
+    app.logger.addHandler(handler)
+    app.logger.setLevel(logging.INFO)
 
 
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
+
+    if app.config.get('TRUST_PROXY'):
+        # Only with a reverse proxy actually in front — see config.TRUST_PROXY.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    _configure_logging(app)
 
     db.init_app(app)
     login_manager.init_app(app)

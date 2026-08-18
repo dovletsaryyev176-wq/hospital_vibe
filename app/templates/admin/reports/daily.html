@@ -18,7 +18,7 @@
           {% for row in rows %}
           <tr>
             <td>{{ (pagination.page - 1) * pagination.per_page + loop.index }}</td>
-            <td>{{ row.day.strftime('%d.%m.%Y') }}</td>
+            <td>{{ row.day }}</td>
             <td>
               <span class="badge bg-primary rounded-pill">{{ row.cnt }}</span>
             </td>

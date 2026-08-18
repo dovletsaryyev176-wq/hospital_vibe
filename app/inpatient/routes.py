@@ -1416,9 +1416,11 @@ def stock_movements():
 def back_target(default):
     """Where a form says it came from, so an action taken on a list returns to
     that list. Only a path on this site is accepted — a full URL arriving in a
-    form field must never be turned into a redirect."""
+    form field must never be turned into a redirect. Backslashes are rejected
+    for the same reason `auth._safe_next` rejects them: some browsers read them
+    as slashes, which would turn '/\\evil.com' into '//evil.com'."""
     target = (request.form.get('back') or '').strip()
-    if target.startswith('/') and not target.startswith('//'):
+    if target.startswith('/') and not target.startswith('//') and '\\' not in target:
         return target
     return default
 

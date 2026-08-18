@@ -756,6 +756,19 @@ class InpatientBillingMixin:
         """Second line of a bill row — what makes this charge identifiable."""
         return ''
 
+    @property
+    def bill_ref(self) -> str:
+        """Key identifying this line in the payment form.
+
+        Not the id: the «order» group of a bill merges three tables whose ids
+        run independently, so an analysis order, a tool order and a blank order
+        routinely share one. Keyed by id alone they would collapse into a single
+        radio group and be stamped with one payment method — the total would
+        still be right, but the cash/terminal split a cashier's day is counted
+        in would not. The table name pins a line to the table it came from.
+        """
+        return f'{self.__tablename__}_{self.id}'
+
 
 def billed_period_display(started_at, ended_at) -> str:
     start = started_at.strftime('%d.%m.%Y')

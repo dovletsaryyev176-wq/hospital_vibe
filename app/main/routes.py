@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from datetime import datetime, timedelta, date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 from io import BytesIO
 from flask import render_template, redirect, url_for, flash, request, abort, jsonify, Response
@@ -1009,11 +1009,11 @@ def stationar_pay(hospitalization_id):
     cash = Decimal('0')
     terminal = Decimal('0')
 
-    for kind, _title, lines in h.bill_groups:
+    for _kind, _title, lines in h.bill_groups:
         for line in lines:
             if line.payment_method is not None:
                 continue  # an earlier payment already covered this line
-            method = _method(f'pm_{kind}_{line.id}')
+            method = _method(f'pm_{line.bill_ref}')
             line.payment_method = method
             if method == InpatientBillingMixin.PAYMENT_TERMINAL:
                 terminal += line.effective_total
@@ -1139,14 +1139,22 @@ def _reports_grand_totals(query):
         'blanks': Decimal('0'), 'tools': Decimal('0'), 'total': Decimal('0'),
         'full_total': Decimal('0'), 'discount_total': Decimal('0'),
     }
+    # Only the money is summed here, so the patient is deliberately not loaded —
+    # the insurance flag a discount depends on sits on the examination itself.
+    # The catalogue rows behind each line are, because `snapshot_price` falls
+    # back to them whenever a line carries no price of its own, and a lazy
+    # fallback would be one query per such line across the whole period.
     exams = (
         query
         .options(
-            joinedload(Examination.patient),
-            subqueryload(Examination.exam_analyses),
-            subqueryload(Examination.exam_directions),
-            subqueryload(Examination.exam_blanks),
-            subqueryload(Examination.exam_tools),
+            subqueryload(Examination.exam_analyses)
+                .joinedload(ExaminationAnalysis.analysis),
+            subqueryload(Examination.exam_directions)
+                .joinedload(ExaminationDirection.direction),
+            subqueryload(Examination.exam_blanks)
+                .joinedload(ExaminationBlank.blank),
+            subqueryload(Examination.exam_tools)
+                .joinedload(ExaminationAnalysisTool.tool),
         )
         .all()
     )
@@ -2923,13 +2931,26 @@ PLAN_MONTH_NAMES = {
 }
 
 
+# Years a plan may be set for. `_month_bounds` builds datetime(year + 1, ...)
+# for December, so the upper bound stays one below datetime.MAXYEAR.
+PLAN_MIN_YEAR = 2000
+PLAN_MAX_YEAR = 2100
+
+
 def _plan_period():
-    """Return (year, month) from request args/form, defaulting to the current month."""
+    """Return (year, month) from request args/form, defaulting to the current month.
+
+    Both are clamped: the period is turned into datetimes by `_month_bounds`,
+    and a year outside datetime's range would raise there rather than come back
+    as an empty report.
+    """
     today = date.today()
     year = request.values.get('year', type=int) or today.year
     month = request.values.get('month', type=int) or today.month
     if month < 1 or month > 12:
         month = today.month
+    if year < PLAN_MIN_YEAR or year > PLAN_MAX_YEAR:
+        year = today.year
     return year, month
 
 
@@ -3069,10 +3090,16 @@ def reports_plans_save():
             amount = Decimal(value)
         except InvalidOperation:
             continue
+        # is_finite() first — «NaN» and «Infinity» are accepted by Decimal(), and
+        # comparing a NaN raises instead of returning False. The upper bound is
+        # what Numeric(10, 2) can hold; without it the write fails at the driver.
+        if not amount.is_finite() or amount > Decimal('99999999.99'):
+            continue
         if amount <= 0:
             if plan:
                 db.session.delete(plan)
             continue
+        amount = amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
         if plan:
             plan.amount = amount
