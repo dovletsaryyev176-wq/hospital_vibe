@@ -38,6 +38,15 @@
           </div>
         </div>
 
+        <div class="alert alert-success py-2 px-3 small d-flex align-items-start gap-2">
+          <i class="bi bi-cash-coin mt-1"></i>
+          <div>
+            Kassa hasaby ýapyk: <strong>{{ current.bill_total_display }} manat</strong>
+            {% if current.is_paid %}kabul edildi{% else %}— tölemeli pozisiýa ýok{% endif %}.
+            Çykarylandan soň krowat we nahar günleri hasaplanmaýar.
+          </div>
+        </div>
+
         {% if current.planned_operations %}
         <div class="alert alert-warning py-2 px-3 small">
           <i class="bi bi-exclamation-triangle me-1"></i>

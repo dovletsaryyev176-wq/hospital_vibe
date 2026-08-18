@@ -19,7 +19,8 @@ from app.models import (Patient, Examination, ExaminationAnalysis,
                         HospitalizationMealAssignment, HospitalizationMedicationDispense,
                         HospitalizationAnalysisOrder, HospitalizationToolOrder,
                         HospitalizationBlankOrder, HospitalizationConsultation,
-                        HospitalizationOperation, InpatientBillingMixin)
+                        HospitalizationOperation, HospitalizationPayment,
+                        InpatientBillingMixin)
 
 
 def role_required(*roles):
@@ -939,6 +940,7 @@ def _stationar_bill_options():
         subqueryload(Hospitalization.consultations).joinedload(HospitalizationConsultation.direction),
         subqueryload(Hospitalization.consultations).joinedload(HospitalizationConsultation.doctor),
         subqueryload(Hospitalization.operations).joinedload(HospitalizationOperation.operation),
+        subqueryload(Hospitalization.payments).joinedload(HospitalizationPayment.paid_by),
     )
 
 
@@ -981,32 +983,81 @@ def stationar_toggle_insurance(hospitalization_id):
 @main_bp.route('/stasionar/<int:hospitalization_id>/pay', methods=['POST'])
 @stationar_required
 def stationar_pay(hospitalization_id):
+    """Take money for a stay — the first payment and every one after it.
+
+    The bill does not stand still: the bed and the meals accrue by the day and
+    orders keep being written, so a payment covers whatever is not covered yet.
+    Each line is stamped with the method it was paid by, which is also what
+    says the line is settled. The days a already-paid bed has grown by carry no
+    line of their own, so they are taken as one row of their own.
+    """
     h = _stationar_or_404(hospitalization_id)
+    back = redirect(url_for('main.stationar_detail', hospitalization_id=h.id))
 
-    if h.is_paid:
-        flash('Ýatyş eýýäm tölenen.', 'warning')
-        return redirect(url_for('main.stationar_detail', hospitalization_id=h.id))
+    amount = h.unpaid_remainder
+    if amount <= 0:
+        flash('Bu ýatyş boýunça tölenmeli galyndy ýok.', 'warning')
+        return back
 
-    def _pm(field):
+    def _method(field):
         # Default to cash; only an explicit "terminal" switches the method.
         value = request.form.get(field)
         return (InpatientBillingMixin.PAYMENT_TERMINAL
                 if value == InpatientBillingMixin.PAYMENT_TERMINAL
                 else InpatientBillingMixin.PAYMENT_CASH)
 
+    cash = Decimal('0')
+    terminal = Decimal('0')
+
     for kind, _title, lines in h.bill_groups:
         for line in lines:
-            line.payment_method = _pm(f'pm_{kind}_{line.id}')
+            if line.payment_method is not None:
+                continue  # an earlier payment already covered this line
+            method = _method(f'pm_{kind}_{line.id}')
+            line.payment_method = method
+            if method == InpatientBillingMixin.PAYMENT_TERMINAL:
+                terminal += line.effective_total
+            else:
+                cash += line.effective_total
 
-    # What the bill said at this moment is what was taken — beds and meals go on
-    # accruing after it, and the difference must stay visible as a remainder.
-    h.paid_total = h.bill_total
+    # Whatever the lines do not explain is the growth of lines that were paid
+    # for while they were still running. It is settled under its own method, and
+    # putting the difference here keeps the two sides summing to the remainder
+    # even when a line was cancelled after the payment that covered it.
+    accrued = amount - (cash + terminal)
+    if accrued:
+        if _method('pm_accrual') == InpatientBillingMixin.PAYMENT_TERMINAL:
+            terminal += accrued
+        else:
+            cash += accrued
+
+    now = datetime.now()
+    first_payment = not h.is_paid
+
+    h.payments.append(HospitalizationPayment(
+        cash_amount=cash,
+        terminal_amount=terminal,
+        paid_at=now,
+        paid_by_id=current_user.id,
+    ))
+
+    # `paid_total` is the sum of every payment taken; what the bill grows by
+    # after this moment stays visible as a new remainder.
+    h.paid_total = (h.paid_total or Decimal('0')) + amount
     h.is_paid = True
-    h.paid_at = datetime.now()
-    h.paid_by_id = current_user.id
+    if first_payment:
+        # when the stay was settled, and by whom, is the first payment
+        h.paid_at = now
+        h.paid_by_id = current_user.id
+
     db.session.commit()
-    flash(f'Kesel taryhy №{h.history_number} boýunça töleg kabul edildi.', 'success')
-    return redirect(url_for('main.stationar_detail', hospitalization_id=h.id))
+
+    if first_payment:
+        flash(f'Kesel taryhy №{h.history_number} boýunça töleg kabul edildi.', 'success')
+    else:
+        flash(f'Kesel taryhy №{h.history_number} boýunça {amount:,.2f} manat '
+              f'goşmaça töleg kabul edildi.', 'success')
+    return back
 
 
 # ── Reports (cashier) ─────────────────────────────────────────────────────────

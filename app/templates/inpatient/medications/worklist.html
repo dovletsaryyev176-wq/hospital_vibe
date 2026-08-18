@@ -1,0 +1,163 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Bellenmeler sanawy{% endblock %}
+{% block page_title %}Bellenmeler sanawy (nobatlyk){% endblock %}
+
+{% block content %}
+
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  {% if departments | length > 1 %}
+    <form method="GET" class="d-flex gap-2">
+      {% if pending_only %}<input type="hidden" name="pending" value="1">{% endif %}
+      <select name="dep" class="form-select form-select-sm" style="min-width:200px"
+              onchange="this.form.submit()">
+        {% for d in departments %}
+          <option value="{{ d.id }}" {% if department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Görkez</button></noscript>
+    </form>
+  {% endif %}
+
+  <div class="btn-group btn-group-sm">
+    <a href="{{ url_for('inpatient.medications_worklist', dep=department_id) }}"
+       class="btn {% if not pending_only %}btn-primary{% else %}btn-outline-primary{% endif %}">
+      Ählisi <span class="badge bg-white text-dark ms-1">{{ totals.orders }}</span>
+    </a>
+    <a href="{{ url_for('inpatient.medications_worklist', dep=department_id, pending=1) }}"
+       class="btn {% if pending_only %}btn-primary{% else %}btn-outline-primary{% endif %}">
+      Şu gün berilmedik <span class="badge bg-white text-dark ms-1">{{ totals.pending }}</span>
+    </a>
+  </div>
+
+  <div class="ms-auto small text-muted">
+    {{ totals.patients }} syrkaw · {{ totals.orders }} işjeň bellenme
+  </div>
+</div>
+
+{% if groups %}
+  {% for stay, orders in groups %}
+  <div class="card border-0 shadow-sm rounded-3 mb-3">
+    <div class="card-header bg-white border-bottom py-2 px-4 d-flex flex-wrap align-items-center gap-2">
+      <a href="{{ url_for('inpatient.patients_detail', patient_id=stay.patient_id) }}"
+         class="fw-semibold text-decoration-none">
+        <i class="bi bi-person me-1 text-success"></i>{{ stay.patient.full_name }}
+      </a>
+      {% if stay.has_bed %}
+        <span class="badge bg-light text-dark border">{{ stay.place_display }}</span>
+      {% else %}
+        <span class="badge bg-warning-subtle text-warning">Krowat bellenmedik</span>
+      {% endif %}
+      <span class="text-muted small font-monospace">№{{ stay.history_number }}</span>
+      <span class="text-muted small">
+        {% if stay.has_doctor %}{{ stay.doctor.full_name }}{% else %}lukman bellenmedik{% endif %}
+      </span>
+      <a href="{{ url_for('inpatient.medications', hospitalization_id=stay.id) }}"
+         class="btn btn-sm btn-outline-secondary ms-auto">
+        <i class="bi bi-capsule me-1"></i>Kartasy
+      </a>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr>
+            <th class="ps-4">Derman</th>
+            <th style="width:150px">Dozasy / ýoly</th>
+            <th style="width:130px">Tertibi</th>
+            <th class="text-end" style="width:100px">Bir gezekde</th>
+            <th style="width:150px">Şu gün</th>
+            <th class="text-end" style="width:100px">Ammarda</th>
+            {% if may_dispense %}<th class="pe-4" style="width:200px">Bermek</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for order in orders %}
+          {% set today = given_today.get(order.id) %}
+          {% set on_hand = quantities.get(order.medicine_id, 0) %}
+          <tr {% if not today %}class="table-warning"{% endif %}>
+            <td class="ps-4">
+              <div class="fw-medium">{{ order.medicine.name }}</div>
+              <div class="text-muted small">
+                {{ order.started_at.strftime('%d.%m.%Y') }}
+                {% if order.planned_end_at %} — {{ order.planned_end_at.strftime('%d.%m.%Y') }}{% endif %}
+              </div>
+              {% if order.note %}
+                <div class="text-muted small fst-italic">{{ order.note }}</div>
+              {% endif %}
+            </td>
+            <td class="small">
+              <div class="fw-medium">{{ order.dose }}</div>
+              <div class="text-muted">{{ order.route_display }}</div>
+            </td>
+            <td class="small text-muted">{{ order.frequency or '—' }}</td>
+            <td class="text-end font-monospace small">
+              {{ order.quantity_per_dose_display }}
+              <div class="text-muted" style="font-size:.7rem">{{ order.medicine.unit_display }}</div>
+            </td>
+            <td class="small">
+              {% if today %}
+                <span class="badge bg-success-subtle text-success">{{ today.count }} gezek</span>
+                <div class="text-muted" style="font-size:.7rem">
+                  soňky {{ today.last.strftime('%H:%M') }}
+                </div>
+              {% else %}
+                <span class="badge bg-warning-subtle text-warning">Berilmedik</span>
+              {% endif %}
+            </td>
+            <td class="text-end font-monospace small {% if on_hand <= 0 %}text-danger{% endif %}">
+              {% if on_hand > 0 %}
+                {{ on_hand | quantity }}
+              {% else %}
+                <span class="badge bg-danger-subtle text-danger">ýok</span>
+              {% endif %}
+            </td>
+            {% if may_dispense %}
+            <td class="pe-4">
+              {% if on_hand > 0 %}
+                <form method="POST" class="d-flex gap-1"
+                      action="{{ url_for('inpatient.medications_dispense', order_id=order.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="back" value="{{ request.full_path }}">
+                  <input type="number" name="quantity" class="form-control form-control-sm text-end"
+                         style="width:80px" step="0.01" min="0.01" required
+                         value="{{ order.quantity_per_dose_display }}">
+                  <button type="submit" class="btn btn-sm btn-success text-nowrap">
+                    <i class="bi bi-check-lg me-1"></i>Bermek
+                  </button>
+                </form>
+              {% else %}
+                <span class="badge bg-light text-muted border">Ammarda ýok</span>
+              {% endif %}
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-clipboard-check opacity-25" style="font-size:2.5rem"></i>
+    <div class="mt-2 small">
+      {% if pending_only %}
+        Şu gün ähli bellenmeler berildi.
+      {% else %}
+        Bu bölümde işjeň derman bellenmesi ýok.
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if not may_dispense %}
+<div class="alert alert-light border py-2 px-3 small">
+  <i class="bi bi-eye me-1 text-muted"></i>
+  Derman bermek uly şepagat uýasynyň işi — siz sanawy diňe görüp bilýärsiňiz.
+</div>
+{% endif %}
+
+{% endblock %}

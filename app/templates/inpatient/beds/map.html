@@ -1,0 +1,170 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Krowat kartasy{% endblock %}
+{% block page_title %}Krowat kartasy{% endblock %}
+
+{% block head %}
+<style>
+  .bed-tile {
+    border: 1px solid #e3e8ef;
+    border-radius: .6rem;
+    padding: .65rem .75rem;
+    height: 100%;
+    background: #fff;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .bed-tile.free {
+    border-style: dashed;
+    border-color: #b9e0d8;
+    background: #f6fbfa;
+  }
+  .bed-tile.taken:hover { border-color: #0d9488; box-shadow: 0 .125rem .35rem rgba(13,148,136,.12); }
+  .bed-tile .bed-name { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: #8a94a6; }
+  .bed-tile a { text-decoration: none; color: inherit; }
+  .room-head { font-size: .8rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  {% if departments | length > 1 %}
+    <form method="GET" class="d-flex gap-2">
+      <select name="dep" class="form-select form-select-sm" style="min-width:200px"
+              onchange="this.form.submit()">
+        {% for d in departments %}
+          <option value="{{ d.id }}" {% if department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Görkez</button></noscript>
+    </form>
+  {% endif %}
+
+  <div class="ms-auto d-flex flex-wrap gap-3 small">
+    <span><span class="badge bg-secondary-subtle text-secondary">{{ totals.beds }}</span> krowat</span>
+    <span><span class="badge bg-primary-subtle text-primary">{{ totals.occupied }}</span> eýelenen</span>
+    <span><span class="badge bg-success-subtle text-success">{{ totals.free }}</span> boş</span>
+    <span class="text-muted">Dolulygy: <strong>{{ totals.occupancy }}%</strong></span>
+  </div>
+</div>
+
+{% if waiting %}
+<div class="card border-0 shadow-sm rounded-3 mb-3">
+  <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center gap-2">
+    <h6 class="mb-0 fw-semibold">
+      <i class="bi bi-person-exclamation me-2 text-warning"></i>Krowat bellenmedik syrkawlar
+    </h6>
+    <span class="badge bg-warning-subtle text-warning">{{ waiting | length }}</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Syrkaw</th>
+          <th style="width:150px">Kesel taryhy</th>
+          <th style="width:170px">Ýatyrylan wagty</th>
+          <th class="pe-4" style="width:230px">Bejeriji lukman</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for h in waiting %}
+        <tr>
+          <td class="ps-4">
+            <a href="{{ url_for('inpatient.patients_detail', patient_id=h.patient_id) }}"
+               class="fw-medium text-decoration-none">{{ h.patient.full_name }}</a>
+            <div class="text-muted small">{{ h.patient.birth_year }} ý.d.</div>
+          </td>
+          <td class="font-monospace small">{{ h.history_number }}</td>
+          <td class="small">{{ h.admitted_at.strftime('%d.%m.%Y %H:%M') }}</td>
+          <td class="pe-4 small">
+            {% if h.has_doctor %}
+              {{ h.doctor.full_name }}
+            {% else %}
+              <span class="badge bg-warning-subtle text-warning">Bellenmedik</span>
+            {% endif %}
+            {% if current_user.role == 'senior_nurse' %}
+              <a href="{{ url_for('inpatient.patients_assign_bed', patient_id=h.patient_id) }}"
+                 class="btn btn-sm btn-primary ms-2">
+                <i class="bi bi-door-open me-1"></i>Krowat bellemek
+              </a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if rooms %}
+<div class="row g-3">
+  {% for room in rooms %}
+  {% set beds = beds_by_room.get(room.id, []) %}
+  {% set taken = beds | selectattr('id', 'in', occupants) | list | length %}
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+      <div class="card-header bg-white border-bottom py-2 px-3 d-flex align-items-center gap-2">
+        <span class="fw-semibold room-head">
+          <i class="bi bi-door-closed me-1 text-success"></i>{{ room.name }}
+        </span>
+        <span class="badge bg-light text-dark border" style="font-size:.65rem">{{ room.room_type.name }}</span>
+        <span class="ms-auto small text-muted">{{ taken }} / {{ beds | length }}</span>
+      </div>
+      <div class="card-body p-2">
+        {% if beds %}
+        <div class="row row-cols-1 row-cols-xl-2 g-2">
+          {% for bed in beds %}
+          {% set stay = occupants.get(bed.id) %}
+          <div class="col">
+            <div class="bed-tile {% if stay %}taken{% else %}free{% endif %}">
+              <div class="d-flex align-items-center gap-1 mb-1">
+                <i class="bi bi-hospital {% if stay %}text-primary{% else %}text-success{% endif %}"
+                   style="font-size:.8rem"></i>
+                <span class="bed-name">{{ bed.name }}</span>
+                <span class="ms-auto text-muted font-monospace" style="font-size:.7rem">
+                  {{ bed.price_display }}
+                </span>
+              </div>
+              {% if stay %}
+                <a href="{{ url_for('inpatient.patients_detail', patient_id=stay.patient_id) }}">
+                  <div class="fw-medium small">{{ stay.patient.full_name }}</div>
+                  <div class="text-muted" style="font-size:.7rem">
+                    №{{ stay.history_number }} · {{ stay.bed_days }} gün
+                  </div>
+                  <div class="text-muted" style="font-size:.7rem">
+                    {% if stay.has_doctor %}
+                      {{ stay.doctor.full_name }}
+                    {% else %}
+                      <span class="text-warning">lukman bellenmedik</span>
+                    {% endif %}
+                  </div>
+                </a>
+              {% else %}
+                <div class="text-success small fw-medium">Boş</div>
+                <div class="text-muted" style="font-size:.7rem">
+                  {% if bed.is_insurance %}ätiýaçlandyryş — 50%{% else %}&nbsp;{% endif %}
+                </div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+          <div class="text-muted small px-2 py-3">Bu palatada işjeň krowat ýok.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card border-0 shadow-sm rounded-3">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-door-closed opacity-25" style="font-size:2.5rem"></i>
+    <div class="mt-2 small">Bu bölümde işjeň palata ýok. Palatalary dolandyryjy döredýär.</div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

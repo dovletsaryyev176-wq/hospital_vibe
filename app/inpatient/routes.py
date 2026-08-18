@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, subqueryload
 from app.inpatient import inpatient_bp
 from app.inpatient.forms import (HospitalizationForm, BedAssignmentForm,
-                                 DoctorAssignmentForm, DiaryEntryForm,
+                                 DoctorAssignmentForm, TransferForm, DiaryEntryForm,
                                  StockReceiptForm, StockAdjustForm, MedicationOrderForm,
                                  DiagnosisForm, DischargeForm, VitalRecordForm,
                                  OperationForm, OperationCancelForm,
@@ -16,8 +16,10 @@ from app.inpatient.forms import (HospitalizationForm, BedAssignmentForm,
                                  ConsultationForm, ConsultationConclusionForm,
                                  valid_phone)
 from app.extensions import db
-from app.models import (Room, Bed, Meal, Patient, User, Hospitalization, HospitalizationRelative,
+from app.models import (Room, Bed, Meal, Patient, User, Department,
+                        Hospitalization, HospitalizationRelative,
                         HospitalizationBedStay, HospitalizationDoctorAssignment,
+                        HospitalizationTransfer,
                         HospitalizationDiaryEntry, HospitalizationMealAssignment,
                         Medicine, DepartmentMedicineStock, MedicineStockMovement,
                         HospitalizationMedicationOrder, HospitalizationMedicationDispense,
@@ -231,6 +233,76 @@ def dashboard():
         discharged_today=discharged_today,
         needs_attention=needs_attention,
         totals=totals,
+    )
+
+
+# ── Bed map (krowat kartasy) ──────────────────────────────────────────────────
+
+@inpatient_bp.route('/krowatlar')
+@inpatient_main_required
+def beds_map():
+    """The ward drawn as its rooms and beds.
+
+    The dashboard counts how full a department is; this answers what a count
+    cannot — which bed is free right now, and who is lying in the one next to
+    it. Patients admitted but not yet placed are listed beside the plan,
+    because they are what the free beds are for.
+    """
+    dep_ids = user_department_ids()
+    if not dep_ids:
+        flash('Size bölüm bellenmedik. Dolandyryja ýüz tutuň.', 'danger')
+        return redirect(url_for('inpatient.dashboard'))
+
+    department_id = selected_department_id(dep_ids)
+
+    rooms = (
+        Room.query
+        .options(joinedload(Room.room_type))
+        .filter(Room.department_id == department_id, Room.is_active == True)  # noqa: E712
+        .order_by(Room.name)
+        .all()
+    )
+
+    beds_by_room = {}
+    if rooms:
+        beds = (
+            Bed.query
+            .filter(Bed.room_id.in_([r.id for r in rooms]), Bed.is_active == True)  # noqa: E712
+            .order_by(Bed.name)
+            .all()
+        )
+        for bed in beds:
+            beds_by_room.setdefault(bed.room_id, []).append(bed)
+
+    lying = (
+        Hospitalization.query
+        .options(joinedload(Hospitalization.patient),
+                 joinedload(Hospitalization.doctor))
+        .filter(Hospitalization.department_id == department_id,
+                Hospitalization.status == Hospitalization.STATUS_ACTIVE)
+        .all()
+    )
+    # A bed holds at most one patient, so the stay is looked up by bed id
+    occupants = {h.bed_id: h for h in lying if h.bed_id is not None}
+    waiting = sorted((h for h in lying if h.bed_id is None), key=lambda h: h.admitted_at)
+
+    bed_count = sum(len(rows) for rows in beds_by_room.values())
+    occupied = sum(1 for rows in beds_by_room.values() for bed in rows if bed.id in occupants)
+
+    return render_template(
+        'inpatient/beds/map.html',
+        departments=[d for d in current_user.active_departments if d.id in dep_ids],
+        department_id=department_id,
+        rooms=rooms,
+        beds_by_room=beds_by_room,
+        occupants=occupants,
+        waiting=waiting,
+        totals={
+            'beds': bed_count,
+            'occupied': occupied,
+            'free': max(0, bed_count - occupied),
+            'occupancy': round(occupied * 100 / bed_count) if bed_count else 0,
+        },
     )
 
 
@@ -488,6 +560,15 @@ def patients_discharge(patient_id):
         flash('Diňe öz bölümiňiziň syrkawyny çykaryp bilersiňiz.', 'danger')
         return redirect(url_for('inpatient.patients_list'))
 
+    # The bill is settled at the cash desk, and a stay that was never settled
+    # cannot be closed: once the patient is out, the bed and the meals stop
+    # accruing and the unpaid difference is simply lost. Checked before the
+    # form is even built, so the epicrisis is not typed for nothing.
+    if not current.is_settled:
+        flash(f'«{patient.full_name}» kassa {current.unpaid_remainder_display} manat '
+              f'tölemeli. Töleg kabul edilýänçä çykaryp bolmaýar.', 'danger')
+        return redirect(url_for('inpatient.patients_detail', patient_id=patient.id))
+
     form = DischargeForm()
 
     if request.method == 'GET':
@@ -697,6 +778,102 @@ def patients_assign_doctor(patient_id):
         patient=patient,
         current=current,
         doctors=doctors,
+    )
+
+
+# ── Transfer to another department (department head) ──────────────────────────
+
+@inpatient_bp.route('/syrkawlar/<int:patient_id>/gecirmek', methods=['GET', 'POST'])
+@inpatient_required('department_head')
+def patients_transfer(patient_id):
+    """Moving a running stay to another department.
+
+    A transfer is not a discharge: the history number, the diary, the bill and
+    every past record stay with the patient. What belonged to the department
+    being left does not travel — the bed and the attending doctor are released
+    and the meals stop, because each of them is given by the department that
+    ordered it, and the receiving ward assigns its own. Drug orders are left
+    standing: they are the doctor's word about the treatment, and the new ward
+    dispenses them from its own store.
+    """
+    patient = db.session.get(Patient, patient_id)
+    if patient is None:
+        abort(404)
+
+    current = active_hospitalization(patient_id)
+    if current is None:
+        flash(f'«{patient.full_name}» ýatmaýar.', 'warning')
+        return redirect(url_for('inpatient.patients_list'))
+
+    if current.department_id not in set(user_department_ids()):
+        flash('Diňe öz bölümiňiziň syrkawyny geçirip bilersiňiz.', 'danger')
+        return redirect(url_for('inpatient.patients_list'))
+
+    departments = (
+        Department.query
+        .filter(Department.is_active == True,  # noqa: E712
+                Department.id != current.department_id)
+        .order_by(Department.name)
+        .all()
+    )
+    if not departments:
+        flash('Geçirmek üçin başga işjeň bölüm ýok.', 'warning')
+        return redirect(url_for('inpatient.patients_detail', patient_id=patient.id))
+
+    form = TransferForm(departments=departments)
+
+    if form.validate_on_submit():
+        target = next((d for d in departments if d.id == form.department_id.data), None)
+        if target is None:
+            flash('Bu bölüm elýeterli däl. Sanawy täzeläň.', 'danger')
+            return redirect(url_for('inpatient.patients_transfer', patient_id=patient.id))
+
+        moved_at = datetime.now()
+
+        # the bed stays behind, and with it the period it was charged for
+        open_stay = current.current_bed_stay
+        if open_stay is not None:
+            open_stay.ended_at = moved_at
+
+        # so does the attending doctor — they work in the department left behind
+        open_doctor = current.current_doctor_assignment
+        if open_doctor is not None:
+            open_doctor.ended_at = moved_at
+
+        # and the meals, which are served by the department that ordered them
+        for meal_assignment in current.active_meal_assignments:
+            meal_assignment.ended_at = moved_at
+            meal_assignment.ended_by_id = current_user.id
+
+        current.transfers.append(HospitalizationTransfer(
+            from_department_id=current.department_id,
+            to_department_id=target.id,
+            reason=form.reason.data.strip(),
+            transferred_at=moved_at,
+            transferred_by_id=current_user.id,
+        ))
+
+        current.department_id = target.id
+        current.room_id = None
+        current.bed_id = None
+        current.bed_assigned_at = None
+        current.bed_assigned_by_id = None
+        current.doctor_id = None
+        current.doctor_assigned_at = None
+        current.doctor_assigned_by_id = None
+
+        db.session.commit()
+
+        flash(f'«{patient.full_name}» «{target.name}» bölümine geçirildi. Krowady we '
+              f'bejeriji lukmany täze bölüm belleýär.', 'success')
+        return redirect(url_for('inpatient.patients_list'))
+
+    return render_template(
+        'inpatient/patients/transfer.html',
+        form=form,
+        patient=patient,
+        current=current,
+        departments=departments,
     )
 
 
@@ -1236,6 +1413,16 @@ def stock_movements():
 
 # ── Medication orders and dispensing (dermanlar) ──────────────────────────────
 
+def back_target(default):
+    """Where a form says it came from, so an action taken on a list returns to
+    that list. Only a path on this site is accepted — a full URL arriving in a
+    form field must never be turned into a redirect."""
+    target = (request.form.get('back') or '').strip()
+    if target.startswith('/') and not target.startswith('//'):
+        return target
+    return default
+
+
 def can_order_medication(hospitalization) -> bool:
     """Doctors and the head of that department prescribe; nurses dispense."""
     return (current_user.role in MEDICATION_WRITER_ROLES
@@ -1392,7 +1579,8 @@ def medications_dispense(order_id):
         flash('Bu syrkaw siziň bölümiňizde ýatmaýar.', 'danger')
         return redirect(url_for('inpatient.patients_list'))
 
-    back = url_for('inpatient.medications', hospitalization_id=hospitalization.id)
+    # the drug may be given from the patient's card or from the shift sheet
+    back = back_target(url_for('inpatient.medications', hospitalization_id=hospitalization.id))
 
     if not hospitalization.is_open:
         flash('Syrkaw çykarylan — derman bermek bolmaýar.', 'danger')
@@ -1490,6 +1678,103 @@ def medications_dispense_cancel(dispense_id):
     flash(f'«{dispense.medicine.name}» berilmesi yzyna alyndy. '
           f'Galyndy: {format_quantity(stock_row.quantity)}.', 'success')
     return redirect(back)
+
+
+# ── Shift sheet (bellenmeler sanawy) ──────────────────────────────────────────
+
+@inpatient_bp.route('/bellenmeler')
+@inpatient_main_required
+def medications_worklist():
+    """Every standing drug order of a department on one page.
+
+    A patient's card answers «what is this patient on»; a shift asks the other
+    question — «what is still to be given, and to whom». The orders are grouped
+    by patient in the order the rooms are walked, and what has already gone out
+    today is counted beside each one, so the same dose is not given twice by two
+    people reading two different cards.
+    """
+    dep_ids = user_department_ids()
+    if not dep_ids:
+        flash('Size bölüm bellenmedik. Dolandyryja ýüz tutuň.', 'danger')
+        return redirect(url_for('inpatient.dashboard'))
+
+    department_id = selected_department_id(dep_ids)
+    pending_only = request.args.get('pending', '') == '1'
+
+    stays = (
+        Hospitalization.query
+        .options(joinedload(Hospitalization.patient),
+                 joinedload(Hospitalization.room),
+                 joinedload(Hospitalization.bed))
+        .filter(Hospitalization.department_id == department_id,
+                Hospitalization.status == Hospitalization.STATUS_ACTIVE)
+        .all()
+    )
+
+    orders = []
+    if stays:
+        orders = (
+            HospitalizationMedicationOrder.query
+            .options(joinedload(HospitalizationMedicationOrder.medicine),
+                     joinedload(HospitalizationMedicationOrder.doctor))
+            .filter(HospitalizationMedicationOrder.hospitalization_id.in_([h.id for h in stays]),
+                    HospitalizationMedicationOrder.status == HospitalizationMedicationOrder.STATUS_ACTIVE)
+            .order_by(HospitalizationMedicationOrder.started_at)
+            .all()
+        )
+
+    # What each order has already had today: how many times, and when last.
+    # Counted in one query — a shift sheet walks a whole department.
+    given_today = {}
+    if orders:
+        since = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        rows = (
+            db.session.query(
+                HospitalizationMedicationDispense.order_id,
+                db.func.count(HospitalizationMedicationDispense.id),
+                db.func.max(HospitalizationMedicationDispense.given_at),
+            )
+            .filter(HospitalizationMedicationDispense.order_id.in_([o.id for o in orders]),
+                    HospitalizationMedicationDispense.given_at >= since,
+                    HospitalizationMedicationDispense.is_cancelled == False)  # noqa: E712
+            .group_by(HospitalizationMedicationDispense.order_id)
+            .all()
+        )
+        given_today = {order_id: {'count': count, 'last': last}
+                       for order_id, count, last in rows}
+
+    def place_key(stay):
+        """Patients in the order the rooms are walked; whoever has no bed yet
+        comes last, since there is no room to walk to."""
+        if stay.room is None:
+            return (1, '', '', stay.patient.full_name)
+        return (0, stay.room.name, stay.bed.name if stay.bed else '', stay.patient.full_name)
+
+    orders_by_stay = {}
+    for order in orders:
+        if pending_only and order.id in given_today:
+            continue
+        orders_by_stay.setdefault(order.hospitalization_id, []).append(order)
+
+    groups = [(stay, orders_by_stay[stay.id])
+              for stay in sorted(stays, key=place_key)
+              if stay.id in orders_by_stay]
+
+    return render_template(
+        'inpatient/medications/worklist.html',
+        departments=[d for d in current_user.active_departments if d.id in dep_ids],
+        department_id=department_id,
+        groups=groups,
+        given_today=given_today,
+        quantities=stock_quantities(department_id),
+        pending_only=pending_only,
+        totals={
+            'orders': len(orders),
+            'pending': sum(1 for o in orders if o.id not in given_today),
+            'patients': len({o.hospitalization_id for o in orders}),
+        },
+        may_dispense=current_user.role == 'senior_nurse',
+    )
 
 
 # ── Diagnoses (diagnozlar) ────────────────────────────────────────────────────

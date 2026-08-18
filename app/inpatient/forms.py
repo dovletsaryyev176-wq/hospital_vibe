@@ -96,6 +96,34 @@ class DoctorAssignmentForm(FlaskForm):
         ]
 
 
+class TransferForm(FlaskForm):
+    """Moving a running stay to another department.
+
+    The reason is required: a patient who turns up in another ward with nothing
+    said about why is exactly what the transfer record exists to prevent.
+    """
+
+    department_id = SelectField(
+        'Geçirilýän bölüm',
+        coerce=int,
+        validators=[DataRequired(message='Bölümi saýlaň')],
+    )
+    reason = TextAreaField(
+        'Geçirmegiň sebäbi',
+        validators=[
+            DataRequired(message='Geçirmegiň sebäbini ýazyň'),
+            Length(max=500, message='500 simwoldan geçmeli däl'),
+        ],
+        render_kw={'rows': 3,
+                   'placeholder': 'Mysal: ýagdaýy agyrlaşdy, reanimasiýa bejergisi zerur'},
+    )
+    submit = SubmitField('Geçirmek')
+
+    def __init__(self, *args, departments=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.department_id.choices = [(d.id, d.name) for d in (departments or [])]
+
+
 class DiaryEntryForm(FlaskForm):
     """A doctor's progress note. Every field is optional on its own, but the
     note may not be completely empty."""

@@ -124,6 +124,23 @@
                 <span class="badge bg-warning-subtle text-warning">Ýazylmadyk</span>
               {% endif %}
             </div>
+            {% if is_head %}
+            <div class="col-12">
+              <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Kassa hasaby</div>
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-medium font-monospace">{{ current.bill_total_display }} manat</span>
+                {% if current.is_paid and current.is_settled %}
+                  <span class="badge bg-success-subtle text-success">Tölenen</span>
+                {% elif current.is_settled %}
+                  <span class="badge bg-secondary-subtle text-secondary">Tölemeli zat ýok</span>
+                {% else %}
+                  <span class="badge bg-warning-subtle text-warning">
+                    Tölenmedik: {{ current.unpaid_remainder_display }} manat
+                  </span>
+                {% endif %}
+              </div>
+            </div>
+            {% endif %}
             {% if current.latest_vitals %}
             <div class="col-12">
               <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Soňky ölçegler</div>
@@ -221,10 +238,25 @@
                 <i class="bi bi-person-badge me-1"></i>
                 {% if current.has_doctor %}Lukmany üýtgetmek{% else %}Bejeriji lukman bellemek{% endif %}
               </a>
-              <a href="{{ url_for('inpatient.patients_discharge', patient_id=patient.id) }}"
-                 class="btn btn-outline-danger btn-sm">
-                <i class="bi bi-box-arrow-right me-1"></i>Çykarmak
+              <a href="{{ url_for('inpatient.patients_transfer', patient_id=patient.id) }}"
+                 class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-arrow-left-right me-1"></i>Başga bölüme geçirmek
               </a>
+              {% if current.is_settled %}
+                <a href="{{ url_for('inpatient.patients_discharge', patient_id=patient.id) }}"
+                   class="btn btn-outline-danger btn-sm">
+                  <i class="bi bi-box-arrow-right me-1"></i>Çykarmak
+                </a>
+              {% else %}
+                <button type="button" class="btn btn-outline-danger btn-sm" disabled
+                        title="Kassa tölenmedik galyndy bar">
+                  <i class="bi bi-box-arrow-right me-1"></i>Çykarmak
+                </button>
+                <span class="badge bg-warning-subtle text-warning align-self-center">
+                  <i class="bi bi-cash-coin me-1"></i>Töleg garaşylýar:
+                  {{ current.unpaid_remainder_display }} manat
+                </span>
+              {% endif %}
             {% endif %}
           </div>
 
@@ -305,6 +337,34 @@
           </div>
           {% else %}
             <div class="text-muted small mb-4">Lukman heniz bellenmedik.</div>
+          {% endif %}
+
+          {% if current.transfers %}
+          <div class="text-muted mb-2" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">
+            Bölüm geçişleri
+          </div>
+          <div class="table-responsive mb-4">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Nireden → nirä</th>
+                  <th style="width:150px">Wagty</th>
+                  <th>Sebäbi</th>
+                  <th style="width:170px">Geçiren</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in current.transfers %}
+                <tr>
+                  <td class="fw-medium">{{ item.route_display }}</td>
+                  <td class="text-nowrap small">{{ item.transferred_at.strftime('%d.%m.%Y %H:%M') }}</td>
+                  <td class="small">{{ item.reason }}</td>
+                  <td class="text-muted small">{{ item.transferred_by.full_name }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
           {% endif %}
 
           <div class="text-muted mb-2" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">

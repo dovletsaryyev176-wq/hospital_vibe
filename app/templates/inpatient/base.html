@@ -119,6 +119,14 @@
        class="nav-link {% if 'inpatient.patients' in request.endpoint %}active{% endif %}">
       <i class="bi bi-people"></i> Syrkawlar
     </a>
+    <a href="{{ url_for('inpatient.beds_map') }}"
+       class="nav-link {% if request.endpoint == 'inpatient.beds_map' %}active{% endif %}">
+      <i class="bi bi-grid-3x3-gap"></i> Krowat kartasy
+    </a>
+    <a href="{{ url_for('inpatient.medications_worklist') }}"
+       class="nav-link {% if request.endpoint == 'inpatient.medications_worklist' %}active{% endif %}">
+      <i class="bi bi-clipboard-check"></i> Bellenmeler
+    </a>
 
     {% if current_user.role in ('senior_nurse', 'department_head') %}
     <div class="nav-section mt-2">Ammar</div>

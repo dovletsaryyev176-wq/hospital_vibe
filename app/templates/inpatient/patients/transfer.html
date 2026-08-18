@@ -1,0 +1,98 @@
+{% extends 'inpatient/base.html' %}
+
+{% block title %}Geçirmek — {{ patient.full_name }}{% endblock %}
+{% block page_title %}Başga bölüme geçirmek{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    {% set hospitalization = current %}
+    {% include 'inpatient/_patient_header.html' %}
+
+    <div class="card border-0 shadow-sm rounded-3">
+      <div class="card-header bg-white border-bottom py-3 px-4">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-arrow-left-right me-2 text-primary"></i>Bölümden bölüme geçirmek
+        </h6>
+      </div>
+      <div class="card-body px-4 py-4">
+
+        <!-- Where the patient stands now -->
+        <div class="row g-3 mb-4">
+          <div class="col-sm-3">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Häzirki bölüm</div>
+            <div class="fw-medium">{{ current.department.name }}</div>
+          </div>
+          <div class="col-sm-3">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Palata / krowat</div>
+            <div class="fw-medium">{{ current.place_display }}</div>
+          </div>
+          <div class="col-sm-3">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Bejeriji lukman</div>
+            <div class="fw-medium">{{ current.doctor.full_name if current.has_doctor else '—' }}</div>
+          </div>
+          <div class="col-sm-3">
+            <div class="text-muted" style="font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Ýatan güni</div>
+            <div class="fw-medium">{{ current.bed_days }}</div>
+          </div>
+        </div>
+
+        <div class="alert alert-warning py-2 px-3 small mb-4">
+          <div class="fw-semibold mb-1">
+            <i class="bi bi-exclamation-triangle me-1"></i>Geçirilende näme bolýar
+          </div>
+          <ul class="mb-0 ps-3">
+            <li>Kesel taryhy <span class="font-monospace">№{{ current.history_number }}</span>,
+                gündelik, diagnozlar we kassa hasaby saklanýar — bu çykaryş däl.</li>
+            <li>Krowat boşadylýar, täze bölümiň uly şepagat uýasy täze krowat belleýär.</li>
+            <li>Bejeriji lukman aýrylýar, täze bölümiň müdiri täze lukman belleýär.</li>
+            {% if current.active_meal_assignments %}
+              <li>Işjeň naharlar ({{ current.active_meal_assignments | length }}) besedilýär —
+                  nahary belleýän bölüm berýär.</li>
+            {% endif %}
+            {% if current.active_medication_orders %}
+              <li>Derman bellenmeleri ({{ current.active_medication_orders | length }}) işjeň galýar —
+                  täze bölüm öz ammaryndan berýär.</li>
+            {% endif %}
+            <li>Geçirilenden soň bu syrkawyň ýazgylary siziň bölümiňizde görünmeýär.</li>
+          </ul>
+        </div>
+
+        <form method="POST" novalidate>
+          {{ form.hidden_tag() }}
+
+          <div class="row g-3">
+            <div class="col-sm-6">
+              {{ form.department_id.label(class='form-label fw-medium') }}
+              {{ form.department_id(class='form-select' + (' is-invalid' if form.department_id.errors else '')) }}
+              {% for e in form.department_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="col-12">
+              {{ form.reason.label(class='form-label fw-medium') }}
+              {{ form.reason(class='form-control' + (' is-invalid' if form.reason.errors else '')) }}
+              {% for e in form.reason.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              <div class="form-text">Sebäp kesel taryhynda galýar.</div>
+            </div>
+          </div>
+
+          <hr class="my-4">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span class="text-muted small">
+              <i class="bi bi-info-circle me-1"></i>
+              Geçirmegi yzyna alyp bolmaýar — ýalňyşsaňyz, täze bölüm yzyna geçirmeli.
+            </span>
+            <div class="d-flex gap-2">
+              <a href="{{ url_for('inpatient.patients_detail', patient_id=patient.id) }}"
+                 class="btn btn-outline-secondary">Gaýtarmak</a>
+              {{ form.submit(class='btn btn-primary px-4') }}
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

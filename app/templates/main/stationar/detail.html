@@ -24,9 +24,17 @@
               <i class="bi bi-box-arrow-right me-1"></i>Çykaryldy
             </span>
           {% endif %}
-          {% if h.is_paid %}
+          {% if h.has_unpaid_remainder %}
+            <span class="badge bg-warning-subtle text-warning">
+              <i class="bi bi-exclamation-triangle me-1"></i>Galyndy: {{ h.unpaid_remainder_display }} manat
+            </span>
+          {% elif h.is_paid %}
             <span class="badge bg-success-subtle text-success">
               <i class="bi bi-cash-coin me-1"></i>Tölenen
+            </span>
+          {% elif h.is_settled %}
+            <span class="badge bg-secondary-subtle text-secondary">
+              <i class="bi bi-dash-circle me-1"></i>Tölemeli zat ýok
             </span>
           {% else %}
             <span class="badge bg-warning-subtle text-warning">
@@ -91,7 +99,16 @@
           <div class="small">
             Töleg kabul edilenden soň hasabat <strong>{{ h.unpaid_remainder_display }} manat</strong> ösdi
             (krowat we nahar günler boýunça hasaplanýar, täze bellenmeler hem goşulýar).
-            Ýatyş bir gezek tölenýär — bu tapawut kabul edilmedi.
+            Bu galyndyny <strong>«Galyndyny kabul etmek»</strong> arkaly kabul ediň —
+            galyndy tölenmese, syrkawy çykaryp bolmaýar.
+          </div>
+        </div>
+        {% elif h.is_overpaid %}
+        <div class="alert alert-info d-flex align-items-start gap-2 mt-3 mb-0 py-2">
+          <i class="bi bi-info-circle-fill mt-1"></i>
+          <div class="small">
+            Kabul edilen töleg häzirki hasapdan <strong>{{ h.overpaid_display }} manat</strong> köp —
+            töleg kabul edilenden soň bir pozisiýa ýatyrylan. Tapawudy syrkawa gaýtarmaly.
           </div>
         </div>
         {% elif not h.is_paid and h.is_open %}
@@ -122,8 +139,15 @@
               <i class="bi bi-shield-check me-1"></i>Ätiýaçlandyryşy açmak
             </button>
           {% endif %}
+        {% endif %}
+        {% if not h.is_settled %}
           <button type="button" class="btn btn-sm btn-primary" onclick="confirmPay()">
-            <i class="bi bi-cash-coin me-1"></i>Tölegi kabul etmek
+            {% if h.is_paid %}
+              <i class="bi bi-plus-circle me-1"></i>Galyndyny kabul etmek
+              <span class="badge bg-white text-primary ms-1">{{ h.unpaid_remainder_display }}</span>
+            {% else %}
+              <i class="bi bi-cash-coin me-1"></i>Tölegi kabul etmek
+            {% endif %}
           </button>
         {% endif %}
         <div class="ms-auto text-end">
@@ -133,6 +157,68 @@
       </div>
     </div>
   </div>
+
+  <!-- Payments taken -->
+  {% if h.is_paid %}
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-receipt me-2 text-primary"></i>Kabul edilen tölegler
+        </h6>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4" style="width:170px">Wagty</th>
+              <th>Kabul eden</th>
+              <th class="text-end" style="width:130px">Nagt</th>
+              <th class="text-end" style="width:130px">Terminal</th>
+              <th class="text-end pe-4" style="width:160px">Jemi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {# Stays settled before payments began to be kept one by one carry
+               only their total — it is printed as one undetailed row. #}
+            {% if h.unlogged_paid_total > 0 %}
+            <tr class="text-muted">
+              <td class="ps-4 small">{{ h.paid_at.strftime('%d.%m.%Y %H:%M') }}</td>
+              <td class="small">
+                {{ h.paid_by.full_name if h.paid_by else '—' }}
+                <div style="font-size:.7rem">jikme-jiklik ýazylmadyk</div>
+              </td>
+              <td class="text-end font-monospace small">—</td>
+              <td class="text-end font-monospace small">—</td>
+              <td class="text-end pe-4 font-monospace small">{{ h.unlogged_paid_total_display }} manat</td>
+            </tr>
+            {% endif %}
+            {% for p in h.payments %}
+            <tr>
+              <td class="ps-4 small">{{ p.paid_at.strftime('%d.%m.%Y %H:%M') }}</td>
+              <td class="small">
+                {{ p.paid_by.full_name if p.paid_by else '—' }}
+                {% if not loop.first or h.unlogged_paid_total > 0 %}
+                  <span class="badge bg-warning-subtle text-warning ms-1" style="font-size:.65rem">goşmaça</span>
+                {% endif %}
+              </td>
+              <td class="text-end font-monospace small">{{ p.cash_amount_display }}</td>
+              <td class="text-end font-monospace small">{{ p.terminal_amount_display }}</td>
+              <td class="text-end pe-4 font-monospace small fw-semibold">{{ p.amount_display }} manat</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="border-top">
+            <tr>
+              <td colspan="4" class="ps-4 fw-semibold small">Kabul edilen jemi</td>
+              <td class="text-end pe-4 fw-semibold font-monospace small">{{ h.paid_total_display }} manat</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Bill sections -->
   {% set icons = {'bed': 'hospital', 'meal': 'egg-fried', 'medicine': 'capsule',
@@ -186,7 +272,9 @@
                     <i class="bi bi-cash me-1"></i>Nagt
                   </span>
                 {% else %}
-                  <span class="text-muted small">—</span>
+                  <span class="badge bg-warning-subtle text-warning">
+                    <i class="bi bi-hourglass-split me-1"></i>Tölenmedik
+                  </span>
                 {% endif %}
               </td>
               {% endif %}
@@ -261,7 +349,7 @@
 </div>
 
 <!-- Pay confirmation modal -->
-{% if not h.is_paid %}
+{% if not h.is_settled %}
 {% macro pay_row(kind, line) %}
 <tr>
   <td class="small">
@@ -292,12 +380,20 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header">
           <h5 class="modal-title mb-0">
-            <i class="bi bi-cash-coin text-primary me-2"></i>Tölegi kabul etmek №{{ h.history_number }}
+            <i class="bi bi-cash-coin text-primary me-2"></i>
+            {% if h.is_paid %}Galyndyny kabul etmek{% else %}Tölegi kabul etmek{% endif %}
+            №{{ h.history_number }}
           </h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Ýapmak"></button>
         </div>
         <div class="modal-body">
-          {% if h.bill_lines %}
+          {% if h.is_paid %}
+          <div class="alert alert-warning d-flex align-items-start gap-2 py-2 small">
+            <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+            <div>Öň kabul edilen <strong>{{ h.paid_total_display }} manat</strong> hasapdan
+              çykarylýar — bu ýerde diňe tölenmedik galyndy kabul edilýär.</div>
+          </div>
+          {% endif %}
           {% if h.is_open %}
           <div class="alert alert-warning d-flex align-items-start gap-2 py-2 small">
             <i class="bi bi-exclamation-triangle-fill mt-1"></i>
@@ -326,13 +422,39 @@
               </thead>
               <tbody>
                 {% for kind, title, lines in h.bill_groups %}
-                  {% if lines %}
+                  {% set unsettled = lines | selectattr('payment_method', 'none') | list %}
+                  {% if unsettled %}
                     <tr class="table-light"><td colspan="3" class="fw-semibold small">{{ title }}</td></tr>
-                    {% for line in lines %}
+                    {% for line in unsettled %}
                       {{ pay_row(kind, line) }}
                     {% endfor %}
                   {% endif %}
                 {% endfor %}
+                {# Days a paid-for bed or meal has run since carry no line of
+                   their own — they are settled as one row. #}
+                {% if h.accrued_since_payment > 0 %}
+                  <tr class="table-light"><td colspan="3" class="fw-semibold small">Töleg soňky günler</td></tr>
+                  <tr>
+                    <td class="small">
+                      Krowat we nahar günleriniň ösüşi
+                      <div class="text-muted" style="font-size:.7rem">
+                        öň tölenen pozisiýalar töleg gününden bäri dowam etdi
+                      </div>
+                    </td>
+                    <td class="text-end font-monospace small">{{ h.accrued_since_payment_display }}</td>
+                    <td class="text-center">
+                      <div class="btn-group btn-group-sm pay-method" role="group"
+                           data-amount="{{ '%.2f' | format(h.accrued_since_payment) }}">
+                        <input type="radio" class="btn-check pay-radio" name="pm_accrual"
+                               id="pm_accrual_cash" value="cash" autocomplete="off" checked>
+                        <label class="btn btn-outline-success" for="pm_accrual_cash">Nagt</label>
+                        <input type="radio" class="btn-check pay-radio" name="pm_accrual"
+                               id="pm_accrual_term" value="terminal" autocomplete="off">
+                        <label class="btn btn-outline-primary" for="pm_accrual_term">Terminal</label>
+                      </div>
+                    </td>
+                  </tr>
+                {% endif %}
               </tbody>
             </table>
           </div>
@@ -341,9 +463,6 @@
             <span><i class="bi bi-credit-card-2-front text-primary me-1"></i>Terminal: <span class="font-monospace fw-semibold" id="pay-term-total">0.00</span> manat</span>
             <span class="fw-semibold">Jemi: <span class="font-monospace" id="pay-grand-total">0.00</span> manat</span>
           </div>
-          {% else %}
-          <p class="text-center text-muted py-4 mb-0">Töleg üçin pozisiýa ýok. Ýatyş tölenen diýip bellenýär.</p>
-          {% endif %}
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>

@@ -900,6 +900,12 @@ class Hospitalization(db.Model):
     consultations = db.relationship('HospitalizationConsultation', back_populates='hospitalization',
                                     cascade='all, delete-orphan',
                                     order_by='HospitalizationConsultation.ordered_at.desc()')
+    transfers = db.relationship('HospitalizationTransfer', back_populates='hospitalization',
+                                cascade='all, delete-orphan',
+                                order_by='HospitalizationTransfer.transferred_at')
+    payments = db.relationship('HospitalizationPayment', back_populates='hospitalization',
+                               cascade='all, delete-orphan',
+                               order_by='HospitalizationPayment.paid_at')
 
     @property
     def is_open(self) -> bool:
@@ -1104,6 +1110,62 @@ class Hospitalization(db.Model):
     def has_unpaid_remainder(self) -> bool:
         return self.is_paid and self.unpaid_remainder > 0
 
+    @property
+    def is_settled(self) -> bool:
+        """Nothing is owed on the stay right now. A stay whose bill is empty is
+        settled without a payment ever having been taken — the ward may not be
+        held back over a bill of zero."""
+        return self.unpaid_remainder <= 0
+
+    @property
+    def is_overpaid(self) -> bool:
+        """More was taken than the bill now asks for — a line was cancelled
+        after the payment. Kept visible instead of shown as a settled stay."""
+        return self.unpaid_remainder < 0
+
+    @property
+    def overpaid_display(self) -> str:
+        return f'{-self.unpaid_remainder:,.2f}'
+
+    @property
+    def unsettled_lines(self):
+        """Bill lines no payment has covered yet. A line is stamped with the
+        method it was paid by, so an unstamped one is money still owed."""
+        return [line for line in self.bill_lines if line.payment_method is None]
+
+    @property
+    def accrued_since_payment(self):
+        """The part of the remainder no new line accounts for — the bed and the
+        meals of a patient who went on lying in after the payment was taken."""
+        if not self.is_paid:
+            return Decimal('0')
+        new_lines = sum((line.effective_total for line in self.unsettled_lines), Decimal('0'))
+        return self.unpaid_remainder - new_lines
+
+    @property
+    def accrued_since_payment_display(self) -> str:
+        return f'{self.accrued_since_payment:,.2f}'
+
+    @property
+    def logged_payments_total(self):
+        return sum((p.amount for p in self.payments), Decimal('0'))
+
+    @property
+    def unlogged_paid_total(self):
+        """Money taken before payments began to be kept one by one. Such a stay
+        carries only its total, so the log prints it as one undetailed row
+        instead of pretending the act was never recorded."""
+        return (self.paid_total or Decimal('0')) - self.logged_payments_total
+
+    @property
+    def unlogged_paid_total_display(self) -> str:
+        return f'{self.unlogged_paid_total:,.2f}'
+
+    @property
+    def current_transfer(self):
+        """The move that put the patient where they are now, if they were moved."""
+        return self.transfers[-1] if self.transfers else None
+
     def __repr__(self) -> str:
         return f'<Hospitalization {self.history_number} patient={self.patient_id}>'
 
@@ -1123,6 +1185,55 @@ class HospitalizationRelative(db.Model):
 
     def __repr__(self) -> str:
         return f'<HospitalizationRelative {self.full_name} {self.phone_number}>'
+
+
+class HospitalizationPayment(db.Model):
+    """One payment the cashier took for a stay.
+
+    A stay is meant to be settled in one payment, but the bill does not stand
+    still: the bed and the meals keep accruing while the patient lies in, and
+    orders written afterwards join it. What is left over is taken in a further
+    payment, so a stay may have several — `Hospitalization.paid_total` is their
+    sum, and each row keeps who took how much, when, and by which method.
+
+    Every payment splits into cash and terminal because one act may be both:
+    the cashier chooses the method per bill line, and the two sides are what a
+    cashier's day is counted in.
+    """
+    __tablename__ = 'hospitalization_payments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+
+    cash_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    terminal_amount = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+
+    paid_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
+    paid_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='payments')
+    paid_by = db.relationship('User', foreign_keys=[paid_by_id])
+
+    @property
+    def amount(self):
+        return (self.cash_amount or Decimal('0')) + (self.terminal_amount or Decimal('0'))
+
+    @property
+    def amount_display(self) -> str:
+        return f'{self.amount:,.2f}'
+
+    @property
+    def cash_amount_display(self) -> str:
+        return f"{self.cash_amount or Decimal('0'):,.2f}"
+
+    @property
+    def terminal_amount_display(self) -> str:
+        return f"{self.terminal_amount or Decimal('0'):,.2f}"
+
+    def __repr__(self) -> str:
+        return f'<HospitalizationPayment h={self.hospitalization_id} amount={self.amount}>'
 
 
 class HospitalizationBedStay(InpatientBillingMixin, db.Model):
@@ -1214,6 +1325,47 @@ class HospitalizationDoctorAssignment(db.Model):
 
     def __repr__(self) -> str:
         return f'<HospitalizationDoctorAssignment h={self.hospitalization_id} doctor={self.doctor_id}>'
+
+
+class HospitalizationTransfer(db.Model):
+    """A move of a running stay from one department to another.
+
+    A transfer is not a discharge: the history number, the diary, the bill and
+    every past record stay with the patient, only the department changes. What
+    belonged to the department that was left does not travel — the bed and the
+    attending doctor are released by the move, and the receiving department
+    gives its own; the meals stop for the same reason, since a meal is served
+    by the department that ordered it.
+
+    The reason is required: a patient who appears in another ward with nothing
+    said about why is exactly what this record exists to prevent.
+    """
+    __tablename__ = 'hospitalization_transfers'
+
+    id = db.Column(db.Integer, primary_key=True)
+    hospitalization_id = db.Column(db.Integer, db.ForeignKey('hospitalizations.id'),
+                                   nullable=False, index=True)
+    from_department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=False)
+    to_department_id = db.Column(db.Integer, db.ForeignKey('departments.id'), nullable=False)
+
+    reason = db.Column(db.String(500), nullable=False)
+
+    transferred_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    transferred_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+
+    hospitalization = db.relationship('Hospitalization', back_populates='transfers')
+    from_department = db.relationship('Department', foreign_keys=[from_department_id])
+    to_department = db.relationship('Department', foreign_keys=[to_department_id])
+    transferred_by = db.relationship('User', foreign_keys=[transferred_by_id])
+
+    @property
+    def route_display(self) -> str:
+        return f'{self.from_department.name} → {self.to_department.name}'
+
+    def __repr__(self) -> str:
+        return (f'<HospitalizationTransfer h={self.hospitalization_id} '
+                f'{self.from_department_id}->{self.to_department_id}>')
 
 
 class HospitalizationDiaryEntry(db.Model):
