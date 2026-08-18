@@ -1,0 +1,159 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Stasionar{% endblock %}
+{% block page_title %}Stasionar — tölegler{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm border-0 rounded-3 overflow-hidden">
+
+  <!-- Toolbar -->
+  <div class="card-header bg-white border-bottom px-4 py-3">
+    <form class="d-flex gap-2 flex-wrap" method="GET" action="{{ url_for('main.stationar_list') }}">
+      <div class="input-group" style="max-width:320px">
+        <span class="input-group-text bg-white border-end-0">
+          <i class="bi bi-search text-muted"></i>
+        </span>
+        <input type="text" class="form-control border-start-0 ps-0"
+               name="q" value="{{ search }}" placeholder="FAA, kesel taryhy, pasport">
+      </div>
+      <select name="status" class="form-select" style="max-width:170px">
+        <option value="">Hemme ýatyşlar</option>
+        <option value="active"     {% if status_filter == 'active'     %}selected{% endif %}>Ýatýanlar</option>
+        <option value="discharged" {% if status_filter == 'discharged' %}selected{% endif %}>Çykarylanlar</option>
+      </select>
+      <select name="paid" class="form-select" style="max-width:150px">
+        <option value="">Tölegler</option>
+        <option value="unpaid" {% if paid_filter == 'unpaid' %}selected{% endif %}>Tölenmedik</option>
+        <option value="paid"   {% if paid_filter == 'paid'   %}selected{% endif %}>Tölenen</option>
+      </select>
+      <button type="submit" class="btn btn-outline-primary">Tapmak</button>
+      {% if search or status_filter or paid_filter %}
+        <a href="{{ url_for('main.stationar_list') }}" class="btn btn-outline-secondary">
+          <i class="bi bi-x-lg"></i>
+        </a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Table -->
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:50px">#</th>
+          <th>Syrkaw</th>
+          <th>Kesel taryhy</th>
+          <th>Bölüm / ýeri</th>
+          <th>Ýatan senesi</th>
+          <th class="text-end">Hasabat</th>
+          <th class="text-center">Statusy</th>
+          <th class="text-center">Tölegi</th>
+          <th class="text-center pe-4">Amallar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if hospitalizations %}
+          {% for h in hospitalizations %}
+          <tr>
+            <td class="ps-4 text-muted">{{ (pagination.page - 1) * pagination.per_page + loop.index }}</td>
+            <td class="fw-medium">
+              {{ h.patient.full_name }}
+              <div class="text-muted small">{{ h.patient.birth_year }} ý.d.</div>
+            </td>
+            <td class="font-monospace small">{{ h.history_number }}</td>
+            <td>
+              {{ h.department.name }}
+              <div class="text-muted small">{{ h.place_display }}</div>
+            </td>
+            <td class="text-nowrap small">
+              {{ h.admitted_at.strftime('%d.%m.%Y') }}
+              <div class="text-muted small">{{ h.bed_days }} gün</div>
+            </td>
+            <td class="text-end text-nowrap font-monospace small">
+              {{ h.bill_total_display }}
+              {% if h.patient_has_insurance and h.bill_discount > 0 %}
+                <div class="text-success" style="font-size:.7rem">−{{ h.bill_discount_display }}</div>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if h.is_open %}
+                <span class="badge bg-primary-subtle text-primary">
+                  <i class="bi bi-hospital me-1"></i>Ýatyr
+                </span>
+              {% else %}
+                <span class="badge bg-secondary-subtle text-secondary">
+                  <i class="bi bi-box-arrow-right me-1"></i>Çykaryldy
+                </span>
+              {% endif %}
+            </td>
+            <td class="text-center">
+              {% if h.has_unpaid_remainder %}
+                <span class="badge bg-warning-subtle text-warning"
+                      title="Tölegden soň goşulan pozisiýalar bar">
+                  <i class="bi bi-exclamation-triangle me-1"></i>Galyndy {{ h.unpaid_remainder_display }}
+                </span>
+              {% elif h.is_paid %}
+                <span class="badge bg-success-subtle text-success">
+                  <i class="bi bi-cash-coin me-1"></i>Tölenen
+                </span>
+              {% else %}
+                <span class="badge bg-warning-subtle text-warning">
+                  <i class="bi bi-hourglass-split me-1"></i>Tölenmedik
+                </span>
+              {% endif %}
+            </td>
+            <td class="text-center pe-4">
+              <a href="{{ url_for('main.stationar_detail', hospitalization_id=h.id) }}"
+                 class="btn btn-sm btn-outline-info" title="Görmek">
+                <i class="bi bi-eye"></i>
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="9" class="text-center text-muted py-5">
+              <i class="bi bi-hospital d-block mb-2" style="font-size:2rem;opacity:.3"></i>
+              Ýatyş tapylmady
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pagination.total %}
+  <div class="card-footer bg-white px-4 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2">
+    <span class="text-muted small">
+      Jemi: {{ pagination.total }}
+      ({{ (pagination.page - 1) * pagination.per_page + 1 }}–{{ [(pagination.page) * pagination.per_page, pagination.total] | min }})
+    </span>
+    {% if pagination.pages > 1 %}
+    <nav aria-label="Sahypa">
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('main.stationar_list', page=pagination.prev_num, q=search, status=status_filter, paid=paid_filter) }}">
+            <i class="bi bi-chevron-left"></i>
+          </a>
+        </li>
+        {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+          {% if p %}
+            <li class="page-item {% if p == pagination.page %}active{% endif %}">
+              <a class="page-link" href="{{ url_for('main.stationar_list', page=p, q=search, status=status_filter, paid=paid_filter) }}">{{ p }}</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('main.stationar_list', page=pagination.next_num, q=search, status=status_filter, paid=paid_filter) }}">
+            <i class="bi bi-chevron-right"></i>
+          </a>
+        </li>
+      </ul>
+    </nav>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

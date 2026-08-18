@@ -1,0 +1,407 @@
+{% extends 'main/base.html' %}
+
+{% block title %}Ýatyş №{{ h.history_number }}{% endblock %}
+{% block page_title %}Ýatyş №{{ h.history_number }}{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <!-- Header card -->
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3 d-flex align-items-center gap-2 flex-wrap">
+        <a href="{{ url_for('main.stationar_list') }}" class="btn btn-sm btn-outline-secondary me-1">
+          <i class="bi bi-arrow-left"></i>
+        </a>
+        <h6 class="mb-0 fw-semibold">Kesel taryhy №{{ h.history_number }}</h6>
+        <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+          {% if h.is_open %}
+            <span class="badge bg-primary-subtle text-primary">
+              <i class="bi bi-hospital me-1"></i>Ýatyr
+            </span>
+          {% else %}
+            <span class="badge bg-secondary-subtle text-secondary">
+              <i class="bi bi-box-arrow-right me-1"></i>Çykaryldy
+            </span>
+          {% endif %}
+          {% if h.is_paid %}
+            <span class="badge bg-success-subtle text-success">
+              <i class="bi bi-cash-coin me-1"></i>Tölenen
+            </span>
+          {% else %}
+            <span class="badge bg-warning-subtle text-warning">
+              <i class="bi bi-hourglass-split me-1"></i>Tölenmedik
+            </span>
+          {% endif %}
+          {% if h.patient_has_insurance %}
+            <span class="badge bg-info-subtle text-info">
+              <i class="bi bi-shield-check me-1"></i>Ätiýaçlandyryş: açyk
+            </span>
+          {% else %}
+            <span class="badge bg-secondary-subtle text-secondary">
+              <i class="bi bi-shield-slash me-1"></i>Ätiýaçlandyryş: ýapyk
+            </span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card-body px-4 py-4">
+        <div class="row g-3">
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Syrkaw</div>
+            <div class="fw-semibold">{{ h.patient.full_name }}</div>
+            <div class="text-muted small">
+              {{ h.patient.birth_year }} ý.d., ätiýaçlandyryş: {{ h.patient.insurance_number or '—' }}
+            </div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Bölüm / ýeri</div>
+            <div class="fw-semibold">{{ h.department.name }}</div>
+            <div class="text-muted small">{{ h.place_display }}</div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Ýatan senesi</div>
+            <div class="fw-semibold">{{ h.admitted_at.strftime('%d.%m.%Y') }}</div>
+            <div class="text-muted small">{{ h.admitted_at.strftime('%H:%M') }} — {{ h.bed_days }} gün</div>
+          </div>
+          {% if h.discharged_at %}
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Çykarylan senesi</div>
+            <div class="fw-semibold">{{ h.discharged_at.strftime('%d.%m.%Y') }}</div>
+            <div class="text-muted small">{{ h.discharged_at.strftime('%H:%M') }}</div>
+          </div>
+          {% endif %}
+          {% if h.is_paid %}
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Töleg kabul edilen</div>
+            <div class="fw-semibold">{{ h.paid_at.strftime('%d.%m.%Y') }}</div>
+            <div class="text-muted small">
+              {{ h.paid_at.strftime('%H:%M') }}{% if h.paid_by %} — {{ h.paid_by.full_name }}{% endif %}
+            </div>
+          </div>
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Kabul edilen jemi</div>
+            <div class="fw-semibold font-monospace">{{ h.paid_total_display }} manat</div>
+          </div>
+          {% endif %}
+        </div>
+
+        {% if h.has_unpaid_remainder %}
+        <div class="alert alert-warning d-flex align-items-start gap-2 mt-3 mb-0 py-2">
+          <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+          <div class="small">
+            Töleg kabul edilenden soň hasabat <strong>{{ h.unpaid_remainder_display }} manat</strong> ösdi
+            (krowat we nahar günler boýunça hasaplanýar, täze bellenmeler hem goşulýar).
+            Ýatyş bir gezek tölenýär — bu tapawut kabul edilmedi.
+          </div>
+        </div>
+        {% elif not h.is_paid and h.is_open %}
+        <div class="alert alert-info d-flex align-items-start gap-2 mt-3 mb-0 py-2">
+          <i class="bi bi-info-circle-fill mt-1"></i>
+          <div class="small">
+            Syrkaw heniz ýatyr. Ýatyş bir gezek tölenýär, şonuň üçin tölegi
+            <strong>çykarylandan soň</strong> kabul etmek dogry: şu günden soň goşulýan
+            krowat günleri we bellenmeler bu tölege girmeýär.
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="card-footer bg-white border-top px-4 py-3 d-flex gap-2 flex-wrap align-items-center">
+        {% if not h.is_paid %}
+          <form id="insurance-form" method="POST"
+                action="{{ url_for('main.stationar_toggle_insurance', hospitalization_id=h.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          </form>
+          {% if h.patient_has_insurance %}
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    onclick="confirmInsurance('Ätiýaçlandyryş arzanladyşyny öçürmek? Bahalar gaýtadan hasaplanar.')">
+              <i class="bi bi-shield-slash me-1"></i>Ätiýaçlandyryşy öçürmek
+            </button>
+          {% else %}
+            <button type="button" class="btn btn-sm btn-outline-info"
+                    onclick="confirmInsurance('Ätiýaçlandyryş arzanladyşyny açmak? Bahalar gaýtadan hasaplanar.')">
+              <i class="bi bi-shield-check me-1"></i>Ätiýaçlandyryşy açmak
+            </button>
+          {% endif %}
+          <button type="button" class="btn btn-sm btn-primary" onclick="confirmPay()">
+            <i class="bi bi-cash-coin me-1"></i>Tölegi kabul etmek
+          </button>
+        {% endif %}
+        <div class="ms-auto text-end">
+          <div class="text-muted small">Hasabat jemi</div>
+          <div class="fw-semibold font-monospace">{{ h.bill_total_display }} manat</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bill sections -->
+  {% set icons = {'bed': 'hospital', 'meal': 'egg-fried', 'medicine': 'capsule',
+                  'order': 'clipboard2-pulse', 'consultation': 'people',
+                  'operation': 'scissors'} %}
+  {% for kind, title, lines in h.bill_groups %}
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-{{ icons[kind] }} me-2 text-primary"></i>
+          {{ title }}
+          <span class="badge bg-light text-dark border ms-1">{{ lines | length }}</span>
+        </h6>
+      </div>
+      {% if lines %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4" style="width:50px">#</th>
+              <th>Ady</th>
+              <th class="text-center" style="width:110px">
+                {% if kind in ('bed', 'meal') %}Gün{% else %}Sany{% endif %}
+              </th>
+              <th class="text-end" style="width:130px">Birlik bahasy</th>
+              {% if h.is_paid %}<th class="text-center" style="width:110px">Töleg görnüşi</th>{% endif %}
+              <th class="text-end pe-4" style="width:180px">Bahasy</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for line in lines %}
+            <tr>
+              <td class="ps-4 text-muted small">{{ loop.index }}</td>
+              <td>
+                {{ line.bill_name }}
+                {% if line.bill_note %}
+                  <div class="text-muted" style="font-size:.7rem">{{ line.bill_note }}</div>
+                {% endif %}
+              </td>
+              <td class="text-center small">{{ line.billed_quantity }}</td>
+              <td class="text-end font-monospace small">{{ line.price_display }}</td>
+              {% if h.is_paid %}
+              <td class="text-center">
+                {% if line.payment_method == 'terminal' %}
+                  <span class="badge bg-primary-subtle text-primary">
+                    <i class="bi bi-credit-card-2-front me-1"></i>Terminal
+                  </span>
+                {% elif line.payment_method == 'cash' %}
+                  <span class="badge bg-success-subtle text-success">
+                    <i class="bi bi-cash me-1"></i>Nagt
+                  </span>
+                {% else %}
+                  <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+              {% endif %}
+              <td class="text-end pe-4 font-monospace small">
+                {% if line.has_discount %}
+                  <span class="text-decoration-line-through text-muted">{{ line.full_total_display }}</span><br>
+                  <span class="text-success fw-semibold">{{ line.effective_total_display }} manat</span>
+                  <span class="badge bg-success-subtle text-success ms-1" style="font-size:.65rem">−50%</span>
+                {% else %}
+                  {{ line.effective_total_display }} manat
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="border-top">
+            <tr>
+              <td colspan="{% if h.is_paid %}5{% else %}4{% endif %}" class="ps-4 fw-semibold small">Hemmesi</td>
+              <td class="text-end pe-4 fw-semibold font-monospace small">
+                {% set group_total = namespace(val=0) %}
+                {% for line in lines %}
+                  {% set group_total.val = group_total.val + line.effective_total %}
+                {% endfor %}
+                {{ '%.2f' | format(group_total.val) }} manat
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {% else %}
+        <div class="card-body text-muted small">Pozisiýa ýok.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <!-- Grand total -->
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-body px-4 py-3 d-flex flex-wrap justify-content-end gap-4">
+        {% if h.patient_has_insurance and h.bill_discount > 0 %}
+        <div class="text-end">
+          <div class="text-muted small">Ätiýaçlandyryş arzanladyşy</div>
+          <div class="fw-semibold font-monospace text-success">−{{ h.bill_discount_display }} manat</div>
+        </div>
+        {% endif %}
+        <div class="text-end">
+          <div class="text-muted small">Tölenmeli jemi</div>
+          <div class="fs-5 fw-semibold font-monospace">{{ h.bill_total_display }} manat</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Insurance toggle confirmation modal -->
+<div class="modal fade" id="insuranceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-body text-center py-4">
+        <i class="bi bi-shield-exclamation text-info" style="font-size:2.5rem"></i>
+        <p class="mt-2 mb-0 fw-semibold" id="insuranceModalMessage"></p>
+      </div>
+      <div class="modal-footer justify-content-center border-0 pt-0">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+        <button type="button" class="btn btn-info btn-sm"
+                onclick="document.getElementById('insurance-form').submit()">Tassyklamak</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Pay confirmation modal -->
+{% if not h.is_paid %}
+{% macro pay_row(kind, line) %}
+<tr>
+  <td class="small">
+    {{ line.bill_name }}
+    {% if line.bill_note %}
+      <div class="text-muted" style="font-size:.7rem">{{ line.bill_note }}</div>
+    {% endif %}
+  </td>
+  <td class="text-end font-monospace small">{{ '%.2f' | format(line.effective_total) }}</td>
+  <td class="text-center">
+    <div class="btn-group btn-group-sm pay-method" role="group"
+         data-amount="{{ '%.2f' | format(line.effective_total) }}">
+      <input type="radio" class="btn-check pay-radio" name="pm_{{ kind }}_{{ line.id }}"
+             id="pm_{{ kind }}_{{ line.id }}_cash" value="cash" autocomplete="off" checked>
+      <label class="btn btn-outline-success" for="pm_{{ kind }}_{{ line.id }}_cash">Nagt</label>
+      <input type="radio" class="btn-check pay-radio" name="pm_{{ kind }}_{{ line.id }}"
+             id="pm_{{ kind }}_{{ line.id }}_term" value="terminal" autocomplete="off">
+      <label class="btn btn-outline-primary" for="pm_{{ kind }}_{{ line.id }}_term">Terminal</label>
+    </div>
+  </td>
+</tr>
+{% endmacro %}
+<div class="modal fade" id="payModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <form id="pay-form" method="POST"
+            action="{{ url_for('main.stationar_pay', hospitalization_id=h.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title mb-0">
+            <i class="bi bi-cash-coin text-primary me-2"></i>Tölegi kabul etmek №{{ h.history_number }}
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Ýapmak"></button>
+        </div>
+        <div class="modal-body">
+          {% if h.bill_lines %}
+          {% if h.is_open %}
+          <div class="alert alert-warning d-flex align-items-start gap-2 py-2 small">
+            <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+            <div>Syrkaw heniz ýatyr — bu tölegden soň goşulýan krowat günleri we
+              bellenmeler bu töleg bilen gurşalmaýar.</div>
+          </div>
+          {% endif %}
+          <p class="text-muted small mb-2">Her töleg üçin töleg görnüşini saýlaň: <strong>Nagt</strong> ýa-da <strong>Terminal</strong>.</p>
+          <div class="d-flex align-items-center gap-2 mb-3">
+            <span class="text-muted small">Ählisi:</span>
+            <button type="button" class="btn btn-sm btn-outline-success" onclick="setAllPayMethod('cash')">
+              <i class="bi bi-cash me-1"></i>Nagt
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="setAllPayMethod('terminal')">
+              <i class="bi bi-credit-card-2-front me-1"></i>Terminal
+            </button>
+          </div>
+          <div class="table-responsive" style="max-height:45vh; overflow-y:auto;">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr class="text-muted small">
+                  <th>Töleg</th>
+                  <th class="text-end">Bahasy</th>
+                  <th class="text-center" style="width:170px">Töleg görnüşi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for kind, title, lines in h.bill_groups %}
+                  {% if lines %}
+                    <tr class="table-light"><td colspan="3" class="fw-semibold small">{{ title }}</td></tr>
+                    {% for line in lines %}
+                      {{ pay_row(kind, line) }}
+                    {% endfor %}
+                  {% endif %}
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="d-flex flex-wrap justify-content-end gap-3 mt-3 pt-2 border-top small">
+            <span><i class="bi bi-cash text-success me-1"></i>Nagt: <span class="font-monospace fw-semibold" id="pay-cash-total">0.00</span> manat</span>
+            <span><i class="bi bi-credit-card-2-front text-primary me-1"></i>Terminal: <span class="font-monospace fw-semibold" id="pay-term-total">0.00</span> manat</span>
+            <span class="fw-semibold">Jemi: <span class="font-monospace" id="pay-grand-total">0.00</span> manat</span>
+          </div>
+          {% else %}
+          <p class="text-center text-muted py-4 mb-0">Töleg üçin pozisiýa ýok. Ýatyş tölenen diýip bellenýär.</p>
+          {% endif %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Gaýtarmak</button>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-check2 me-1"></i>Tölegi makullamak
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const insuranceModalEl = document.getElementById('insuranceModal');
+  const insuranceModal = insuranceModalEl ? new bootstrap.Modal(insuranceModalEl) : null;
+  function confirmInsurance(msg) {
+    if (!insuranceModal) return;
+    document.getElementById('insuranceModalMessage').textContent = msg;
+    insuranceModal.show();
+  }
+
+  const payModalEl = document.getElementById('payModal');
+  const payModal = payModalEl ? new bootstrap.Modal(payModalEl) : null;
+
+  function recalcPayTotals() {
+    if (!payModalEl) return;
+    let cash = 0, term = 0;
+    payModalEl.querySelectorAll('.pay-method').forEach(function (grp) {
+      const amount = parseFloat(grp.getAttribute('data-amount')) || 0;
+      const checked = grp.querySelector('.pay-radio:checked');
+      if (checked && checked.value === 'terminal') { term += amount; } else { cash += amount; }
+    });
+    const cEl = document.getElementById('pay-cash-total');
+    const tEl = document.getElementById('pay-term-total');
+    const gEl = document.getElementById('pay-grand-total');
+    if (cEl) cEl.textContent = cash.toFixed(2);
+    if (tEl) tEl.textContent = term.toFixed(2);
+    if (gEl) gEl.textContent = (cash + term).toFixed(2);
+  }
+
+  function setAllPayMethod(method) {
+    if (!payModalEl) return;
+    payModalEl.querySelectorAll('.pay-method').forEach(function (grp) {
+      const radio = grp.querySelector('.pay-radio[value="' + method + '"]');
+      if (radio) radio.checked = true;
+    });
+    recalcPayTotals();
+  }
+
+  if (payModalEl) {
+    payModalEl.querySelectorAll('.pay-radio').forEach(function (r) {
+      r.addEventListener('change', recalcPayTotals);
+    });
+  }
+
+  function confirmPay() { if (payModal) { recalcPayTotals(); payModal.show(); } }
+</script>
+{% endblock %}

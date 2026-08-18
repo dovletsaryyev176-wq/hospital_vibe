@@ -131,6 +131,12 @@
     {% endif %}
 
     {% if current_user.role in ('cashier', 'senior_cashier') %}
+    <div class="nav-section mt-2">Stasionar</div>
+    <a href="{{ url_for('main.stationar_list') }}"
+       class="nav-link {% if 'main.stationar' in request.endpoint %}active{% endif %}">
+      <i class="bi bi-hospital-fill"></i> Stasionar
+    </a>
+
     <div class="nav-section mt-2">Hasabatlar</div>
     <a href="{{ url_for('main.reports_index') }}"
        class="nav-link {% if 'main.reports' in request.endpoint %}active{% endif %}">

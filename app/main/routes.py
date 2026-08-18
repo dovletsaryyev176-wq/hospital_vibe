@@ -14,7 +14,12 @@ from app.models import (Patient, Examination, ExaminationAnalysis,
                         DoctorDirection, DoctorDirectionCategory,
                         Analysis, AnalysisTool, Blank,
                         AnalysisToolSubcategory,
-                        CombinedAnalysis, User, EarningPlan, user_directions)
+                        CombinedAnalysis, User, EarningPlan, user_directions,
+                        Hospitalization, HospitalizationBedStay,
+                        HospitalizationMealAssignment, HospitalizationMedicationDispense,
+                        HospitalizationAnalysisOrder, HospitalizationToolOrder,
+                        HospitalizationBlankOrder, HospitalizationConsultation,
+                        HospitalizationOperation, InpatientBillingMixin)
 
 
 def role_required(*roles):
@@ -49,6 +54,7 @@ main_required = role_required()
 patients_required = role_required('registrar', 'doctor')
 examinations_view_required = role_required('registrar', 'doctor', 'cashier', 'analysis_responsible', 'senior_cashier')
 reports_required = role_required('cashier', 'senior_cashier')
+stationar_required = role_required('cashier', 'senior_cashier')
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -862,6 +868,145 @@ def examinations_mark_visited(exam_id, ed_id):
     db.session.commit()
     flash(f'Syrkaw bu ugur geçilen diýip bellenilen «{ed.direction.name}» .', 'success')
     return redirect(url_for('main.examinations_detail', exam_id=exam_id))
+
+
+# ── Stationar (cashier's side of an inpatient stay) ───────────────────────────
+#
+# The ward runs the stay; the cashier only ever settles it. A stay is paid for
+# in one payment covering the whole bill — the natural moment is discharge,
+# because beds and meals keep accruing while the patient lies in.
+
+STATIONAR_PER_PAGE = 15
+
+
+@main_bp.route('/stasionar')
+@stationar_required
+def stationar_list():
+    search = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', '').strip()
+    paid_filter = request.args.get('paid', '').strip()
+    page = request.args.get('page', 1, type=int)
+
+    query = Hospitalization.query.join(Patient, Hospitalization.patient_id == Patient.id)
+
+    if search:
+        like = f'%{search}%'
+        query = query.filter(db.or_(
+            Patient.full_name.ilike(like),
+            Patient.passport_number.ilike(like),
+            Patient.insurance_number.ilike(like),
+            Hospitalization.history_number.ilike(like),
+        ))
+
+    if status_filter == 'active':
+        query = query.filter(Hospitalization.status == Hospitalization.STATUS_ACTIVE)
+    elif status_filter == 'discharged':
+        query = query.filter(Hospitalization.status == Hospitalization.STATUS_DISCHARGED)
+
+    if paid_filter == 'paid':
+        query = query.filter(Hospitalization.is_paid == True)
+    elif paid_filter == 'unpaid':
+        query = query.filter(Hospitalization.is_paid == False)
+
+    pagination = (query
+        .options(*_stationar_bill_options())
+        .order_by(Hospitalization.admitted_at.desc())
+        .paginate(page=page, per_page=STATIONAR_PER_PAGE, error_out=False))
+
+    return render_template(
+        'main/stationar/list.html',
+        hospitalizations=pagination.items,
+        pagination=pagination,
+        search=search,
+        status_filter=status_filter,
+        paid_filter=paid_filter,
+    )
+
+
+def _stationar_bill_options():
+    """Eager loads for a bill: every group is walked for its total, so a lazy
+    stay would cost a query per line."""
+    return (
+        joinedload(Hospitalization.patient),
+        joinedload(Hospitalization.department),
+        subqueryload(Hospitalization.bed_stays).joinedload(HospitalizationBedStay.room),
+        subqueryload(Hospitalization.bed_stays).joinedload(HospitalizationBedStay.bed),
+        subqueryload(Hospitalization.meal_assignments).joinedload(HospitalizationMealAssignment.meal),
+        subqueryload(Hospitalization.medication_dispenses).joinedload(HospitalizationMedicationDispense.medicine),
+        subqueryload(Hospitalization.analysis_orders).joinedload(HospitalizationAnalysisOrder.analysis),
+        subqueryload(Hospitalization.tool_orders).joinedload(HospitalizationToolOrder.tool),
+        subqueryload(Hospitalization.blank_orders).joinedload(HospitalizationBlankOrder.blank),
+        subqueryload(Hospitalization.consultations).joinedload(HospitalizationConsultation.direction),
+        subqueryload(Hospitalization.consultations).joinedload(HospitalizationConsultation.doctor),
+        subqueryload(Hospitalization.operations).joinedload(HospitalizationOperation.operation),
+    )
+
+
+def _stationar_or_404(hospitalization_id):
+    h = (Hospitalization.query
+         .filter_by(id=hospitalization_id)
+         .options(*_stationar_bill_options())
+         .first())
+    if h is None:
+        abort(404)
+    return h
+
+
+@main_bp.route('/stasionar/<int:hospitalization_id>')
+@stationar_required
+def stationar_detail(hospitalization_id):
+    h = _stationar_or_404(hospitalization_id)
+    return render_template('main/stationar/detail.html', h=h)
+
+
+@main_bp.route('/stasionar/<int:hospitalization_id>/toggle-insurance', methods=['POST'])
+@stationar_required
+def stationar_toggle_insurance(hospitalization_id):
+    h = db.session.get(Hospitalization, hospitalization_id)
+    if h is None:
+        abort(404)
+
+    if h.is_paid:
+        flash('Tölenen ýatyşyň ätiýaçlandyryşyny üýtgedip bolmaýar.', 'warning')
+        return redirect(url_for('main.stationar_detail', hospitalization_id=h.id))
+
+    h.patient_has_insurance = not h.patient_has_insurance
+    db.session.commit()
+
+    state = 'işjeňleşdirildi' if h.patient_has_insurance else 'öçürildi'
+    flash(f'Ätiýaçlandyryş arzanladyşy {state}.', 'success')
+    return redirect(url_for('main.stationar_detail', hospitalization_id=h.id))
+
+
+@main_bp.route('/stasionar/<int:hospitalization_id>/pay', methods=['POST'])
+@stationar_required
+def stationar_pay(hospitalization_id):
+    h = _stationar_or_404(hospitalization_id)
+
+    if h.is_paid:
+        flash('Ýatyş eýýäm tölenen.', 'warning')
+        return redirect(url_for('main.stationar_detail', hospitalization_id=h.id))
+
+    def _pm(field):
+        # Default to cash; only an explicit "terminal" switches the method.
+        value = request.form.get(field)
+        return (InpatientBillingMixin.PAYMENT_TERMINAL
+                if value == InpatientBillingMixin.PAYMENT_TERMINAL
+                else InpatientBillingMixin.PAYMENT_CASH)
+
+    for kind, _title, lines in h.bill_groups:
+        for line in lines:
+            line.payment_method = _pm(f'pm_{kind}_{line.id}')
+
+    # What the bill said at this moment is what was taken — beds and meals go on
+    # accruing after it, and the difference must stay visible as a remainder.
+    h.paid_total = h.bill_total
+    h.is_paid = True
+    h.paid_at = datetime.now()
+    h.paid_by_id = current_user.id
+    db.session.commit()
+    flash(f'Kesel taryhy №{h.history_number} boýunça töleg kabul edildi.', 'success')
+    return redirect(url_for('main.stationar_detail', hospitalization_id=h.id))
 
 
 # ── Reports (cashier) ─────────────────────────────────────────────────────────

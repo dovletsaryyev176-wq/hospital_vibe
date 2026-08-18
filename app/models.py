@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from decimal import Decimal
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_login import UserMixin
 from app.extensions import db
@@ -702,6 +703,73 @@ class EarningPlan(db.Model):
         return f'<EarningPlan user={self.user_id} {self.year}-{self.month:02d} amount={self.amount}>'
 
 
+class InpatientBillingMixin:
+    """Shared money logic for one charge line of an inpatient stay.
+
+    The outpatient section prices an `Examination` line the same way
+    (`PricingSnapshotMixin`), but there the price may still fall back to the
+    catalogue; here every line already carries its own snapshot, taken when the
+    bed, meal, drug, order or operation was written down. What is left is the
+    insurance discount, and that depends on the *stay* — whether the patient
+    lying in had insurance when they were admitted.
+
+    Subclasses must expose: self.price, self.is_insurance, self.hospitalization,
+    and — unless one unit is billed — self.billed_quantity.
+    """
+
+    PAYMENT_CASH = 'cash'
+    PAYMENT_TERMINAL = 'terminal'
+    PAYMENT_METHODS = (PAYMENT_CASH, PAYMENT_TERMINAL)
+
+    @property
+    def billed_quantity(self):
+        """How many units this line is billed for. Beds and meals count days,
+        everything else counts pieces."""
+        return getattr(self, 'quantity', 1) or 1
+
+    @property
+    def has_discount(self) -> bool:
+        return bool(self.hospitalization.patient_has_insurance and self.is_insurance)
+
+    @property
+    def effective_price(self):
+        return self.price / 2 if self.has_discount else self.price
+
+    @property
+    def full_total(self):
+        return self.price * self.billed_quantity
+
+    @property
+    def effective_total(self):
+        return self.effective_price * self.billed_quantity
+
+    @property
+    def full_total_display(self) -> str:
+        return f'{self.full_total:,.2f}'
+
+    @property
+    def effective_total_display(self) -> str:
+        return f'{self.effective_total:,.2f}'
+
+    @property
+    def bill_note(self) -> str:
+        """Second line of a bill row — what makes this charge identifiable."""
+        return ''
+
+
+def billed_period_display(started_at, ended_at) -> str:
+    start = started_at.strftime('%d.%m.%Y')
+    return f"{start} → {ended_at.strftime('%d.%m.%Y') if ended_at else 'häzir'}"
+
+
+def billed_days(started_at, ended_at) -> int:
+    """Nights a period is charged for. The day it started always counts, so a
+    stay that began and ended the same day is one day, exactly as
+    `Hospitalization.bed_days` counts the stay as a whole."""
+    end = ended_at or datetime.now()
+    return max(1, (end.date() - started_at.date()).days)
+
+
 class Hospitalization(db.Model):
     """A patient's stay in an inpatient department.
 
@@ -762,6 +830,17 @@ class Hospitalization(db.Model):
 
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
+    # Cashier's side of a stay. The whole stay is settled in one payment (the
+    # natural moment is discharge), so what is charged is whatever the bill
+    # holds at that moment; `paid_total` keeps what was actually taken, so a
+    # line written after the payment is visible as an unpaid remainder instead
+    # of silently disappearing into a boolean.
+    patient_has_insurance = db.Column(db.Boolean, default=False, nullable=True)
+    is_paid = db.Column(db.Boolean, default=False, nullable=False)
+    paid_at = db.Column(db.DateTime, nullable=True)
+    paid_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    paid_total = db.Column(db.Numeric(10, 2), nullable=True)
+
     patient = db.relationship('Patient', backref=db.backref('hospitalizations', lazy='dynamic'))
     department = db.relationship('Department')
     room = db.relationship('Room')
@@ -769,6 +848,7 @@ class Hospitalization(db.Model):
     admitted_by = db.relationship('User', foreign_keys=[admitted_by_id])
     discharged_by = db.relationship('User', foreign_keys=[discharged_by_id])
     bed_assigned_by = db.relationship('User', foreign_keys=[bed_assigned_by_id])
+    paid_by = db.relationship('User', foreign_keys=[paid_by_id])
     doctor = db.relationship('User', foreign_keys=[doctor_id])
     doctor_assigned_by = db.relationship('User', foreign_keys=[doctor_assigned_by_id])
     relatives = db.relationship('HospitalizationRelative', back_populates='hospitalization',
@@ -930,6 +1010,100 @@ class Hospitalization(db.Model):
             return False
         return datetime.now() > self.admitted_at + HospitalizationAdmissionExam.DUE_WITHIN
 
+    # ── Bill ──────────────────────────────────────────────────────────────
+    #
+    # What the cashier charges for. Each group answers the same question — «is
+    # this line still standing?» — because a cancelled order, a cancelled
+    # operation and a cancelled dispense are all kept on record and must stay
+    # out of the money.
+
+    @property
+    def billable_bed_stays(self):
+        return list(self.bed_stays)
+
+    @property
+    def billable_meal_assignments(self):
+        return list(self.meal_assignments)
+
+    @property
+    def billable_dispenses(self):
+        return [d for d in self.medication_dispenses if not d.is_cancelled]
+
+    @property
+    def billable_examination_orders(self):
+        """Analyses, studies and blanks that were not called off."""
+        rows = [o for o in (list(self.analysis_orders) + list(self.tool_orders)
+                            + list(self.blank_orders)) if not o.is_cancelled]
+        return sorted(rows, key=lambda o: o.ordered_at)
+
+    @property
+    def billable_consultations(self):
+        return [c for c in self.consultations if not c.is_cancelled]
+
+    @property
+    def billable_operations(self):
+        return [o for o in self.operations
+                if o.status != HospitalizationOperation.STATUS_CANCELLED]
+
+    @property
+    def bill_groups(self):
+        """The bill as the cashier reads it: (key, title, lines), empty groups
+        included so the payment form always has the same shape."""
+        return (
+            ('bed', 'Krowat', self.billable_bed_stays),
+            ('meal', 'Nahar', self.billable_meal_assignments),
+            ('medicine', 'Dermanlar', self.billable_dispenses),
+            ('order', 'Barlaglar', self.billable_examination_orders),
+            ('consultation', 'Konsultasiýalar', self.billable_consultations),
+            ('operation', 'Operasiýalar', self.billable_operations),
+        )
+
+    @property
+    def bill_lines(self):
+        return [line for _, _, lines in self.bill_groups for line in lines]
+
+    @property
+    def bill_total(self):
+        return sum((line.effective_total for line in self.bill_lines), Decimal('0'))
+
+    @property
+    def bill_full_total(self):
+        """The bill before the insurance discount — what the 50% is taken off."""
+        return sum((line.full_total for line in self.bill_lines), Decimal('0'))
+
+    @property
+    def bill_discount(self):
+        return self.bill_full_total - self.bill_total
+
+    @property
+    def bill_total_display(self) -> str:
+        return f'{self.bill_total:,.2f}'
+
+    @property
+    def bill_discount_display(self) -> str:
+        return f'{self.bill_discount:,.2f}'
+
+    @property
+    def paid_total_display(self) -> str:
+        return f'{self.paid_total or 0:,.2f}'
+
+    @property
+    def unpaid_remainder(self):
+        """What the bill has grown by since it was settled. A stay is paid for
+        once, but beds and meals keep accruing while the patient lies in — the
+        difference is money that was never taken."""
+        if not self.is_paid:
+            return self.bill_total
+        return self.bill_total - (self.paid_total or Decimal('0'))
+
+    @property
+    def unpaid_remainder_display(self) -> str:
+        return f'{self.unpaid_remainder:,.2f}'
+
+    @property
+    def has_unpaid_remainder(self) -> bool:
+        return self.is_paid and self.unpaid_remainder > 0
+
     def __repr__(self) -> str:
         return f'<Hospitalization {self.history_number} patient={self.patient_id}>'
 
@@ -951,7 +1125,7 @@ class HospitalizationRelative(db.Model):
         return f'<HospitalizationRelative {self.full_name} {self.phone_number}>'
 
 
-class HospitalizationBedStay(db.Model):
+class HospitalizationBedStay(InpatientBillingMixin, db.Model):
     """One period a patient spent in one bed.
 
     A new row is opened every time the bed changes and closed on the next move
@@ -969,6 +1143,8 @@ class HospitalizationBedStay(db.Model):
 
     price = db.Column(db.Numeric(10, 2), nullable=False)
     is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    payment_method = db.Column(db.String(10), nullable=True)
 
     started_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
     ended_at = db.Column(db.DateTime, nullable=True)
@@ -991,6 +1167,19 @@ class HospitalizationBedStay(db.Model):
     @property
     def price_display(self) -> str:
         return f'{self.price:,.2f}'
+
+    @property
+    def billed_quantity(self) -> int:
+        """A bed is charged by the day it was lain in."""
+        return billed_days(self.started_at, self.ended_at)
+
+    @property
+    def bill_note(self) -> str:
+        return billed_period_display(self.started_at, self.ended_at)
+
+    @property
+    def bill_name(self) -> str:
+        return f'Krowat {self.place_display}'
 
     def __repr__(self) -> str:
         return f'<HospitalizationBedStay h={self.hospitalization_id} bed={self.bed_id}>'
@@ -1081,7 +1270,7 @@ class HospitalizationDiaryEntry(db.Model):
         return f'<HospitalizationDiaryEntry h={self.hospitalization_id} by={self.author_id}>'
 
 
-class HospitalizationMealAssignment(db.Model):
+class HospitalizationMealAssignment(InpatientBillingMixin, db.Model):
     """One period a patient was on one meal, assigned by the senior nurse.
 
     Unlike a bed, several meals may run at the same time, so each meal has its
@@ -1097,6 +1286,8 @@ class HospitalizationMealAssignment(db.Model):
 
     price = db.Column(db.Numeric(10, 2), nullable=False)
     is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    payment_method = db.Column(db.String(10), nullable=True)
 
     started_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
     ended_at = db.Column(db.DateTime, nullable=True)
@@ -1116,6 +1307,19 @@ class HospitalizationMealAssignment(db.Model):
     @property
     def price_display(self) -> str:
         return f'{self.price:,.2f}'
+
+    @property
+    def billed_quantity(self) -> int:
+        """A meal is charged by the day the patient was on it."""
+        return billed_days(self.started_at, self.ended_at)
+
+    @property
+    def bill_note(self) -> str:
+        return billed_period_display(self.started_at, self.ended_at)
+
+    @property
+    def bill_name(self) -> str:
+        return self.meal.name
 
     def __repr__(self) -> str:
         return f'<HospitalizationMealAssignment h={self.hospitalization_id} meal={self.meal_id}>'
@@ -1349,7 +1553,7 @@ class HospitalizationMedicationOrder(db.Model):
         return f'<HospitalizationMedicationOrder h={self.hospitalization_id} med={self.medicine_id}>'
 
 
-class HospitalizationMedicationDispense(db.Model):
+class HospitalizationMedicationDispense(InpatientBillingMixin, db.Model):
     """One act of handing a drug to a patient, written by the senior nurse.
 
     Price and insurance flag are snapshotted here, exactly as bed stays and
@@ -1373,6 +1577,8 @@ class HospitalizationMedicationDispense(db.Model):
     quantity = db.Column(db.Numeric(10, 2), nullable=False)
     price = db.Column(db.Numeric(10, 2), nullable=False)
     is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+
+    payment_method = db.Column(db.String(10), nullable=True)
 
     given_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
     given_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
@@ -1406,6 +1612,14 @@ class HospitalizationMedicationDispense(db.Model):
     @property
     def total_display(self) -> str:
         return f'{self.total:,.2f}'
+
+    @property
+    def bill_name(self) -> str:
+        return f'{self.medicine.name} — {self.quantity_display} {self.medicine.unit_display}'
+
+    @property
+    def bill_note(self) -> str:
+        return f"berlen {self.given_at.strftime('%d.%m.%Y %H:%M')}"
 
     @property
     def cancel_deadline(self):
@@ -1561,7 +1775,7 @@ operation_assistants = db.Table(
 )
 
 
-class HospitalizationOperation(db.Model):
+class HospitalizationOperation(InpatientBillingMixin, db.Model):
     """One surgery on a hospitalized patient: planned first, then written up.
 
     Price and insurance flag are snapshotted when the record is created, as
@@ -1608,6 +1822,7 @@ class HospitalizationOperation(db.Model):
 
     price = db.Column(db.Numeric(10, 2), nullable=False, default=0)
     is_insurance = db.Column(db.Boolean, nullable=False, default=False)
+    payment_method = db.Column(db.String(10), nullable=True)
 
     created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
@@ -1644,6 +1859,20 @@ class HospitalizationOperation(db.Model):
     @property
     def price_display(self) -> str:
         return f'{self.price:,.2f}'
+
+    @property
+    def billed_quantity(self) -> int:
+        """One surgery is one charge — the mixin's totals expect a count."""
+        return 1
+
+    @property
+    def bill_name(self) -> str:
+        return self.operation.name
+
+    @property
+    def bill_note(self) -> str:
+        when = self.happened_at.strftime('%d.%m.%Y') if self.happened_at else '—'
+        return f'{when} — {self.status_display.lower()}'
 
     @property
     def happened_at(self):
@@ -1794,6 +2023,14 @@ class InpatientOrderMixin:
         return self._source.name
 
     @property
+    def bill_name(self) -> str:
+        return self._source.name
+
+    @property
+    def bill_note(self) -> str:
+        return f"{self.ordered_at.strftime('%d.%m.%Y')} — {self.status_display.lower()}"
+
+    @property
     def price_display(self) -> str:
         return f'{self.price:,.2f}'
 
@@ -1806,7 +2043,7 @@ class InpatientOrderMixin:
         return f'{self.total:,.2f}'
 
 
-class HospitalizationAnalysisOrder(InpatientOrderMixin, db.Model):
+class HospitalizationAnalysisOrder(InpatientOrderMixin, InpatientBillingMixin, db.Model):
     """A lab analysis ordered for a hospitalized patient.
 
     `combined_analysis_id` remembers that the row came in as part of a panel:
@@ -1827,6 +2064,7 @@ class HospitalizationAnalysisOrder(InpatientOrderMixin, db.Model):
     is_insurance = db.Column(db.Boolean, nullable=False, default=False)
 
     note = db.Column(db.String(500), nullable=True)
+    payment_method = db.Column(db.String(10), nullable=True)
 
     status = db.Column(db.String(20), nullable=False, default=InpatientOrderMixin.STATUS_ORDERED,
                        index=True)
@@ -1858,7 +2096,7 @@ class HospitalizationAnalysisOrder(InpatientOrderMixin, db.Model):
         return f'<HospitalizationAnalysisOrder h={self.hospitalization_id} a={self.analysis_id}>'
 
 
-class HospitalizationToolOrder(InpatientOrderMixin, db.Model):
+class HospitalizationToolOrder(InpatientOrderMixin, InpatientBillingMixin, db.Model):
     """An instrumental study (ultrasound, x-ray, …) ordered for a lying patient.
 
     `price` is the catalogue's `total_price` for one study and `quantity` counts
@@ -1878,6 +2116,7 @@ class HospitalizationToolOrder(InpatientOrderMixin, db.Model):
     is_insurance = db.Column(db.Boolean, nullable=False, default=False)
 
     note = db.Column(db.String(500), nullable=True)
+    payment_method = db.Column(db.String(10), nullable=True)
 
     status = db.Column(db.String(20), nullable=False, default=InpatientOrderMixin.STATUS_ORDERED,
                        index=True)
@@ -1908,7 +2147,7 @@ class HospitalizationToolOrder(InpatientOrderMixin, db.Model):
         return f'<HospitalizationToolOrder h={self.hospitalization_id} t={self.tool_id}>'
 
 
-class HospitalizationBlankOrder(InpatientOrderMixin, db.Model):
+class HospitalizationBlankOrder(InpatientOrderMixin, InpatientBillingMixin, db.Model):
     """A blank (form) issued for a lying patient. Same lifecycle as an analysis
     order — `result` here holds a note about the issue, since a blank has no
     finding of its own."""
@@ -1924,6 +2163,7 @@ class HospitalizationBlankOrder(InpatientOrderMixin, db.Model):
     is_insurance = db.Column(db.Boolean, nullable=False, default=False)
 
     note = db.Column(db.String(500), nullable=True)
+    payment_method = db.Column(db.String(10), nullable=True)
 
     status = db.Column(db.String(20), nullable=False, default=InpatientOrderMixin.STATUS_ORDERED,
                        index=True)
@@ -1954,7 +2194,7 @@ class HospitalizationBlankOrder(InpatientOrderMixin, db.Model):
         return f'<HospitalizationBlankOrder h={self.hospitalization_id} b={self.blank_id}>'
 
 
-class HospitalizationConsultation(InpatientOrderMixin, db.Model):
+class HospitalizationConsultation(InpatientOrderMixin, InpatientBillingMixin, db.Model):
     """A specialist called in to see a lying patient.
 
     The service comes from the same `DoctorDirection` catalogue the outpatient
@@ -1978,6 +2218,7 @@ class HospitalizationConsultation(InpatientOrderMixin, db.Model):
     is_insurance = db.Column(db.Boolean, nullable=False, default=False)
 
     reason = db.Column(db.String(500), nullable=True)
+    payment_method = db.Column(db.String(10), nullable=True)
 
     status = db.Column(db.String(20), nullable=False, default=InpatientOrderMixin.STATUS_ORDERED,
                        index=True)
@@ -2011,6 +2252,10 @@ class HospitalizationConsultation(InpatientOrderMixin, db.Model):
     def quantity(self) -> int:
         """A consultation is one visit — the mixin's totals expect a count."""
         return 1
+
+    @property
+    def bill_note(self) -> str:
+        return f"{self.doctor.full_name} — {self.status_display.lower()}"
 
     def __repr__(self) -> str:
         return f'<HospitalizationConsultation h={self.hospitalization_id} d={self.direction_id}>'

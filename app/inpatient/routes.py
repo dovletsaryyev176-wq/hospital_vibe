@@ -431,6 +431,10 @@ def patients_admit(patient_id):
                 history_number=form.history_number.data.strip(),
                 status=Hospitalization.STATUS_ACTIVE,
                 admitted_by_id=current_user.id,
+                # Whether the stay is billed with the insurance discount is
+                # read off the patient's card at admission, the same rule the
+                # outpatient section applies when an examination is opened.
+                patient_has_insurance=bool(patient.insurance_number),
             )
             for row in relatives:
                 hospitalization.relatives.append(HospitalizationRelative(**row))
