@@ -600,6 +600,10 @@ def examinations_report(exam_id):
         if not has_own:
             abort(403)
 
+    if not exam.is_paid:
+        flash('Hasabaty diňe töleg kabul edilenden soň çap edip bolýar.', 'warning')
+        return redirect(url_for('main.examinations_detail', exam_id=exam_id))
+
     return render_template('main/examinations/report.html', exam=exam)
 
 
@@ -2920,6 +2924,249 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
         buf.getvalue(),
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         headers={'Content-Disposition': f'attachment; filename={fname}'},
+    )
+
+
+# ── All payments report (senior cashier only) ─────────────────────────────────
+
+# The line kinds an examination is paid in, in the order they are listed inside
+# one examination. The key is what the ?kind filter and the export carry.
+ALL_PAYMENT_KINDS = OrderedDict((
+    ('analysis', 'Analiz'),
+    ('tool', 'Serişde'),
+    ('blank', 'Blank'),
+    ('direction', 'Lukman ugry'),
+))
+
+
+def _all_payments_report():
+    """Every paid line of every paid examination in the period, one row per line.
+
+    The other payment reports answer «how much came in for this analysis, this
+    doctor»; this one answers «what was taken at the desk that day», so nothing
+    is grouped: each analysis, tool, blank and direction is its own row carrying
+    who paid (the patient), who took the money (the cashier), for what, how much
+    and by which method. Rows run in payment order — the order a cashier's day
+    actually happened in.
+
+    Returns (rows, totals, date_from, date_to, search, cashier_id, cashiers).
+    """
+    search = request.args.get('q', '').strip()
+    date_from, date_to = _report_dates_with_today()
+
+    query = Examination.query.filter(Examination.is_paid == True)
+    query, cashier_id = _apply_cashier_scope(query)
+    query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
+
+    if search:
+        like = f'%{search}%'
+        query = query.join(Examination.patient).filter(
+            db.or_(
+                Patient.full_name.ilike(like),
+                Patient.passport_number.ilike(like),
+                Patient.insurance_number.ilike(like),
+            )
+        )
+
+    # Every line of every matching exam is printed, so all four collections and
+    # the catalogue rows behind them are loaded up front — `snapshot_price`
+    # falls back to the catalogue whenever a line carries no price of its own.
+    exams = (
+        query
+        .options(
+            joinedload(Examination.patient),
+            joinedload(Examination.paid_by),
+            subqueryload(Examination.exam_analyses)
+                .joinedload(ExaminationAnalysis.analysis),
+            subqueryload(Examination.exam_tools)
+                .joinedload(ExaminationAnalysisTool.tool),
+            subqueryload(Examination.exam_blanks)
+                .joinedload(ExaminationBlank.blank),
+            subqueryload(Examination.exam_directions)
+                .joinedload(ExaminationDirection.direction),
+        )
+        .order_by(Examination.paid_at, Examination.id)
+        .all()
+    )
+
+    rows = []
+    for exam in exams:
+        lines = []
+        for ea in exam.exam_analyses:
+            lines.append(('analysis', ea, ea.analysis.name if ea.analysis else '—', None))
+        for et in exam.exam_tools:
+            lines.append(('tool', et, et.tool.name if et.tool else '—', None))
+        for eb in exam.exam_blanks:
+            lines.append(('blank', eb, eb.blank.name if eb.blank else '—', None))
+        for ed in exam.exam_directions:
+            lines.append(('direction', ed, ed.direction.name if ed.direction else '—',
+                          ed.doctor.full_name if ed.doctor else None))
+
+        for kind, line, name, note in lines:
+            amount = line.effective_total
+            rows.append({
+                'paid_at': exam.paid_at,
+                'exam_id': exam.id,
+                'patient': exam.patient.full_name if exam.patient else '—',
+                'cashier': exam.paid_by.full_name if exam.paid_by else '—',
+                'kind': kind,
+                'kind_name': ALL_PAYMENT_KINDS[kind],
+                'name': name,
+                'note': note,
+                'quantity': getattr(line, 'quantity', 1) or 1,
+                'is_terminal': line.payment_method == ExaminationAnalysis.PAYMENT_TERMINAL,
+                'amount': amount,
+                'discount': line.snapshot_total - amount,
+            })
+
+    totals = {
+        'count': len(rows),
+        'exams': len(exams),
+        'cash': sum((r['amount'] for r in rows if not r['is_terminal']), Decimal('0')),
+        'terminal': sum((r['amount'] for r in rows if r['is_terminal']), Decimal('0')),
+        'discount_cash': sum((r['discount'] for r in rows if not r['is_terminal']), Decimal('0')),
+        'discount_terminal': sum((r['discount'] for r in rows if r['is_terminal']), Decimal('0')),
+    }
+    totals['total'] = totals['cash'] + totals['terminal']
+    totals['discount'] = totals['discount_cash'] + totals['discount_terminal']
+
+    # What each kind brought in, for the summary strip above the table.
+    by_kind = OrderedDict(
+        (key, {'name': label, 'count': 0, 'cash': Decimal('0'), 'terminal': Decimal('0')})
+        for key, label in ALL_PAYMENT_KINDS.items()
+    )
+    for r in rows:
+        entry = by_kind[r['kind']]
+        entry['count'] += 1
+        if r['is_terminal']:
+            entry['terminal'] += r['amount']
+        else:
+            entry['cash'] += r['amount']
+    for entry in by_kind.values():
+        entry['total'] = entry['cash'] + entry['terminal']
+    totals['by_kind'] = list(by_kind.values())
+
+    return rows, totals, date_from, date_to, search, cashier_id, _report_cashiers()
+
+
+def _all_payments_xlsx(rows, totals, date_from, date_to):
+    """Build an .xlsx workbook of the all-payments report."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Tölegler'
+
+    headers = [
+        '№',
+        'Töleg senesi',
+        'Barlag №',
+        'Syrkaw (F.A.A.)',
+        'Kassir',
+        'Görnüşi',
+        'Näme üçin',
+        'Sany',
+        'Töleg görnüşi',
+        '50% ýeňillik',
+        'Tölenen',
+    ]
+
+    bold = Font(bold=True)
+    header_fill = PatternFill('solid', fgColor='E9ECEF')
+    right = Alignment(horizontal='right')
+    money_cols = (10, 11)
+
+    ws.append(['Ähli tölegler boýunça hasabat'])
+    ws['A1'].font = Font(bold=True, size=14)
+    if date_from or date_to:
+        ws.append([f'Döwür: {date_from or "…"} — {date_to or "…"}'])
+    ws.append([])
+
+    header_row_idx = ws.max_row + 1
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=header_row_idx, column=col)
+        cell.font = bold
+        cell.fill = header_fill
+
+    for idx, row in enumerate(rows, start=1):
+        name = row['name']
+        if row['note']:
+            name = f"{name} ({row['note']})"
+        ws.append([
+            idx,
+            row['paid_at'].strftime('%d.%m.%Y %H:%M') if row['paid_at'] else '',
+            row['exam_id'],
+            row['patient'],
+            row['cashier'],
+            row['kind_name'],
+            name,
+            row['quantity'],
+            'Terminal' if row['is_terminal'] else 'Nagt',
+            float(row['discount']),
+            float(row['amount']),
+        ])
+        row_idx = ws.max_row
+        ws.cell(row=row_idx, column=8).alignment = right
+        for col in money_cols:
+            c = ws.cell(row=row_idx, column=col)
+            c.number_format = '#,##0.00'
+            c.alignment = right
+
+    ws.append([])
+    for label, value in (
+        ('Nagt:', totals['cash']),
+        ('Terminal:', totals['terminal']),
+        ('50% ýeňillik:', totals['discount']),
+        ('Umumy jemi:', totals['total']),
+    ):
+        ws.append(['', '', '', '', '', '', '', '', label, '', float(value)])
+        idx = ws.max_row
+        ws.cell(row=idx, column=9).font = bold
+        c = ws.cell(row=idx, column=11)
+        c.font = bold
+        c.number_format = '#,##0.00'
+        c.alignment = right
+
+    widths = [6, 18, 10, 30, 24, 14, 40, 8, 14, 14, 14]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = 'all_payments_report'
+    if date_from or date_to:
+        fname += f'_{date_from or "all"}_{date_to or "all"}'
+    fname += '.xlsx'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename={fname}'},
+    )
+
+
+@main_bp.route('/reports/all-payments')
+@role_required('senior_cashier')
+def reports_all_payments():
+    rows, totals, date_from, date_to, search, cashier_id, cashiers = _all_payments_report()
+
+    if request.args.get('export') == 'xlsx':
+        return _all_payments_xlsx(rows, totals, date_from, date_to)
+
+    return render_template(
+        'main/reports/all_payments_report.html',
+        rows=rows,
+        totals=totals,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        cashier_id=cashier_id,
+        cashiers=cashiers,
     )
 
 

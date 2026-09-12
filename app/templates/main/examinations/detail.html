@@ -78,10 +78,17 @@
         </div>
       </div>
       <div class="card-footer bg-white border-top px-4 py-3 d-flex gap-2 flex-wrap">
-        <a href="{{ url_for('main.examinations_report', exam_id=exam.id) }}"
-           target="_blank" class="btn btn-sm btn-outline-secondary">
-          <i class="bi bi-printer me-1"></i>Hasabat
-        </a>
+        {% if exam.is_paid %}
+          <a href="{{ url_for('main.examinations_report', exam_id=exam.id) }}"
+             target="_blank" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-printer me-1"></i>Hasabat
+          </a>
+        {% else %}
+          <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                  title="Hasabaty diňe töleg kabul edilenden soň çap edip bolýar">
+            <i class="bi bi-printer me-1"></i>Hasabat
+          </button>
+        {% endif %}
         {% if exam.is_open and (exam.created_by_id == current_user.id or current_user.role == 'registrar') %}
           {% if not exam.is_paid %}
           <a href="{{ url_for('main.examinations_edit', exam_id=exam.id) }}"
