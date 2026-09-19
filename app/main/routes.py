@@ -1064,6 +1064,20 @@ def stationar_pay(hospitalization_id):
     return back
 
 
+@main_bp.route('/stasionar/<int:hospitalization_id>/report')
+@stationar_required
+def stationar_report(hospitalization_id):
+    """Printable bill of a stay — the whole bill as it stands, with every
+    payment taken for it. Like an examination's, it opens only once paid."""
+    h = _stationar_or_404(hospitalization_id)
+
+    if not h.is_paid:
+        flash('Hasabaty diňe töleg kabul edilenden soň çap edip bolýar.', 'warning')
+        return redirect(url_for('main.stationar_detail', hospitalization_id=h.id))
+
+    return render_template('main/stationar/report.html', h=h)
+
+
 # ── Reports (cashier) ─────────────────────────────────────────────────────────
 
 @main_bp.route('/reports')

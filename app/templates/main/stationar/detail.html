@@ -123,6 +123,17 @@
         {% endif %}
       </div>
       <div class="card-footer bg-white border-top px-4 py-3 d-flex gap-2 flex-wrap align-items-center">
+        {% if h.is_paid %}
+          <a href="{{ url_for('main.stationar_report', hospitalization_id=h.id) }}"
+             target="_blank" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-printer me-1"></i>Hasabat
+          </a>
+        {% else %}
+          <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                  title="Hasabaty diňe töleg kabul edilenden soň çap edip bolýar">
+            <i class="bi bi-printer me-1"></i>Hasabat
+          </button>
+        {% endif %}
         {% if not h.is_paid %}
           <form id="insurance-form" method="POST"
                 action="{{ url_for('main.stationar_toggle_insurance', hospitalization_id=h.id) }}">

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="tk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stasionar Töleg Hyzmatlary — №{{ h.history_number }}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12px; margin: 20px; }
+  table { border-collapse: collapse; }
+  th, td { padding: 4px 6px; }
+  .no-print { margin-bottom: 12px; }
+  .num { text-align: right; white-space: nowrap; }
+  .group-row td { background: #f1f1f1; font-weight: bold; }
+  @media print {
+    .no-print { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()" style="padding:6px 16px;font-size:13px;cursor:pointer;">
+    &#128438; Çap etmek
+  </button>
+  <button onclick="window.close()" style="padding:6px 16px;font-size:13px;cursor:pointer;margin-left:8px;">
+    Ýapmak
+  </button>
+</div>
+
+<table width="100%" border="1">
+  <tr>
+    <td colspan="2" rowspan="2" width="40%">&nbsp;</td>
+    <td width="40%">Görnüşiň şertli belligi</td>
+  </tr>
+  <tr>
+    <td>Edaranyň şertli belligi</td>
+  </tr>
+  <tr>
+    <td>Türkmenistanyň Saglygy Goraýyş<br>we Derman Senagaty Minisrtligi</td>
+    <td rowspan="2" width="20%">&nbsp;</td>
+    <td rowspan="2" colspan="2">Türkmenistanyň SG we DS ministrliginiň<br>
+        №7/18-23 haty esasynda 033/h görnüşli<br>
+        lukmançylyk resminamasy №82 buýrugy<br>
+        esasynda tassyklanan</td>
+  </tr>
+  <tr>
+    <td>Edaranyň ady: Daşoguz welaýat köp ugurly hassahanasy(DWKUH)</td>
+  </tr>
+</table>
+
+<br>
+<center><h1>Stasionar Töleg Hyzmatlary</h1></center>
+<center>
+  GIRDEJI KASSA ORDERI "______"______________________________ 20 _______ ý.<br>
+  №_______ TÖLEGLI HYZMATLAR "______" _______________________________ 20 _______ ý.
+</center>
+
+<br><br>
+1.F.A.A.: {{ h.patient.full_name }} &nbsp;&nbsp;&nbsp; Doglan ýyly: {{ h.patient.birth_year }}<br>
+2.Raýatlygy: {{ h.patient.citizenship }}<br>
+3.Öý salgysy: {{ h.patient.home_address }}<br>
+4.Kesel taryhy №: {{ h.history_number }} &nbsp;&nbsp;&nbsp; Bölüm: {{ h.department.name if h.department else '—' }}<br>
+5.Ýatan senesi: {{ h.admitted_at.strftime('%d.%m.%Y') }}
+{% if h.discharged_at %}&nbsp;&nbsp;&nbsp; Çykarylan senesi: {{ h.discharged_at.strftime('%d.%m.%Y') }}{% endif %}
+&nbsp;&nbsp;&nbsp; Ýatan günleri: {{ h.bed_days }}<br>
+<br>
+
+<table width="100%" border="1">
+<colgroup>
+  <col width="5%">
+  <col width="45%">
+  <col width="8%">
+  <col width="12%">
+  <col width="10%">
+  <col width="10%">
+  <col width="10%">
+</colgroup>
+<thead>
+<tr>
+  <th rowspan="2">T/b</th>
+  <th rowspan="2">Hyzmatyň görnüşi</th>
+  <th rowspan="2">Sany / gün</th>
+  <th rowspan="2">Birlik bahasy</th>
+  <th colspan="3">Jemi</th>
+</tr>
+<tr>
+  <th>Bahasy</th>
+  <th>50% Ýeňillik</th>
+  <th>Tölenmeli</th>
+</tr>
+</thead>
+<tbody>
+{% set row = namespace(n=0) %}
+{% for kind, title, lines in h.bill_groups %}
+  {% if lines %}
+  <tr class="group-row"><td colspan="7">{{ title }}</td></tr>
+  {% for line in lines %}
+  {% set row.n = row.n + 1 %}
+  <tr>
+    <td>{{ row.n }}</td>
+    <td>
+      {{ line.bill_name }}
+      {% if line.bill_note %}<br><small>{{ line.bill_note }}</small>{% endif %}
+    </td>
+    <td style="text-align:center">{{ line.billed_quantity }}</td>
+    <td class="num">{{ line.price_display }}</td>
+    <td class="num">{{ line.full_total_display }}</td>
+    <td class="num">{% if line.has_discount %}{{ '%.2f' | format(line.full_total - line.effective_total) }}{% else %}&nbsp;{% endif %}</td>
+    <td class="num">{{ line.effective_total_display }}</td>
+  </tr>
+  {% endfor %}
+  {% endif %}
+{% endfor %}
+</tbody>
+<tfoot>
+<tr>
+  <th colspan="4" style="text-align:right">Jemi:</th>
+  <th class="num">{{ '%.2f' | format(h.bill_full_total) }}</th>
+  <th class="num">{{ h.bill_discount_display if h.bill_discount > 0 else '' }}</th>
+  <th class="num">{{ h.bill_total_display }}</th>
+</tr>
+</tfoot>
+</table>
+
+<br>
+<table width="60%" border="1" style="margin-left:auto">
+<thead>
+<tr>
+  <th>Töleg wagty</th>
+  <th>Kassir</th>
+  <th>Nagt</th>
+  <th>Terminal</th>
+  <th>Jemi</th>
+</tr>
+</thead>
+<tbody>
+{% if h.unlogged_paid_total > 0 %}
+<tr>
+  <td>{{ h.paid_at.strftime('%d.%m.%Y %H:%M') if h.paid_at else '—' }}</td>
+  <td>{{ h.paid_by.full_name if h.paid_by else '—' }}</td>
+  <td class="num">—</td>
+  <td class="num">—</td>
+  <td class="num">{{ h.unlogged_paid_total_display }}</td>
+</tr>
+{% endif %}
+{% for p in h.payments %}
+<tr>
+  <td>{{ p.paid_at.strftime('%d.%m.%Y %H:%M') }}</td>
+  <td>{{ p.paid_by.full_name if p.paid_by else '—' }}</td>
+  <td class="num">{{ p.cash_amount_display }}</td>
+  <td class="num">{{ p.terminal_amount_display }}</td>
+  <td class="num">{{ p.amount_display }}</td>
+</tr>
+{% endfor %}
+</tbody>
+<tfoot>
+<tr>
+  <th colspan="4" style="text-align:right">Kabul edilen jemi:</th>
+  <th class="num">{{ h.paid_total_display }}</th>
+</tr>
+{% if h.has_unpaid_remainder %}
+<tr>
+  <th colspan="4" style="text-align:right">Tölenmedik galyndy:</th>
+  <th class="num">{{ h.unpaid_remainder_display }}</th>
+</tr>
+{% endif %}
+</tfoot>
+</table>
+
+<br><br>
+<table width="100%">
+  <tr>
+    <td>Saglyk ät.pasp.№ {{ h.patient.insurance_number or '' }}</td>
+    <td>&nbsp;</td>
+    <td>Jemi: <strong>{{ h.bill_total_display }}</strong></td>
+  </tr>
+  <tr>
+    <td>Syrkawyň goly____________________________</td>
+    <td>&nbsp;</td>
+    <td>Kassiriň goly____________________________</td>
+  </tr>
+  <tr>
+    <td colspan="3" align="right">Tölenen: <strong>{{ h.paid_total_display }}</strong></td>
+  </tr>
+</table>
+
+</body>
+</html>
