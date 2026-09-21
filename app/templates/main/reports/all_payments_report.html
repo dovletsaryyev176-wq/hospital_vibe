@@ -22,6 +22,7 @@
           <input type="date" class="form-control form-control-sm" name="to" value="{{ date_to }}" style="width:150px">
         </div>
 
+        {% if show_cashier %}
         <div>
           <label class="form-label small text-muted mb-1">Kassir</label>
           <select class="form-select form-select-sm" name="cashier_id" style="width:200px">
@@ -31,6 +32,7 @@
             {% endfor %}
           </select>
         </div>
+        {% endif %}
 
         <div>
           <label class="form-label small text-muted mb-1">Syrkaw</label>
@@ -119,7 +121,7 @@
           <th style="width:140px">Töleg senesi</th>
           <th style="width:90px">Barlag №</th>
           <th>Syrkaw (F.A.A.)</th>
-          <th>Kassir</th>
+          {% if show_cashier %}<th>Kassir</th>{% endif %}
           <th style="width:110px">Görnüşi</th>
           <th>Näme üçin</th>
           <th class="text-end" style="width:70px">Sany</th>
@@ -138,7 +140,7 @@
                  class="text-decoration-none fw-semibold">{{ row.exam_id }}</a>
             </td>
             <td>{{ row.patient }}</td>
-            <td class="text-muted">{{ row.cashier }}</td>
+            {% if show_cashier %}<td class="text-muted">{{ row.cashier }}</td>{% endif %}
             <td>
               <span class="badge bg-light text-dark border fw-normal">{{ row.kind_name }}</span>
             </td>
@@ -161,7 +163,7 @@
           </tr>
         {% else %}
           <tr>
-            <td colspan="11" class="text-center text-muted py-5">
+            <td colspan="{{ 11 if show_cashier else 10 }}" class="text-center text-muted py-5">
               <i class="bi bi-cash-stack display-5 d-block mb-2 opacity-25"></i>
               Bu döwürde töleg ýok
             </td>
@@ -171,7 +173,7 @@
       {% if rows %}
         <tfoot>
           <tr class="table-light fw-bold">
-            <td colspan="9" class="text-end">Jemi:</td>
+            <td colspan="{{ 9 if show_cashier else 8 }}" class="text-end">Jemi:</td>
             <td class="text-end {% if totals.discount %}text-success{% endif %}">
               {{ '%.2f' | format(totals.discount) }}
             </td>

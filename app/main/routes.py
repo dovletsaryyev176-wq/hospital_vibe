@@ -389,6 +389,11 @@ def examinations_list():
     search = request.args.get('q', '').strip()
     status_filter = request.args.get('status', '').strip()
     paid_filter = request.args.get('paid', '').strip()
+    date_from = request.args.get('from', '').strip()
+    date_to = request.args.get('to', '').strip()
+    # Oldest or newest first. Anything else falls back to the default rather
+    # than reaching order_by — the value comes straight from the query string.
+    sort = 'asc' if request.args.get('sort') == 'asc' else 'desc'
 
     query = Examination.query.join(Patient, Examination.patient_id == Patient.id)
 
@@ -418,6 +423,22 @@ def examinations_list():
     elif paid_filter == 'unpaid':
         query = query.filter(Examination.is_paid == False)
 
+    # Period over the creation date (the column shown in the table), inclusive
+    # on both ends: `< to + 1 day` keeps the whole last day, timestamps included.
+    # An unparseable date is cleared so the page renders without the filter.
+    if date_from:
+        try:
+            query = query.filter(
+                Examination.created_at >= datetime.strptime(date_from, '%Y-%m-%d'))
+        except ValueError:
+            date_from = ''
+    if date_to:
+        try:
+            query = query.filter(
+                Examination.created_at < datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1))
+        except ValueError:
+            date_to = ''
+
     page = request.args.get('page', 1, type=int)
     pagination = (query
         .options(
@@ -426,7 +447,10 @@ def examinations_list():
             subqueryload(Examination.exam_analyses),
             subqueryload(Examination.exam_directions),
         )
-        .order_by(Examination.created_at.desc())
+        # By id, not created_at: it is the primary key (so indexed), it is the
+        # number shown in the table, and being auto-increment it carries the
+        # same chronology. Ties are impossible, so pages never overlap.
+        .order_by(Examination.id.asc() if sort == 'asc' else Examination.id.desc())
         .paginate(page=page, per_page=15, error_out=False))
 
     return render_template(
@@ -436,6 +460,9 @@ def examinations_list():
         search=search,
         status_filter=status_filter,
         paid_filter=paid_filter,
+        date_from=date_from,
+        date_to=date_to,
+        sort=sort,
     )
 
 
@@ -1738,7 +1765,7 @@ def _directions_report_xlsx(rows, grand, date_from, date_to, show_cashier=False)
     )
 
 
-# ── Doctor-direction categories report (senior cashier only) ──────────────────
+# ── Doctor-direction categories report ───────────────────────────────────────
 
 _DIRECTION_CATEGORIES_UNCATEGORIZED = 'Kategoriýasyz'
 
@@ -1760,6 +1787,9 @@ def _direction_categories_report():
         .join(ExaminationDirection.examination)
         .filter(Examination.is_paid == True)
     )
+    # A plain cashier only ever sees their own takings here; a senior cashier
+    # sees everyone's. Same rule as every other report — see _apply_cashier_scope.
+    query, _ = _apply_cashier_scope(query)
     query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
 
     lines = (
@@ -1819,7 +1849,7 @@ def _direction_categories_report():
 
 
 @main_bp.route('/reports/direction-categories')
-@role_required('senior_cashier')
+@reports_required
 def reports_direction_categories():
     rows, totals, date_from, date_to = _direction_categories_report()
 
@@ -1930,7 +1960,7 @@ def _direction_categories_xlsx(rows, totals, date_from, date_to):
     )
 
 
-# ── Doctor / responsible payment report (senior cashier only) ─────────────────
+# ── Doctor / responsible payment report ──────────────────────────────────────
 
 def _doctor_direction_users():
     """Map {direction_id: [User, ...]} of active doctors / analysis-responsibles
@@ -1987,6 +2017,9 @@ def _doctor_payments_report():
         )
         if not all_doctors:
             query = query.filter(ExaminationDirection.doctor_id == doctor_id)
+    # A plain cashier only ever sees their own takings here; a senior cashier
+    # sees everyone's. Same rule as every other report — see _apply_cashier_scope.
+        query, _ = _apply_cashier_scope(query)
         query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
         lines = query.all()
 
@@ -2047,7 +2080,7 @@ def _doctor_payments_report():
 
 
 @main_bp.route('/reports/doctor-payments')
-@role_required('senior_cashier')
+@reports_required
 def reports_doctor_payments():
     (rows, totals, direction, direction_id, doctor_arg,
      date_from, date_to, directions, users_by_direction) = _doctor_payments_report()
@@ -2211,7 +2244,7 @@ def _doctor_payments_xlsx(rows, totals, direction, date_from, date_to):
     )
 
 
-# ── Analysis-tool payment report (senior cashier only) ────────────────────────
+# ── Analysis-tool payment report ─────────────────────────────────────────────
 
 def _tool_payments_report():
     """Aggregate paid analysis-tool income for the selected tools over the
@@ -2245,6 +2278,9 @@ def _tool_payments_report():
                 joinedload(ExaminationAnalysisTool.tool),
             )
         )
+    # A plain cashier only ever sees their own takings here; a senior cashier
+    # sees everyone's. Same rule as every other report — see _apply_cashier_scope.
+        query, _ = _apply_cashier_scope(query)
         query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
         lines = query.all()
 
@@ -2299,7 +2335,7 @@ def _tool_payments_report():
 
 
 @main_bp.route('/reports/tool-payments')
-@role_required('senior_cashier')
+@reports_required
 def reports_tool_payments():
     rows, totals, tool_ids, date_from, date_to, tools = _tool_payments_report()
 
@@ -2451,7 +2487,7 @@ def _tool_payments_xlsx(rows, totals, date_from, date_to):
     )
 
 
-# ── Analysis payment report (senior cashier only) ─────────────────────────────
+# ── Analysis payment report ──────────────────────────────────────────────────
 
 def _analysis_payments_report():
     """Aggregate paid analysis income for the selected analyses over the
@@ -2486,6 +2522,9 @@ def _analysis_payments_report():
                 joinedload(ExaminationAnalysis.analysis),
             )
         )
+    # A plain cashier only ever sees their own takings here; a senior cashier
+    # sees everyone's. Same rule as every other report — see _apply_cashier_scope.
+        query, _ = _apply_cashier_scope(query)
         query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
         lines = query.all()
 
@@ -2540,7 +2579,7 @@ def _analysis_payments_report():
 
 
 @main_bp.route('/reports/analysis-payments')
-@role_required('senior_cashier')
+@reports_required
 def reports_analysis_payments():
     rows, totals, analysis_ids, date_from, date_to, analyses = _analysis_payments_report()
 
@@ -2941,7 +2980,7 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
     )
 
 
-# ── All payments report (senior cashier only) ─────────────────────────────────
+# ── All payments report ──────────────────────────────────────────────────────
 
 # The line kinds an examination is paid in, in the order they are listed inside
 # one examination. The key is what the ?kind filter and the export carry.
@@ -3060,10 +3099,11 @@ def _all_payments_report():
         entry['total'] = entry['cash'] + entry['terminal']
     totals['by_kind'] = list(by_kind.values())
 
-    return rows, totals, date_from, date_to, search, cashier_id, _report_cashiers()
+    cashiers = _report_cashiers() if current_user.role == 'senior_cashier' else []
+    return rows, totals, date_from, date_to, search, cashier_id, cashiers
 
 
-def _all_payments_xlsx(rows, totals, date_from, date_to):
+def _all_payments_xlsx(rows, totals, date_from, date_to, show_cashier=False):
     """Build an .xlsx workbook of the all-payments report."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
@@ -3078,7 +3118,7 @@ def _all_payments_xlsx(rows, totals, date_from, date_to):
         'Töleg senesi',
         'Barlag №',
         'Syrkaw (F.A.A.)',
-        'Kassir',
+    ] + (['Kassir'] if show_cashier else []) + [
         'Görnüşi',
         'Näme üçin',
         'Sany',
@@ -3090,7 +3130,10 @@ def _all_payments_xlsx(rows, totals, date_from, date_to):
     bold = Font(bold=True)
     header_fill = PatternFill('solid', fgColor='E9ECEF')
     right = Alignment(horizontal='right')
-    money_cols = (10, 11)
+    # Derived from the header list so that dropping the cashier column does not
+    # leave the number formats one column off.
+    qty_col = len(headers) - 3
+    money_cols = (len(headers) - 1, len(headers))
 
     ws.append(['Ähli tölegler boýunça hasabat'])
     ws['A1'].font = Font(bold=True, size=14)
@@ -3114,7 +3157,7 @@ def _all_payments_xlsx(rows, totals, date_from, date_to):
             row['paid_at'].strftime('%d.%m.%Y %H:%M') if row['paid_at'] else '',
             row['exam_id'],
             row['patient'],
-            row['cashier'],
+        ] + ([row['cashier']] if show_cashier else []) + [
             row['kind_name'],
             name,
             row['quantity'],
@@ -3123,28 +3166,33 @@ def _all_payments_xlsx(rows, totals, date_from, date_to):
             float(row['amount']),
         ])
         row_idx = ws.max_row
-        ws.cell(row=row_idx, column=8).alignment = right
+        ws.cell(row=row_idx, column=qty_col).alignment = right
         for col in money_cols:
             c = ws.cell(row=row_idx, column=col)
             c.number_format = '#,##0.00'
             c.alignment = right
 
     ws.append([])
+    label_col = len(headers) - 2
+    total_col = len(headers)
     for label, value in (
         ('Nagt:', totals['cash']),
         ('Terminal:', totals['terminal']),
         ('50% ýeňillik:', totals['discount']),
         ('Umumy jemi:', totals['total']),
     ):
-        ws.append(['', '', '', '', '', '', '', '', label, '', float(value)])
+        line = [''] * len(headers)
+        line[label_col - 1] = label
+        line[total_col - 1] = float(value)
+        ws.append(line)
         idx = ws.max_row
-        ws.cell(row=idx, column=9).font = bold
-        c = ws.cell(row=idx, column=11)
+        ws.cell(row=idx, column=label_col).font = bold
+        c = ws.cell(row=idx, column=total_col)
         c.font = bold
         c.number_format = '#,##0.00'
         c.alignment = right
 
-    widths = [6, 18, 10, 30, 24, 14, 40, 8, 14, 14, 14]
+    widths = [6, 18, 10, 30] + ([24] if show_cashier else []) + [14, 40, 8, 14, 14, 14]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
@@ -3165,12 +3213,15 @@ def _all_payments_xlsx(rows, totals, date_from, date_to):
 
 
 @main_bp.route('/reports/all-payments')
-@role_required('senior_cashier')
+@reports_required
 def reports_all_payments():
     rows, totals, date_from, date_to, search, cashier_id, cashiers = _all_payments_report()
+    # Every row already belongs to a plain cashier, so naming them in each one
+    # would say nothing — the column and the picker are for a senior cashier.
+    show_cashier = current_user.role == 'senior_cashier'
 
     if request.args.get('export') == 'xlsx':
-        return _all_payments_xlsx(rows, totals, date_from, date_to)
+        return _all_payments_xlsx(rows, totals, date_from, date_to, show_cashier)
 
     return render_template(
         'main/reports/all_payments_report.html',
@@ -3181,6 +3232,7 @@ def reports_all_payments():
         search=search,
         cashier_id=cashier_id,
         cashiers=cashiers,
+        show_cashier=show_cashier,
     )
 
 

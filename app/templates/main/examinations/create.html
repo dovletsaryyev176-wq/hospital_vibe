@@ -23,7 +23,9 @@
           <div class="col-md-6">
             <label class="form-label fw-medium" for="patient-search">Syrkaw <span class="text-danger">*</span></label>
             <input type="hidden" name="patient_id" id="patient-id-input"
-                   value="{{ selected_patient_id or '' }}" required>
+                   value="{{ selected_patient_id or '' }}"
+                   data-has-insurance="{{ '1' if selected_patient and selected_patient.insurance_number else '' }}"
+                   required>
             <div class="position-relative">
               <div class="input-group">
                 <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
@@ -143,6 +145,8 @@
                 <td class="ps-4">
                   <input type="checkbox" class="form-check-input analysis-cb"
                          name="analysis_ids" value="{{ a.id }}"
+                         data-price="{{ '%.2f'|format(a.price) }}"
+                         data-insurance="{{ '1' if a.is_insurance else '' }}"
                          {% if sel_qty is not none %}checked{% endif %}>
                 </td>
                 <td>{{ a.name }}</td>
@@ -199,6 +203,8 @@
                 <td class="ps-4">
                   <input type="checkbox" class="form-check-input tool-cb"
                          name="tool_ids" value="{{ tool.id }}"
+                         data-price="{{ '%.2f'|format(tool.total_price) }}"
+                         data-insurance="{{ '1' if tool.is_insurance else '' }}"
                          {% if sel_tool_qty is not none %}checked{% endif %}>
                 </td>
                 <td>{{ tool.name }}</td>
@@ -257,6 +263,8 @@
                 <td class="ps-4">
                   <input type="checkbox" class="form-check-input blank-cb"
                          name="blank_ids" value="{{ blank.id }}"
+                         data-price="{{ '%.2f'|format(blank.total_price) }}"
+                         data-insurance="{{ '1' if blank.is_insurance else '' }}"
                          {% if sel_blank_qty is not none %}checked{% endif %}>
                 </td>
                 <td>{{ blank.name }}</td>
@@ -310,6 +318,8 @@
                 <td class="ps-4">
                   <input type="checkbox" class="form-check-input dir-cb"
                          id="dir-{{ d.id }}" name="direction_ids" value="{{ d.id }}"
+                         data-price="{{ '%.2f'|format(d.price) }}"
+                         data-insurance="{{ '1' if d.is_insurance else '' }}"
                          {% if d.id in selected_direction_ids %}checked{% endif %}>
                 </td>
                 <td>
@@ -352,8 +362,34 @@
       </div>
     </div>
 
+    <!-- Keeps the buttons above the fixed total panel on short screens -->
+    <div class="col-12" style="height:3.5rem"></div>
+
   </div>
 </form>
+
+<!-- Running total. Filled in by the recalc script at the bottom of this page;
+     it repeats the server's pricing rules, so the figure here is what the
+     cashier will be asked for, as long as the catalogue prices do not change
+     between opening this form and submitting it. -->
+<div id="total-panel" class="card shadow border-0 rounded-3"
+     style="position:fixed;right:1rem;bottom:1rem;z-index:1030;
+            min-width:230px;max-width:calc(100vw - 2rem)">
+  <div class="card-body py-2 px-3">
+    <div class="d-flex align-items-baseline gap-3">
+      <span class="text-muted small text-uppercase" style="letter-spacing:.05em">Jemi</span>
+      <span class="ms-auto fw-semibold font-monospace text-nowrap" style="font-size:1.15rem">
+        <span id="total-amount">0.00</span> manat
+      </span>
+    </div>
+    <div class="d-flex align-items-baseline gap-3 small text-muted">
+      <span><span id="total-count">0</span> sany</span>
+      <span id="total-discount-wrap" class="ms-auto text-success text-nowrap" style="display:none">
+        ätiýaçlandyryş −<span id="total-discount">0.00</span>
+      </span>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -378,19 +414,23 @@
 
     function clearSelection() {
       hiddenInput.value  = '';
+      hiddenInput.dataset.hasInsurance = '';
       searchInput.value  = '';
       infoEl.textContent = '';
       infoEl.style.display = 'none';
       clearBtn.style.display = 'none';
       dropdown.style.display = 'none';
+      document.dispatchEvent(new Event('patient-changed'));
     }
 
     function selectPatient(p) {
       hiddenInput.value      = p.id;
+      hiddenInput.dataset.hasInsurance = p.insurance_number ? '1' : '';
       searchInput.value      = p.full_name;
       clearBtn.style.display = 'flex';
       dropdown.style.display = 'none';
       showInfo(p);
+      document.dispatchEvent(new Event('patient-changed'));
     }
 
     function renderDropdown(patients) {
@@ -418,7 +458,12 @@
 
     searchInput.addEventListener('input', function () {
       const q = this.value.trim();
-      if (hiddenInput.value) { hiddenInput.value = ''; clearBtn.style.display = 'none'; }
+      if (hiddenInput.value) {
+        hiddenInput.value = '';
+        hiddenInput.dataset.hasInsurance = '';
+        clearBtn.style.display = 'none';
+        document.dispatchEvent(new Event('patient-changed'));
+      }
       clearTimeout(debounceTimer);
       if (q.length < 2) { dropdown.style.display = 'none'; return; }
       debounceTimer = setTimeout(() => {
@@ -813,5 +858,93 @@
       if (!this.checked) select.value = '';
     });
   });
+
+  // ── Running total ─────────────────────────────────────────────────────────
+  // Repeats the server's pricing exactly (PricingSnapshotMixin in app/models.py):
+  // a line is price x quantity, halved when the patient has an insurance number
+  // AND the item itself is insurance-eligible. Combined analyses are not counted
+  // separately — they only tick the real analysis checkboxes, and only those are
+  // submitted.
+  //
+  // Everything is accumulated in whole half-tiyin (1/200 manat): halving an odd
+  // number of tiyin leaves half a tiyin, which the server keeps unrounded in the
+  // sum and rounds only at the end. Integers here mean no floating-point drift,
+  // and the final rounding is half-to-even, like Python's Decimal formatting.
+  (function () {
+    const amountEl       = document.getElementById('total-amount');
+    const discountEl     = document.getElementById('total-discount');
+    const discountWrapEl = document.getElementById('total-discount-wrap');
+    const countEl        = document.getElementById('total-count');
+    const patientInput   = document.getElementById('patient-id-input');
+    const form           = document.getElementById('exam-form');
+    if (!amountEl || !form) return;
+
+    // One unit's full price, in half-tiyin. Always even, so halving stays whole.
+    function unitPrice(cb) {
+      return Math.round(parseFloat(cb.dataset.price || '0') * 100) * 2;
+    }
+
+    function qtyOf(selector) {
+      const inp = document.querySelector(selector);
+      return inp ? Math.max(1, parseInt(inp.value) || 1) : 1;
+    }
+
+    function formatHalfTiyin(value) {
+      let tiyin;
+      if (value % 2 === 0) {
+        tiyin = value / 2;
+      } else {
+        const down = (value - 1) / 2;      // exactly half a tiyin over: half-to-even
+        tiyin = (down % 2 === 0) ? down : down + 1;
+      }
+      const manat = Math.floor(tiyin / 100);
+      const kopek = String(tiyin % 100).padStart(2, '0');
+      return manat.toLocaleString('en-US') + '.' + kopek;
+    }
+
+    function recalc() {
+      const insured = patientInput && patientInput.dataset.hasInsurance === '1';
+      let total = 0, full = 0, count = 0;
+
+      function addLine(cb, qty) {
+        const unit = unitPrice(cb);
+        const paid = (insured && cb.dataset.insurance === '1') ? unit / 2 : unit;
+        full  += unit * qty;
+        total += paid * qty;
+        count += 1;
+      }
+
+      document.querySelectorAll('.analysis-cb:checked').forEach(cb => {
+        addLine(cb, qtyOf('.analysis-qty-input[data-analysis-id="' + cb.value + '"]'));
+      });
+      document.querySelectorAll('.tool-cb:checked').forEach(cb => {
+        addLine(cb, qtyOf('.tool-qty-input[data-tool-id="' + cb.value + '"]'));
+      });
+      document.querySelectorAll('.blank-cb:checked').forEach(cb => {
+        addLine(cb, qtyOf('.blank-qty-input[data-blank-id="' + cb.value + '"]'));
+      });
+      document.querySelectorAll('.dir-cb:checked').forEach(cb => {
+        addLine(cb, 1);   // a direction has no quantity column — always one visit
+      });
+
+      amountEl.textContent = formatHalfTiyin(total);
+      countEl.textContent  = count;
+      const discount = full - total;
+      if (discount > 0) {
+        discountEl.textContent = formatHalfTiyin(discount);
+        discountWrapEl.style.display = '';
+      } else {
+        discountWrapEl.style.display = 'none';
+      }
+    }
+
+    // Bubbled events only: the handlers above sit on the elements themselves and
+    // run first, so by the time this fires the auto-checked tools, blanks and
+    // directions are already in their final state.
+    form.addEventListener('change', recalc);
+    form.addEventListener('input', recalc);
+    document.addEventListener('patient-changed', recalc);
+    recalc();
+  })();
 </script>
 {% endblock %}
