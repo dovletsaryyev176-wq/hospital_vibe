@@ -208,6 +208,17 @@ class UserForm(FlaskForm):
             raise ValidationError('Ulanyjynyň gizlin belgisi hökmanydyr.')
 
 
+def direction_category_choices(current=None):
+    """Choices for a doctor-direction category picker: the active categories,
+    plus the record's current one when it has since been blocked — so saving
+    the record does not silently drop it."""
+    cats = DoctorDirectionCategory.query.filter_by(is_active=True).order_by(DoctorDirectionCategory.name).all()
+    choices = [(0, '— Kategoriýa saýlaň (islege görä) —')]
+    if current is not None and not current.is_active:
+        choices.append((current.id, f'{current.name} [bloklanan]'))
+    return choices + [(c.id, c.name) for c in cats]
+
+
 class AnalysisForm(FlaskForm):
     name = StringField(
         'Ady',
@@ -243,14 +254,8 @@ class AnalysisForm(FlaskForm):
 
     def _build_category_choices(self):
         # The doctor-direction categories — see Analysis.category_id.
-        cats = DoctorDirectionCategory.query.filter_by(is_active=True).order_by(DoctorDirectionCategory.name).all()
-        choices = [(0, '— Kategoriýa saýlaň (islege görä) —')]
-        if self._editing_analysis and self._editing_analysis.category_id:
-            current = self._editing_analysis.category
-            if current and not current.is_active:
-                choices.append((current.id, f'{current.name} [bloklanan]'))
-        choices += [(c.id, c.name) for c in cats]
-        self.category_id.choices = choices
+        self.category_id.choices = direction_category_choices(
+            self._editing_analysis.category if self._editing_analysis else None)
 
     def _build_responsible_choices(self):
         active_users = (
@@ -362,6 +367,8 @@ class AnalysisToolForm(FlaskForm):
     )
     category_id = SelectField('Kategoriýa (islege görä)', coerce=int, validators=[Optional()])
     subcategory_id = SelectField('Kiçi kategoriýa (islege görä)', coerce=int, validators=[Optional()])
+    direction_category_id = SelectField('Lukman ugrunyň kategoriýasy (islege görä)', coerce=int,
+                                        validators=[Optional()])
     submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_tool=None, **kwargs):
@@ -370,6 +377,8 @@ class AnalysisToolForm(FlaskForm):
         self._build_analysis_choices()
         self._build_category_choices()
         self._build_subcategory_choices()
+        self.direction_category_id.choices = direction_category_choices(
+            editing_tool.direction_category if editing_tool else None)
 
     def _build_analysis_choices(self):
         active = (
@@ -400,6 +409,20 @@ class AnalysisToolForm(FlaskForm):
     def _build_subcategory_choices(self):
         subs = AnalysisToolSubcategory.query.filter_by(is_active=True).order_by(AnalysisToolSubcategory.name).all()
         self.subcategory_id.choices = [(0, '— Kiçi kategoriýa saýlaň (islege görä) —')] + [(s.id, s.name) for s in subs]
+
+    def validate_subcategory_id(self, field):
+        # The page only offers the picked category's subcategories, but that is
+        # the browser's doing; the tools report files a tool under its
+        # subcategory's category, so the two must agree.
+        if not field.data:
+            return
+        sub = AnalysisToolSubcategory.query.filter_by(id=field.data).first()
+        if sub is None:
+            return  # not among the choices — the field has already refused it
+        if not self.category_id.data:
+            raise ValidationError('Kiçi kategoriýa üçin ilki kategoriýany saýlaň.')
+        if sub.category_id != self.category_id.data:
+            raise ValidationError('Kiçi kategoriýa saýlanan kategoriýa degişli däl.')
 
 
 class AnalysisToolCategoryForm(FlaskForm):
@@ -488,12 +511,16 @@ class BlankForm(FlaskForm):
         'Analizler',
         coerce=int,
     )
+    category_id = SelectField('Kategoriýa (islege görä)', coerce=int, validators=[Optional()])
     submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_blank=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._editing_blank = editing_blank
         self._build_analysis_choices()
+        # The doctor-direction categories — see Blank.category_id.
+        self.category_id.choices = direction_category_choices(
+            editing_blank.category if editing_blank else None)
 
     def _build_analysis_choices(self):
         active = (

@@ -424,11 +424,25 @@ def direction_categories_list():
         .group_by(Analysis.category_id)
         .all()
     )
+    blank_counts = dict(
+        db.session.query(Blank.category_id, func.count(Blank.id))
+        .filter(Blank.category_id.isnot(None))
+        .group_by(Blank.category_id)
+        .all()
+    )
+    tool_counts = dict(
+        db.session.query(AnalysisTool.direction_category_id, func.count(AnalysisTool.id))
+        .filter(AnalysisTool.direction_category_id.isnot(None))
+        .group_by(AnalysisTool.direction_category_id)
+        .all()
+    )
     return render_template(
         'admin/direction_categories/list.html',
         categories=categories,
         dir_counts=dir_counts,
         analysis_counts=analysis_counts,
+        blank_counts=blank_counts,
+        tool_counts=tool_counts,
         search=search,
         status_filter=status_filter,
     )
@@ -484,6 +498,7 @@ def direction_categories_toggle(cat_id):
 def analysis_tools_list():
     search = request.args.get('q', '').strip()
     status_filter = request.args.get('status', '').strip()
+    cat_filter = request.args.get('cat', 0, type=int)
 
     query = AnalysisTool.query
 
@@ -501,16 +516,23 @@ def analysis_tools_list():
     elif status_filter == 'blocked':
         query = query.filter(AnalysisTool.is_active == False)
 
+    if cat_filter:
+        query = query.filter(AnalysisTool.direction_category_id == cat_filter)
+
     tools = query.options(
         joinedload(AnalysisTool.category),
         joinedload(AnalysisTool.subcategory).joinedload(AnalysisToolSubcategory.category),
+        joinedload(AnalysisTool.direction_category),
     ).order_by(AnalysisTool.name).all()
+    all_categories = DoctorDirectionCategory.query.filter_by(is_active=True).order_by(DoctorDirectionCategory.name).all()
 
     return render_template(
         'admin/analysis_tools/list.html',
         tools=tools,
         search=search,
         status_filter=status_filter,
+        cat_filter=cat_filter,
+        all_categories=all_categories,
     )
 
 
@@ -530,6 +552,7 @@ def analysis_tools_create():
             analyses=analyses,
             category_id=form.category_id.data or None,
             subcategory_id=form.subcategory_id.data or None,
+            direction_category_id=form.direction_category_id.data or None,
         )
         db.session.add(tool)
         db.session.commit()
@@ -558,6 +581,7 @@ def analysis_tools_edit(tool_id):
         form.analysis_ids.data = [a.id for a in tool.analyses]
         form.category_id.data = tool.category_id or 0
         form.subcategory_id.data = tool.subcategory_id or 0
+        form.direction_category_id.data = tool.direction_category_id or 0
 
     if form.validate_on_submit():
         tool.name = form.name.data.strip()
@@ -567,6 +591,7 @@ def analysis_tools_edit(tool_id):
         tool.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
         tool.category_id = form.category_id.data or None
         tool.subcategory_id = form.subcategory_id.data or None
+        tool.direction_category_id = form.direction_category_id.data or None
         db.session.commit()
         flash(f'Serişde «{tool.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.analysis_tools_list'))
@@ -764,6 +789,7 @@ def tool_subcategories_toggle(sub_id):
 def blanks_list():
     search = request.args.get('q', '').strip()
     status_filter = request.args.get('status', '').strip()
+    cat_filter = request.args.get('cat', 0, type=int)
 
     query = Blank.query
 
@@ -781,13 +807,19 @@ def blanks_list():
     elif status_filter == 'blocked':
         query = query.filter(Blank.is_active == False)
 
-    blanks = query.order_by(Blank.name).all()
+    if cat_filter:
+        query = query.filter(Blank.category_id == cat_filter)
+
+    blanks = query.options(joinedload(Blank.category)).order_by(Blank.name).all()
+    all_categories = DoctorDirectionCategory.query.filter_by(is_active=True).order_by(DoctorDirectionCategory.name).all()
 
     return render_template(
         'admin/blanks/list.html',
         blanks=blanks,
         search=search,
         status_filter=status_filter,
+        cat_filter=cat_filter,
+        all_categories=all_categories,
     )
 
 
@@ -805,6 +837,7 @@ def blanks_create():
             is_insurance=form.is_insurance.data,
             total_price=form.total_price.data,
             analyses=analyses,
+            category_id=form.category_id.data or None,
         )
         db.session.add(blank)
         db.session.commit()
@@ -830,6 +863,7 @@ def blanks_edit(blank_id):
         form.is_insurance.data = blank.is_insurance
         form.total_price.data = blank.total_price
         form.analysis_ids.data = [a.id for a in blank.analyses]
+        form.category_id.data = blank.category_id or 0
 
     if form.validate_on_submit():
         blank.name = form.name.data.strip()
@@ -837,6 +871,7 @@ def blanks_edit(blank_id):
         blank.is_insurance = form.is_insurance.data
         blank.total_price = form.total_price.data
         blank.analyses = Analysis.query.filter(Analysis.id.in_(form.analysis_ids.data)).all()
+        blank.category_id = form.category_id.data or None
         db.session.commit()
         flash(f'Blank «{blank.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.blanks_list'))

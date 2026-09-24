@@ -76,10 +76,18 @@
                   {{ form.category_id(class='form-select', id='cat_sel_c') }}
                 </div>
                 <div class="col-sm-6">
-                  {{ form.subcategory_id(class='form-select', id='sub_sel_c') }}
+                  {{ form.subcategory_id(class='form-select' + (' is-invalid' if form.subcategory_id.errors else ''), id='sub_sel_c') }}
+                  {% for e in form.subcategory_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
                 </div>
               </div>
               <div class="form-text text-muted">Ilki kategoriýany saýlaň. Onda kiçi kategoriýalar bar bolsa, ikinji sanawda görkeziler — serişde kategoriýa ýa-da onuň kiçi kategoriýasyna berkidiler (islege görä).</div>
+            </div>
+
+            <div class="col-12">
+              {{ form.direction_category_id.label(class='form-label fw-medium') }}
+              {{ form.direction_category_id(class='form-select' + (' is-invalid' if form.direction_category_id.errors else '')) }}
+              {% for e in form.direction_category_id.errors %}<div class="invalid-feedback">{{ e }}</div>{% endfor %}
+              <div class="form-text">Lukman ugurlarynyň kategoriýalary — hasabatda serişdäniň girdejisi şu kategoriýa goşulýar. Ýokardaky serişde kategoriýalaryndan aýry.</div>
             </div>
           </div>
 

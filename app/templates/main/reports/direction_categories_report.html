@@ -54,8 +54,9 @@
         <div class="text-primary small">Jemi (nagt + terminal)</div>
         <div class="fw-bold text-primary fs-5">{{ '%.2f' | format(totals.cash + totals.terminal) }}</div>
         <div class="text-muted" style="font-size:.75rem">
-          Ugurlar: {{ '%.2f' | format(totals.directions.cash + totals.directions.terminal) }}
-          · Analizler: {{ '%.2f' | format(totals.analyses.cash + totals.analyses.terminal) }}
+          {% for part, title in parts.items() %}
+            {{ title }}: {{ '%.2f' | format(totals[part].cash + totals[part].terminal) }}{% if not loop.last %} ·{% endif %}
+          {% endfor %}
         </div>
       </div>
     </div>
@@ -96,12 +97,13 @@
         <tr class="text-nowrap text-center">
           <th rowspan="2" style="width:60px">№</th>
           <th rowspan="2" class="text-start">Lukman ugurlarynyň kategoriýasy</th>
-          <th colspan="4">Lukman ugurlary</th>
-          <th colspan="4">Analizler</th>
+          {% for title in parts.values() %}
+          <th colspan="4">{{ title }}</th>
+          {% endfor %}
           <th colspan="3">Jemi</th>
         </tr>
         <tr class="text-nowrap">
-          {% for _ in range(2) %}
+          {% for _ in parts %}
           <th class="text-end">Nagt</th>
           <th class="text-end">Terminal</th>
           <th class="text-end">50% ýeňillik (nagt)</th>
@@ -121,21 +123,19 @@
               {{ r.name }}
               {% if r.is_uncategorized %}<span class="badge bg-secondary-subtle text-secondary ms-1">Kategoriýasyz</span>{% endif %}
             </td>
-            {{ money_cells(r.directions) }}
-            {{ money_cells(r.analyses) }}
+            {% for part in parts %}{{ money_cells(r[part]) }}{% endfor %}
             {{ sum_cells(r) }}
           </tr>
           {% endfor %}
           <tr class="table-light fw-bold">
             <td></td>
             <td class="text-end">Jemi:</td>
-            {{ money_cells(totals.directions) }}
-            {{ money_cells(totals.analyses) }}
+            {% for part in parts %}{{ money_cells(totals[part]) }}{% endfor %}
             {{ sum_cells(totals) }}
           </tr>
         {% else %}
           <tr>
-            <td colspan="13" class="text-center text-muted py-5">
+            <td colspan="{{ 5 + 4 * (parts | length) }}" class="text-center text-muted py-5">
               <i class="bi bi-clipboard2-x display-5 d-block mb-2 opacity-25"></i>
               Maglumat ýok
             </td>

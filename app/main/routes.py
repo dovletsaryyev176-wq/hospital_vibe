@@ -2192,22 +2192,41 @@ _DIRECTION_CATEGORIES_UNCATEGORIZED = 'Kategoriýasyz'
 
 _CATEGORY_MONEY = ('cash', 'terminal', 'discount_cash', 'discount_terminal')
 
+CATEGORY_PART_TITLES = OrderedDict((
+    ('directions', 'Lukman ugurlary'),
+    ('analyses', 'Analizler'),
+    ('blanks', 'Blanklar'),
+    ('tools', 'Serişdeler'),
+))
+
 
 def _new_money():
     return {key: Decimal('0') for key in _CATEGORY_MONEY}
 
 
+# The parts of the direction-categories report, in column order:
+# (key, line model, catalogue relationship on the line, category attribute on
+# the catalogue item). Tools count towards their doctor-direction category,
+# not their own tool category.
+_CATEGORY_PARTS = (
+    ('directions', ExaminationDirection, 'direction', 'category'),
+    ('analyses', ExaminationAnalysis, 'analysis', 'category'),
+    ('blanks', ExaminationBlank, 'blank', 'category'),
+    ('tools', ExaminationAnalysisTool, 'tool', 'direction_category'),
+)
+
+
 def _direction_categories_report():
-    """Aggregate paid doctor-direction and analysis income per doctor-direction
-    category for the selected day (or date range). Returns (rows, totals,
-    date_from, date_to).
+    """Aggregate paid income per doctor-direction category — doctor-directions,
+    analyses, blanks and tools — for the selected day (or date range). Returns
+    (rows, totals, date_from, date_to).
 
     Only paid examinations are considered. Each line is split by its payment
     method into cash / terminal buckets (a missing method counts as cash,
     matching the payment default), and its insurance 50% discount amount is
-    accumulated separately. A row keeps directions and analyses apart
-    (`directions`, `analyses`) and carries their sum at the top level. Every
-    active category is listed even with no income for the period; lines
+    accumulated separately. A row keeps the parts apart (`directions`,
+    `analyses`, `blanks`, `tools`) and carries their sum at the top level.
+    Every active category is listed even with no income for the period; lines
     without a category fall into a trailing 'Kategoriýasyz' bucket that appears
     only when it has data. Refunds count on their own day — see
     `_payment_entries`."""
@@ -2228,22 +2247,19 @@ def _direction_categories_report():
         query, _, _ = _apply_exam_date_filter(query, date_from, date_to)
         return query.options(joinedload(model.examination), category_path).all()
 
-    direction_path = joinedload(ExaminationDirection.direction).joinedload(DoctorDirection.category)
-    analysis_path = joinedload(ExaminationAnalysis.analysis).joinedload(Analysis.category)
-    direction_lines = _paid_lines(ExaminationDirection, direction_path)
-    analysis_lines = _paid_lines(ExaminationAnalysis, analysis_path)
-
-    direction_refunded = _refunded_lines(ExaminationDirection, date_from, date_to,
-                                         options=(direction_path,))
-    analysis_refunded = _refunded_lines(ExaminationAnalysis, date_from, date_to,
-                                        options=(analysis_path,))
+    parts = []
+    for part, model, source, category_attr in _CATEGORY_PARTS:
+        item_rel = getattr(model, source)
+        path = joinedload(item_rel).joinedload(getattr(item_rel.property.mapper.class_, category_attr))
+        entries = _payment_entries(_paid_lines(model, path),
+                                   _refunded_lines(model, date_from, date_to, options=(path,)))
+        parts.append((part, entries, source, category_attr))
 
     def _new_bucket(name, is_uncategorized):
         return {
             'name': name,
             'is_uncategorized': is_uncategorized,
-            'directions': _new_money(),
-            'analyses': _new_money(),
+            **{part: _new_money() for part, *_ in _CATEGORY_PARTS},
             **_new_money(),
         }
 
@@ -2255,13 +2271,10 @@ def _direction_categories_report():
             .all()
     }
 
-    for part, entries, source in (
-        ('directions', _payment_entries(direction_lines, direction_refunded), 'direction'),
-        ('analyses', _payment_entries(analysis_lines, analysis_refunded), 'analysis'),
-    ):
+    for part, entries, source, category_attr in parts:
         for entry in entries:
             item = getattr(entry['line'], source)
-            category = item.category if item else None
+            category = getattr(item, category_attr) if item else None
             name = category.name if category else _DIRECTION_CATEGORIES_UNCATEGORIZED
             bucket = buckets.get(name)
             if bucket is None:
@@ -2278,12 +2291,12 @@ def _direction_categories_report():
         buckets.values(),
         key=lambda b: (b['is_uncategorized'], b['name'].lower()),
     )
-    totals = {'directions': _new_money(), 'analyses': _new_money(), **_new_money()}
+    totals = _new_bucket('', False)
     for b in rows:
         for key in _CATEGORY_MONEY:
             totals[key] += b[key]
-            totals['directions'][key] += b['directions'][key]
-            totals['analyses'][key] += b['analyses'][key]
+            for part, *_ in _CATEGORY_PARTS:
+                totals[part][key] += b[part][key]
     return rows, totals, date_from, date_to
 
 
@@ -2301,12 +2314,13 @@ def reports_direction_categories():
         totals=totals,
         date_from=date_from,
         date_to=date_to,
+        parts=CATEGORY_PART_TITLES,
     )
 
 
 def _direction_categories_xlsx(rows, totals, date_from, date_to):
-    """Build an .xlsx workbook of the direction-categories report: directions
-    and analyses side by side, then their sum."""
+    """Build an .xlsx workbook of the direction-categories report: the parts
+    side by side, then their sum."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, Alignment, PatternFill
     from openpyxl.utils import get_column_letter
@@ -2316,15 +2330,14 @@ def _direction_categories_xlsx(rows, totals, date_from, date_to):
     ws.title = 'Kategoriýalar'
 
     part_headers = ['Nagt', 'Terminal', '50% ýeňillik (nagt)', '50% ýeňillik (terminal)']
-    groups = [
-        ('', 2),
-        ('Lukman ugurlary', len(part_headers)),
-        ('Analizler', len(part_headers)),
-        ('Jemi', 3),
-    ]
+    groups = (
+        [('', 2)]
+        + [(CATEGORY_PART_TITLES[part], len(part_headers)) for part, *_ in _CATEGORY_PARTS]
+        + [('Jemi', 3)]
+    )
     headers = (
         ['№', 'Lukman ugurlarynyň kategoriýasy']
-        + part_headers + part_headers
+        + part_headers * len(_CATEGORY_PARTS)
         + ['Nagt tölegleriň umumy jemi', 'Terminal tölegleriň umumy jemi', 'Umumy jemi']
     )
 
@@ -2370,17 +2383,18 @@ def _direction_categories_xlsx(rows, totals, date_from, date_to):
             cell.font = bold
             cell.fill = header_fill
 
+    def _parts(m):
+        return [v for part, *_ in _CATEGORY_PARTS for v in _money(m[part])]
+
     for idx, row in enumerate(rows, start=1):
-        ws.append([idx, row['name']] + _money(row['directions']) + _money(row['analyses'])
-                  + _sums(row))
+        ws.append([idx, row['name']] + _parts(row) + _sums(row))
         row_idx = ws.max_row
         for c in money_cols:
             cell = ws.cell(row=row_idx, column=c)
             cell.number_format = '#,##0.00'
             cell.alignment = right
 
-    ws.append(['', 'Jemi:'] + _money(totals['directions']) + _money(totals['analyses'])
-              + _sums(totals))
+    ws.append(['', 'Jemi:'] + _parts(totals) + _sums(totals))
     total_idx = ws.max_row
     for c in range(1, len(headers) + 1):
         cell = ws.cell(row=total_idx, column=c)
@@ -2389,7 +2403,7 @@ def _direction_categories_xlsx(rows, totals, date_from, date_to):
             cell.number_format = '#,##0.00'
             cell.alignment = right
 
-    widths = [6, 40] + [14, 14, 18, 20] * 2 + [24, 26, 16]
+    widths = [6, 40] + [14, 14, 18, 20] * len(_CATEGORY_PARTS) + [24, 26, 16]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 

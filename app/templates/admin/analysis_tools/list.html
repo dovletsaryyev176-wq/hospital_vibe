@@ -23,8 +23,14 @@
           <option value="active"  {% if status_filter == 'active'  %}selected{% endif %}>Aktiwler</option>
           <option value="blocked" {% if status_filter == 'blocked' %}selected{% endif %}>Bloklananlar</option>
         </select>
+        <select name="cat" class="form-select" style="max-width:200px">
+          <option value="0">Hemme kategoriýalar</option>
+          {% for c in all_categories %}
+            <option value="{{ c.id }}" {% if cat_filter == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
         <button type="submit" class="btn btn-outline-primary">Tapmak</button>
-        {% if search or status_filter %}
+        {% if search or status_filter or cat_filter %}
           <a href="{{ url_for('admin.analysis_tools_list') }}" class="btn btn-outline-secondary">
             <i class="bi bi-x-lg"></i>
           </a>
@@ -49,6 +55,7 @@
           <th class="text-end" style="width:140px">Jemi bahasy</th>
           <th>Analiz</th>
           <th>Kategoriýa</th>
+          <th>Lukman ugrunyň kategoriýasy</th>
           <th class="text-center" style="width:130px">Ýagdaýy</th>
           <th class="text-center pe-4" style="width:110px">Amallar</th>
         </tr>
@@ -84,6 +91,13 @@
                 <span class="badge bg-info-subtle text-info">{{ tool.subcategory.name }}</span>
               {% elif tool.category %}
                 <span class="badge bg-primary-subtle text-primary">{{ tool.category.name }}</span>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if tool.direction_category %}
+                <span class="badge bg-light text-dark border">{{ tool.direction_category.name }}</span>
               {% else %}
                 <span class="text-muted">—</span>
               {% endif %}
@@ -128,9 +142,9 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="9" class="text-center text-muted py-5">
+            <td colspan="10" class="text-center text-muted py-5">
               <i class="bi bi-inbox display-5 d-block mb-2 opacity-25"></i>
-              {% if search or status_filter %}
+              {% if search or status_filter or cat_filter %}
                 Serişdeler tapylmady. <a href="{{ url_for('admin.analysis_tools_list') }}">Filtri aýyrmak</a>
               {% else %}
                 Heniz serişde ýok.

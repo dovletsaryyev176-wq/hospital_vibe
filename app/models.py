@@ -87,6 +87,8 @@ class DoctorDirectionCategory(db.Model):
 
     directions = db.relationship('DoctorDirection', back_populates='category', lazy='dynamic')
     analyses = db.relationship('Analysis', back_populates='category', lazy='dynamic')
+    blanks = db.relationship('Blank', back_populates='category', lazy='dynamic')
+    tools = db.relationship('AnalysisTool', back_populates='direction_category', lazy='dynamic')
 
     def __repr__(self) -> str:
         return f'<DoctorDirectionCategory {self.name}>'
@@ -578,6 +580,11 @@ class AnalysisTool(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
     category_id = db.Column(db.Integer, db.ForeignKey('analysis_tool_categories.id'), nullable=True)
     subcategory_id = db.Column(db.Integer, db.ForeignKey('analysis_tool_subcategories.id'), nullable=True)
+    # A second, independent grouping: the doctor-direction category the tool's
+    # income counts towards. `category_id` / `subcategory_id` above are the
+    # tools' own tree, used by the tools report.
+    direction_category_id = db.Column(db.Integer, db.ForeignKey('doctor_direction_categories.id'),
+                                      nullable=True, index=True)
 
     analyses = db.relationship(
         'Analysis', secondary=analysis_tool_analyses, lazy='subquery',
@@ -585,6 +592,7 @@ class AnalysisTool(db.Model):
     )
     category = db.relationship('AnalysisToolCategory')
     subcategory = db.relationship('AnalysisToolSubcategory')
+    direction_category = db.relationship('DoctorDirectionCategory', back_populates='tools')
 
     @property
     def analysis(self):
@@ -619,11 +627,15 @@ class Blank(db.Model):
     total_price = db.Column(db.Numeric(10, 2), nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    # The doctor-direction category the blank's income counts towards.
+    category_id = db.Column(db.Integer, db.ForeignKey('doctor_direction_categories.id'),
+                            nullable=True, index=True)
 
     analyses = db.relationship(
         'Analysis', secondary=blank_analyses, lazy='subquery',
         backref=db.backref('blanks', lazy='dynamic'),
     )
+    category = db.relationship('DoctorDirectionCategory', back_populates='blanks')
 
     @property
     def analysis(self):
