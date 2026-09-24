@@ -53,6 +53,10 @@
       <div class="card-body py-2 px-3">
         <div class="text-primary small">Jemi (nagt + terminal)</div>
         <div class="fw-bold text-primary fs-5">{{ '%.2f' | format(totals.cash + totals.terminal) }}</div>
+        <div class="text-muted" style="font-size:.75rem">
+          Ugurlar: {{ '%.2f' | format(totals.directions.cash + totals.directions.terminal) }}
+          · Analizler: {{ '%.2f' | format(totals.analyses.cash + totals.analyses.terminal) }}
+        </div>
       </div>
     </div>
   </div>
@@ -76,15 +80,33 @@
 
 <div class="card shadow-sm border-0">
   <div class="table-responsive">
+    {% macro money_cells(m) %}
+      <td class="text-end">{{ '%.2f' | format(m.cash) }}</td>
+      <td class="text-end">{{ '%.2f' | format(m.terminal) }}</td>
+      <td class="text-end {% if m.discount_cash %}text-success fw-semibold{% endif %}">{{ '%.2f' | format(m.discount_cash) }}</td>
+      <td class="text-end {% if m.discount_terminal %}text-success fw-semibold{% endif %}">{{ '%.2f' | format(m.discount_terminal) }}</td>
+    {% endmacro %}
+    {% macro sum_cells(m) %}
+      <td class="text-end fw-semibold">{{ '%.2f' | format(m.cash + m.discount_cash) }}</td>
+      <td class="text-end fw-semibold">{{ '%.2f' | format(m.terminal + m.discount_terminal) }}</td>
+      <td class="text-end fw-bold text-primary">{{ '%.2f' | format(m.cash + m.discount_cash + m.terminal + m.discount_terminal) }}</td>
+    {% endmacro %}
     <table class="table table-bordered table-hover align-middle mb-0 small">
       <thead>
+        <tr class="text-nowrap text-center">
+          <th rowspan="2" style="width:60px">№</th>
+          <th rowspan="2" class="text-start">Lukman ugurlarynyň kategoriýasy</th>
+          <th colspan="4">Lukman ugurlary</th>
+          <th colspan="4">Analizler</th>
+          <th colspan="3">Jemi</th>
+        </tr>
         <tr class="text-nowrap">
-          <th style="width:60px">№</th>
-          <th>Lukman ugurlarynyň kategoriýasy</th>
-          <th class="text-end">Nagt tölegleriň jemi</th>
-          <th class="text-end">Terminal tölegleriň jemi</th>
+          {% for _ in range(2) %}
+          <th class="text-end">Nagt</th>
+          <th class="text-end">Terminal</th>
           <th class="text-end">50% ýeňillik (nagt)</th>
           <th class="text-end">50% ýeňillik (terminal)</th>
+          {% endfor %}
           <th class="text-end">Nagt tölegleriň umumy jemi</th>
           <th class="text-end">Terminal tölegleriň umumy jemi</th>
           <th class="text-end">Umumy jemi</th>
@@ -99,33 +121,21 @@
               {{ r.name }}
               {% if r.is_uncategorized %}<span class="badge bg-secondary-subtle text-secondary ms-1">Kategoriýasyz</span>{% endif %}
             </td>
-            <td class="text-end">{{ '%.2f' | format(r.cash) }}</td>
-            <td class="text-end">{{ '%.2f' | format(r.terminal) }}</td>
-            <td class="text-end {% if r.discount_cash %}text-success fw-semibold{% endif %}">
-              {{ '%.2f' | format(r.discount_cash) }}
-            </td>
-            <td class="text-end {% if r.discount_terminal %}text-success fw-semibold{% endif %}">
-              {{ '%.2f' | format(r.discount_terminal) }}
-            </td>
-            <td class="text-end fw-semibold">{{ '%.2f' | format(r.cash + r.discount_cash) }}</td>
-            <td class="text-end fw-semibold">{{ '%.2f' | format(r.terminal + r.discount_terminal) }}</td>
-            <td class="text-end fw-bold text-primary">{{ '%.2f' | format(r.cash + r.discount_cash + r.terminal + r.discount_terminal) }}</td>
+            {{ money_cells(r.directions) }}
+            {{ money_cells(r.analyses) }}
+            {{ sum_cells(r) }}
           </tr>
           {% endfor %}
           <tr class="table-light fw-bold">
             <td></td>
             <td class="text-end">Jemi:</td>
-            <td class="text-end">{{ '%.2f' | format(totals.cash) }}</td>
-            <td class="text-end">{{ '%.2f' | format(totals.terminal) }}</td>
-            <td class="text-end text-success">{{ '%.2f' | format(totals.discount_cash) }}</td>
-            <td class="text-end text-success">{{ '%.2f' | format(totals.discount_terminal) }}</td>
-            <td class="text-end">{{ '%.2f' | format(totals.cash + totals.discount_cash) }}</td>
-            <td class="text-end">{{ '%.2f' | format(totals.terminal + totals.discount_terminal) }}</td>
-            <td class="text-end text-primary">{{ '%.2f' | format(totals.cash + totals.discount_cash + totals.terminal + totals.discount_terminal) }}</td>
+            {{ money_cells(totals.directions) }}
+            {{ money_cells(totals.analyses) }}
+            {{ sum_cells(totals) }}
           </tr>
         {% else %}
           <tr>
-            <td colspan="9" class="text-center text-muted py-5">
+            <td colspan="13" class="text-center text-muted py-5">
               <i class="bi bi-clipboard2-x display-5 d-block mb-2 opacity-25"></i>
               Maglumat ýok
             </td>

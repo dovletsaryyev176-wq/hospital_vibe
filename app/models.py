@@ -86,6 +86,7 @@ class DoctorDirectionCategory(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
 
     directions = db.relationship('DoctorDirection', back_populates='category', lazy='dynamic')
+    analyses = db.relationship('Analysis', back_populates='category', lazy='dynamic')
 
     def __repr__(self) -> str:
         return f'<DoctorDirectionCategory {self.name}>'
@@ -126,8 +127,13 @@ class Analysis(db.Model):
     is_insurance = db.Column(db.Boolean, default=False, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now, nullable=False)
+    # The same categories doctor-directions are grouped in, so a category's
+    # income covers both its receptions and its analyses.
+    category_id = db.Column(db.Integer, db.ForeignKey('doctor_direction_categories.id'),
+                            nullable=True, index=True)
 
     responsible = db.relationship('User', backref=db.backref('analyses', lazy='dynamic'))
+    category = db.relationship('DoctorDirectionCategory', back_populates='analyses')
 
     @property
     def price_display(self) -> str:

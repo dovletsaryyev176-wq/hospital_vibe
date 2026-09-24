@@ -232,12 +232,25 @@ class AnalysisForm(FlaskForm):
         validators=[DataRequired(message='Jogapkäri saýlaň')],
     )
     is_insurance = BooleanField('Ätiýaçlandyryş')
+    category_id = SelectField('Kategoriýa (islege görä)', coerce=int, validators=[Optional()])
     submit = SubmitField('Ýatda saklamak')
 
     def __init__(self, *args, editing_analysis=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._editing_analysis = editing_analysis
         self._build_responsible_choices()
+        self._build_category_choices()
+
+    def _build_category_choices(self):
+        # The doctor-direction categories — see Analysis.category_id.
+        cats = DoctorDirectionCategory.query.filter_by(is_active=True).order_by(DoctorDirectionCategory.name).all()
+        choices = [(0, '— Kategoriýa saýlaň (islege görä) —')]
+        if self._editing_analysis and self._editing_analysis.category_id:
+            current = self._editing_analysis.category
+            if current and not current.is_active:
+                choices.append((current.id, f'{current.name} [bloklanan]'))
+        choices += [(c.id, c.name) for c in cats]
+        self.category_id.choices = choices
 
     def _build_responsible_choices(self):
         active_users = (

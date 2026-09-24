@@ -184,6 +184,7 @@ def users_toggle(user_id):
 def analyses_list():
     search = request.args.get('q', '').strip()
     status_filter = request.args.get('status', '').strip()
+    cat_filter = request.args.get('cat', 0, type=int)
 
     query = Analysis.query.join(Analysis.responsible)
 
@@ -201,13 +202,22 @@ def analyses_list():
     elif status_filter == 'blocked':
         query = query.filter(Analysis.is_active == False)
 
-    analyses = query.options(contains_eager(Analysis.responsible)).order_by(Analysis.name).all()
+    if cat_filter:
+        query = query.filter(Analysis.category_id == cat_filter)
+
+    analyses = (query
+                .options(contains_eager(Analysis.responsible), joinedload(Analysis.category))
+                .order_by(Analysis.name)
+                .all())
+    all_categories = DoctorDirectionCategory.query.filter_by(is_active=True).order_by(DoctorDirectionCategory.name).all()
 
     return render_template(
         'admin/analyses/list.html',
         analyses=analyses,
         search=search,
         status_filter=status_filter,
+        cat_filter=cat_filter,
+        all_categories=all_categories,
     )
 
 
@@ -223,6 +233,7 @@ def analyses_create():
             price=form.price.data,
             responsible_id=form.responsible_id.data,
             is_insurance=form.is_insurance.data,
+            category_id=form.category_id.data or None,
         )
         db.session.add(analysis)
         db.session.commit()
@@ -243,11 +254,15 @@ def analyses_edit(analysis_id):
 
     form = AnalysisForm(obj=analysis, editing_analysis=analysis)
 
+    if request.method == 'GET':
+        form.category_id.data = analysis.category_id or 0
+
     if form.validate_on_submit():
         analysis.name = form.name.data.strip()
         analysis.price = form.price.data
         analysis.responsible_id = form.responsible_id.data
         analysis.is_insurance = form.is_insurance.data
+        analysis.category_id = form.category_id.data or None
         db.session.commit()
         flash(f'Analiz «{analysis.name}» maglumatlary täzelenen.', 'success')
         return redirect(url_for('admin.analyses_list'))
@@ -400,10 +415,20 @@ def direction_categories_list():
         .group_by(DoctorDirection.category_id)
         .all()
     )
+    analysis_counts = dict(
+        db.session.query(
+            Analysis.category_id,
+            func.count(Analysis.id),
+        )
+        .filter(Analysis.category_id.isnot(None))
+        .group_by(Analysis.category_id)
+        .all()
+    )
     return render_template(
         'admin/direction_categories/list.html',
         categories=categories,
         dir_counts=dir_counts,
+        analysis_counts=analysis_counts,
         search=search,
         status_filter=status_filter,
     )
