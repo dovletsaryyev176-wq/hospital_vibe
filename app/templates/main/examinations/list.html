@@ -23,11 +23,13 @@
           <option value="open"   {% if status_filter == 'open'   %}selected{% endif %}>Açyk</option>
           <option value="closed" {% if status_filter == 'closed' %}selected{% endif %}>Ýapyklar</option>
         </select>
+        {% if current_user.role != 'registratura' %}
         <select name="paid" class="form-select" style="max-width:150px">
           <option value="">Tölegler</option>
           <option value="unpaid" {% if paid_filter == 'unpaid' %}selected{% endif %}>Tölenmedik</option>
           <option value="paid"   {% if paid_filter == 'paid'   %}selected{% endif %}>Tölenen</option>
         </select>
+        {% endif %}
         <div class="input-group" style="max-width:340px">
           <span class="input-group-text bg-white" title="Döredilen senesi">
             <i class="bi bi-calendar3 text-muted"></i>

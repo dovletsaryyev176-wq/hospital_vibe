@@ -53,7 +53,10 @@ CASHIER_ROLES = ('cashier', 'senior_cashier')
 
 main_required = role_required()
 patients_required = role_required('registrar', 'doctor')
-examinations_view_required = role_required('registrar', 'doctor', 'cashier', 'analysis_responsible', 'senior_cashier')
+# 'registratura' only views examinations — every write route keeps its own
+# narrower role list, so the role never reaches them.
+examinations_view_required = role_required('registrar', 'doctor', 'cashier', 'analysis_responsible', 'senior_cashier',
+                                           'registratura')
 reports_required = role_required('cashier', 'senior_cashier')
 stationar_required = role_required('cashier', 'senior_cashier')
 
@@ -408,6 +411,10 @@ def examinations_list():
                  .join(Analysis, Analysis.id == ExaminationAnalysis.analysis_id)
                  .filter(Analysis.responsible_id == current_user.id)
                  .distinct())
+    elif current_user.role == 'registratura':
+        # Registratura sees paid examinations only, so the paid filter is moot.
+        query = query.filter(Examination.is_paid == True)
+        paid_filter = ''
 
     if search:
         like = f'%{search}%'
@@ -587,6 +594,10 @@ def examinations_detail(exam_id):
             flash('Siz üçin bu barlag gadagan.', 'danger')
             return redirect(url_for('main.examinations_list'))
 
+    if current_user.role == 'registratura' and not exam.is_paid:
+        flash('Siz üçin bu barlag gadagan.', 'danger')
+        return redirect(url_for('main.examinations_list'))
+
     return render_template('main/examinations/detail.html', exam=exam, my_analysis_ids=my_analysis_ids)
 
 
@@ -595,6 +606,10 @@ def examinations_detail(exam_id):
 @main_bp.route('/examinations/<int:exam_id>/report')
 @examinations_view_required
 def examinations_report(exam_id):
+    # Registratura views examinations but may not print them.
+    if current_user.role == 'registratura':
+        abort(403)
+
     exam = (
         Examination.query
         .filter_by(id=exam_id)

@@ -78,7 +78,8 @@
         </div>
       </div>
       <div class="card-footer bg-white border-top px-4 py-3 d-flex gap-2 flex-wrap">
-        {% if exam.is_paid %}
+        {% if current_user.role == 'registratura' %}
+        {% elif exam.is_paid %}
           <a href="{{ url_for('main.examinations_report', exam_id=exam.id) }}"
              target="_blank" class="btn btn-sm btn-outline-secondary">
             <i class="bi bi-printer me-1"></i>Hasabat

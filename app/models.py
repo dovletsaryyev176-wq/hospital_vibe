@@ -279,6 +279,7 @@ class User(UserMixin, db.Model):
     ROLES = {
         'administrator': 'Dolandyryjy',
         'registrar': 'Kabulhana',
+        'registratura': 'Registratura',
         'doctor': 'Lukman',
         'analysis_responsible': 'Analizler boýunça jogapkär',
         'cashier': 'Kassir',

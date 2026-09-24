@@ -139,6 +139,7 @@ class UserForm(FlaskForm):
             ('', '— Roly saýlaň —'),
             ('administrator', 'Dolandyryjy'),
             ('registrar', 'Kabulhana'),
+            ('registratura', 'Registratura'),
             ('doctor', 'Lukman'),
             ('analysis_responsible', 'Analiz boýunça jogapkär'),
             ('cashier', 'Kassir'),
