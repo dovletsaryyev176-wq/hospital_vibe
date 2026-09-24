@@ -71,14 +71,21 @@
 {{ patient_info() }}
 <br><br>
 
+{# Refunded lines were given back to the patient: they are not printed and
+   do not count towards the totals. #}
+{% set print_directions = exam.exam_directions | rejectattr('is_refunded') | list %}
+{% set print_analyses = exam.exam_analyses | rejectattr('is_refunded') | list %}
+{% set print_blanks = exam.exam_blanks | rejectattr('is_refunded') | list %}
+{% set print_tools = exam.exam_tools | rejectattr('is_refunded') | list %}
+
 {# Directions + Analyses + Blanks table #}
 {% set row = namespace(n=0) %}
 {% set p1_analyses_total = namespace(val=0) %}
 {% set p1_dir_total = namespace(val=0) %}
 {% set p1_blanks_total = namespace(val=0) %}
-{% set p1_tools_total = exam.exam_tools | sum(attribute='effective_total') %}
+{% set p1_tools_total = print_tools | sum(attribute='effective_total') %}
 
-{% if exam.exam_directions or exam.exam_analyses or exam.exam_blanks %}
+{% if print_directions or print_analyses or print_blanks %}
 <table width="100%" border="1">
 <colgroup>
   <col width="5%">
@@ -110,7 +117,7 @@
 </tr>
 </thead>
 <tbody>
-{% for ed in exam.exam_directions %}
+{% for ed in print_directions %}
 {% set row.n = row.n + 1 %}
 {% set p1_dir_total.val = p1_dir_total.val + ed.effective_total %}
 <tr>
@@ -126,7 +133,7 @@
   <td>&nbsp;</td>
 </tr>
 {% endfor %}
-{% for ea in exam.exam_analyses %}
+{% for ea in print_analyses %}
 {% set row.n = row.n + 1 %}
 {% set p1_analyses_total.val = p1_analyses_total.val + ea.effective_total %}
 <tr>
@@ -142,7 +149,7 @@
   <td>&nbsp;</td>
 </tr>
 {% endfor %}
-{% for eb in exam.exam_blanks %}
+{% for eb in print_blanks %}
 {% set row.n = row.n + 1 %}
 {% set p1_blanks_total.val = p1_blanks_total.val + eb.effective_total %}
 <tr>
@@ -188,7 +195,7 @@
 
 {# ══════════════════════════ PAGE 2 — Analysis Tools ═════════════════════════ #}
 
-{% if exam.exam_tools %}
+{% if print_tools %}
 <div class="page-break">
 
 {{ institution_header() }}
@@ -222,7 +229,7 @@
 </tr>
 </thead>
 <tbody>
-{% for et in exam.exam_tools %}
+{% for et in print_tools %}
 {% set tools_row.n = tools_row.n + 1 %}
 <tr>
   <td>{{ tools_row.n }}</td>

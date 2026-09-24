@@ -114,6 +114,15 @@
                 <span class="badge bg-success-subtle text-success">
                   <i class="bi bi-cash-coin me-1"></i>Tölenen
                 </span>
+                {% if exam.is_fully_refunded %}
+                  <div><span class="badge bg-danger-subtle text-danger mt-1" title="Ähli pozisiýalaryň tölegi yzyna gaýtarylan">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Doly gaýtarylan
+                  </span></div>
+                {% elif exam.has_refunds %}
+                  <div><span class="badge bg-danger-subtle text-danger mt-1" title="Käbir pozisiýalaryň tölegi yzyna gaýtarylan">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Bölekleýin
+                  </span></div>
+                {% endif %}
               {% else %}
                 <span class="badge bg-warning-subtle text-warning">
                   <i class="bi bi-hourglass-split me-1"></i>Tölenmedik

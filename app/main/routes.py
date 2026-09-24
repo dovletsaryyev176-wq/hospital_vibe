@@ -20,7 +20,7 @@ from app.models import (Patient, Examination, ExaminationAnalysis,
                         HospitalizationAnalysisOrder, HospitalizationToolOrder,
                         HospitalizationBlankOrder, HospitalizationConsultation,
                         HospitalizationOperation, HospitalizationPayment,
-                        InpatientBillingMixin)
+                        InpatientBillingMixin, ExaminationRefund)
 
 
 def role_required(*roles):
@@ -50,6 +50,16 @@ def role_required(*roles):
 
 
 CASHIER_ROLES = ('cashier', 'senior_cashier')
+
+
+@main_bp.app_template_filter('signed_discount')
+def signed_discount(value):
+    """A discount as the reports print it: «−40.00» taken off a payment, and
+    «+40.00» on a refund row, where the discount is handed back with the money."""
+    if not value:
+        return '0.00'
+    return f'−{value:.2f}' if value > 0 else f'+{-value:.2f}'
+
 
 main_required = role_required()
 patients_required = role_required('registrar', 'doctor')
@@ -453,6 +463,9 @@ def examinations_list():
             joinedload(Examination.created_by),
             subqueryload(Examination.exam_analyses),
             subqueryload(Examination.exam_directions),
+            # tools and blanks too: the refund badge looks at every line
+            subqueryload(Examination.exam_tools),
+            subqueryload(Examination.exam_blanks),
         )
         # By id, not created_at: it is the primary key (so indexed), it is the
         # number shown in the table, and being auto-increment it carries the
@@ -568,6 +581,7 @@ def examinations_detail(exam_id):
             subqueryload(Examination.exam_directions).joinedload(ExaminationDirection.doctor),
             subqueryload(Examination.exam_tools).joinedload(ExaminationAnalysisTool.tool).subqueryload(AnalysisTool.analyses),
             subqueryload(Examination.exam_blanks).joinedload(ExaminationBlank.blank).subqueryload(Blank.analyses),
+            subqueryload(Examination.refunds).joinedload(ExaminationRefund.refunded_by),
         )
         .first()
     )
@@ -598,7 +612,8 @@ def examinations_detail(exam_id):
         flash('Siz üçin bu barlag gadagan.', 'danger')
         return redirect(url_for('main.examinations_list'))
 
-    return render_template('main/examinations/detail.html', exam=exam, my_analysis_ids=my_analysis_ids)
+    return render_template('main/examinations/detail.html', exam=exam, my_analysis_ids=my_analysis_ids,
+                           refund_block_reason=refund_block_reason)
 
 
 # ── Examination report ────────────────────────────────────────────────────────
@@ -844,11 +859,116 @@ def examinations_pay(exam_id):
     return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
 
+# ── Refund paid lines ─────────────────────────────────────────────────────────
+
+# The line kinds a refund may cover. The key is what the form sends as
+# «<kind>:<line id>».
+REFUND_LINE_MODELS = OrderedDict((
+    ('analysis', ExaminationAnalysis),
+    ('tool', ExaminationAnalysisTool),
+    ('blank', ExaminationBlank),
+    ('direction', ExaminationDirection),
+))
+REFUND_REASON_MAX = 500
+
+
+def refund_block_reason(line):
+    """Why a paid line cannot be given back, or None when it can. A service
+    already rendered — an analysis handed in, a doctor's visit held — stays paid."""
+    if line.is_refunded:
+        return 'eýýäm yzyna gaýtarylan'
+    if getattr(line, 'is_submitted', False):
+        return 'analiz tabşyrylan'
+    if getattr(line, 'is_visited', False):
+        return 'lukman kabul etdi'
+    return None
+
+
+@main_bp.route('/examinations/<int:exam_id>/refund', methods=['POST'])
+@role_required(*CASHIER_ROLES)
+def examinations_refund(exam_id):
+    back = url_for('main.examinations_detail', exam_id=exam_id)
+
+    def _fail(message, category='danger'):
+        # Nothing has been written yet; rolling back releases the row locks.
+        db.session.rollback()
+        flash(message, category)
+        return redirect(back)
+
+    # The examination row is locked, so two cashiers refunding at once are
+    # serialised and the same line cannot be given back twice.
+    exam = Examination.query.filter_by(id=exam_id).with_for_update().first()
+    if exam is None:
+        abort(404)
+
+    if not exam.is_paid:
+        return _fail('Tölenmedik barlagyň tölegini yzyna gaýtaryp bolmaýar.', 'warning')
+
+    reason = (request.form.get('reason') or '').strip()
+    if not reason:
+        return _fail('Yzyna gaýtarmagyň sebäbini ýazyň.')
+    if len(reason) > REFUND_REASON_MAX:
+        return _fail(f'Sebäp {REFUND_REASON_MAX} belgiden uzyn bolmaly däl.')
+
+    selected = []
+    seen = set()
+    for raw in request.form.getlist('lines'):
+        kind, _, raw_id = raw.partition(':')
+        model = REFUND_LINE_MODELS.get(kind)
+        if model is None or not raw_id.isdigit():
+            abort(400)
+        if (kind, raw_id) in seen:
+            continue
+        seen.add((kind, raw_id))
+        # A locking read, after the examination's: it sees the line as the
+        # previous refund (or visit) left it, not as this transaction's snapshot.
+        line = (model.query
+                .filter_by(id=int(raw_id), examination_id=exam.id)
+                .with_for_update()
+                .first())
+        if line is None:
+            abort(404)
+        blocked = refund_block_reason(line)
+        if blocked:
+            return _fail(f'Pozisiýany yzyna gaýtaryp bolmaýar: {blocked}.')
+        selected.append(line)
+
+    if not selected:
+        return _fail('Yzyna gaýtarmak üçin pozisiýa saýlaň.', 'warning')
+
+    refund = ExaminationRefund(
+        examination=exam,
+        refunded_at=datetime.now(),
+        refunded_by_id=current_user.id,
+        reason=reason,
+    )
+    db.session.add(refund)
+    cent = Decimal('0.01')
+    total = Decimal('0')
+    for line in selected:
+        amount = line.effective_total.quantize(cent, rounding=ROUND_HALF_UP)
+        line.refund = refund
+        line.refund_amount = amount
+        line.refund_discount = (line.snapshot_total - line.effective_total).quantize(
+            cent, rounding=ROUND_HALF_UP)
+        total += amount
+    db.session.commit()
+
+    flash(f'Barlag №{exam.id}: {len(selected)} pozisiýanyň tölegi yzyna gaýtaryldy '
+          f'— {total:,.2f} manat.', 'success')
+    return redirect(back)
+
+
 # ── Mark analysis as submitted ────────────────────────────────────────────────
 
 @main_bp.route('/examinations/<int:exam_id>/analyses/<int:ea_id>/submit', methods=['POST'])
 @role_required('analysis_responsible')
 def examinations_submit_analysis(exam_id, ea_id):
+    # Locked, so a cashier refunding this very line cannot slip in between:
+    # the examination first, then the line — the order the refund locks in, as
+    # the other way round the two deadlock. A locking read also sees the latest
+    # committed line, where a plain one would see the transaction's snapshot.
+    Examination.query.filter_by(id=exam_id).with_for_update().first()
     ea = (
         ExaminationAnalysis.query
         .filter_by(id=ea_id)
@@ -856,6 +976,7 @@ def examinations_submit_analysis(exam_id, ea_id):
             joinedload(ExaminationAnalysis.analysis),
             joinedload(ExaminationAnalysis.examination),
         )
+        .with_for_update()
         .first()
     )
     if ea is None or ea.examination_id != exam_id:
@@ -867,6 +988,10 @@ def examinations_submit_analysis(exam_id, ea_id):
 
     if not ea.examination.is_paid:
         flash('Tölenmedik analize bellik goýup bolmaýar.', 'warning')
+        return redirect(url_for('main.examinations_detail', exam_id=exam_id))
+
+    if ea.is_refunded:
+        flash('Bu analiziň tölegi yzyna gaýtarylan — bellik goýup bolmaýar.', 'warning')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     if ea.is_submitted:
@@ -886,6 +1011,11 @@ def examinations_submit_analysis(exam_id, ea_id):
 @main_bp.route('/examinations/<int:exam_id>/directions/<int:ed_id>/visit', methods=['POST'])
 @role_required('doctor')
 def examinations_mark_visited(exam_id, ed_id):
+    # Locked, so a cashier refunding this very line cannot slip in between:
+    # the examination first, then the line — the order the refund locks in, as
+    # the other way round the two deadlock. A locking read also sees the latest
+    # committed line, where a plain one would see the transaction's snapshot.
+    Examination.query.filter_by(id=exam_id).with_for_update().first()
     ed = (
         ExaminationDirection.query
         .filter_by(id=ed_id)
@@ -893,6 +1023,7 @@ def examinations_mark_visited(exam_id, ed_id):
             joinedload(ExaminationDirection.examination),
             joinedload(ExaminationDirection.direction),
         )
+        .with_for_update()
         .first()
     )
     if ed is None or ed.examination_id != exam_id:
@@ -904,6 +1035,10 @@ def examinations_mark_visited(exam_id, ed_id):
 
     if not ed.examination.is_paid:
         flash('Gelenini belläp bolmaýar-tölenmedik.', 'warning')
+        return redirect(url_for('main.examinations_detail', exam_id=exam_id))
+
+    if ed.is_refunded:
+        flash('Bu ugruň tölegi yzyna gaýtarylan — bellik goýup bolmaýar.', 'warning')
         return redirect(url_for('main.examinations_detail', exam_id=exam_id))
 
     if ed.is_visited:
@@ -1132,15 +1267,14 @@ def _new_cat_entry():
     return {'total': Decimal('0'), 'full': Decimal('0'), 'subcategories': OrderedDict()}
 
 
-def _build_tools_row(exam):
-    """Build the detailed tools-report row dict (with category breakdown) for one exam."""
-    analyses_total = sum((ea.effective_total for ea in exam.exam_analyses), Decimal('0'))
-    directions_total = sum((ed.effective_total for ed in exam.exam_directions), Decimal('0'))
-    blanks_total = sum((eb.effective_total for eb in exam.exam_blanks), Decimal('0'))
-
-    analyses_full = sum((ea.snapshot_total for ea in exam.exam_analyses), Decimal('0'))
-    directions_full = sum((ed.snapshot_total for ed in exam.exam_directions), Decimal('0'))
-    blanks_full = sum((eb.snapshot_total for eb in exam.exam_blanks), Decimal('0'))
+def _build_tools_row(exam, refund=None):
+    """Build the detailed tools-report row dict (with category breakdown) for one
+    exam — or, given a refund, for the lines given back in it, negated."""
+    totals, full = _exam_section_totals(exam, refund)
+    analyses_total, directions_total, blanks_total = (
+        totals['analyses'], totals['directions'], totals['blanks'])
+    analyses_full, directions_full, blanks_full = (
+        full['analyses'], full['directions'], full['blanks'])
 
     tools_total = Decimal('0')
     tools_full = Decimal('0')
@@ -1148,9 +1282,8 @@ def _build_tools_row(exam):
     uncategorized_full = Decimal('0')
     categories = OrderedDict()
 
-    for et in exam.exam_tools:
-        amount = et.effective_total
-        full_amount = et.snapshot_total
+    for et in _row_lines(exam, refund, 'tools'):
+        amount, full_amount = _line_money(et, refund)
         tools_total += amount
         tools_full += full_amount
         tool = et.tool
@@ -1192,12 +1325,14 @@ def _build_tools_row(exam):
     }
 
 
-def _reports_grand_totals(query):
-    """Aggregate grand totals over the whole filtered query (all pages)."""
+def _reports_grand_totals(query, refund_query):
+    """Aggregate grand totals over the whole filtered query (all pages), less
+    the refunds made in the period. `refunded` is what those refunds gave back."""
     grand = {
         'analyses': Decimal('0'), 'directions': Decimal('0'),
         'blanks': Decimal('0'), 'tools': Decimal('0'), 'total': Decimal('0'),
         'full_total': Decimal('0'), 'discount_total': Decimal('0'),
+        'refunded': Decimal('0'),
     }
     # Only the money is summed here, so the patient is deliberately not loaded —
     # the insurance flag a discount depends on sits on the examination itself.
@@ -1218,8 +1353,19 @@ def _reports_grand_totals(query):
         )
         .all()
     )
-    for exam in exams:
-        totals, full = _exam_section_totals(exam)
+    refunds = (
+        refund_query
+        .options(
+            subqueryload(ExaminationRefund.analyses),
+            subqueryload(ExaminationRefund.directions),
+            subqueryload(ExaminationRefund.blanks),
+            subqueryload(ExaminationRefund.tools),
+        )
+        .all()
+    )
+    # A refund row reads only its own lines, so it needs no examination.
+    for exam, refund in [(exam, None) for exam in exams] + [(None, r) for r in refunds]:
+        totals, full = _exam_section_totals(exam, refund)
         grand['analyses'] += totals['analyses']
         grand['directions'] += totals['directions']
         grand['blanks'] += totals['blanks']
@@ -1229,6 +1375,8 @@ def _reports_grand_totals(query):
         grand['total'] += exam_total
         grand['full_total'] += full_total
         grand['discount_total'] += full_total - exam_total
+        if refund is not None:
+            grand['refunded'] -= exam_total
     return grand
 
 
@@ -1286,6 +1434,214 @@ def _report_cashiers():
             .all())
 
 
+# ── Refunds in the reports ────────────────────────────────────────────────────
+#
+# A refund is booked on the day it was made, against the cashier who gave the
+# money back, in the payment method the line had been paid by. The day of
+# payment is left exactly as it was — its report shows what was taken then —
+# so a period's figures are «paid in the period» minus «refunded in the period».
+
+
+def _apply_refund_date_filter(query, date_from, date_to):
+    """The refund-side twin of `_apply_exam_date_filter`: refunded_at within the
+    period, both ends inclusive. Dates the payment side found unparseable were
+    already cleared by it."""
+    if date_from:
+        try:
+            query = query.filter(
+                ExaminationRefund.refunded_at >= datetime.strptime(date_from, '%Y-%m-%d'))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            query = query.filter(
+                ExaminationRefund.refunded_at
+                < datetime.strptime(date_to, '%Y-%m-%d') + timedelta(days=1))
+        except ValueError:
+            pass
+    return query
+
+
+def _apply_refund_cashier_scope(query):
+    """The refund-side twin of `_apply_cashier_scope`: a plain cashier sees the
+    refunds they made, a senior cashier everyone's or one picked cashier's."""
+    if current_user.role == 'senior_cashier':
+        cashier_id = request.args.get('cashier_id', type=int)
+        if cashier_id:
+            query = query.filter(ExaminationRefund.refunded_by_id == cashier_id)
+        return query
+    return query.filter(ExaminationRefund.refunded_by_id == current_user.id)
+
+
+def _refunds_query(date_from, date_to):
+    """Refunds made in the period by the cashiers the current user may see."""
+    query = _apply_refund_cashier_scope(ExaminationRefund.query)
+    return _apply_refund_date_filter(query, date_from, date_to)
+
+
+def _refunded_lines(model, date_from, date_to, *filters, options=()):
+    """Lines of one kind given back in the period, with their refund loaded."""
+    query = (
+        model.query
+        .join(ExaminationRefund, model.refund_id == ExaminationRefund.id)
+        .filter(*filters)
+        .options(
+            joinedload(model.refund).joinedload(ExaminationRefund.refunded_by),
+            joinedload(model.examination).joinedload(Examination.patient),
+            *options,
+        )
+    )
+    query = _apply_refund_cashier_scope(query)
+    return _apply_refund_date_filter(query, date_from, date_to).all()
+
+
+def _payment_entries(paid_lines, refunded_lines):
+    """What each line put into — or took out of — the till in the period.
+
+    A paid line counts on its payment day for what was paid for it; a refunded
+    line counts on its refund day for minus what was given back. Returns dicts
+    with the line, its signed amount and discount, the moment, the method and
+    whether it is a refund."""
+    entries = []
+    for line in paid_lines:
+        amount = line.effective_total
+        entries.append({
+            'line': line,
+            'amount': amount,
+            'discount': line.snapshot_total - amount,
+            'at': line.examination.paid_at,
+            'is_terminal': line.payment_method == ExaminationAnalysis.PAYMENT_TERMINAL,
+            'is_refund': False,
+        })
+    for line in refunded_lines:
+        entries.append({
+            'line': line,
+            'amount': -(line.refund_amount or Decimal('0')),
+            'discount': -(line.refund_discount or Decimal('0')),
+            'at': line.refund.refunded_at,
+            'is_terminal': line.payment_method == ExaminationAnalysis.PAYMENT_TERMINAL,
+            'is_refund': True,
+        })
+    return entries
+
+
+# The sections of an examination, by their name on a refund (`analyses`); on
+# the examination itself the same list is `exam_analyses`.
+_EXAM_SECTIONS = ('analyses', 'directions', 'blanks', 'tools')
+
+
+def _row_lines(exam, refund, section):
+    """The lines of one section a report row covers: every line of the
+    examination on a payment row, only the lines given back on a refund row."""
+    if refund is None:
+        return getattr(exam, 'exam_' + section)
+    return getattr(refund, section)
+
+
+def _line_money(line, refund):
+    """(amount, full price) a line adds to a report row — what was paid for it,
+    or on a refund row minus what was given back."""
+    if refund is None:
+        return line.effective_total, line.snapshot_total
+    amount = line.refund_amount or Decimal('0')
+    return -amount, -(amount + (line.refund_discount or Decimal('0')))
+
+
+class _ListPagination:
+    """The slice of Flask-SQLAlchemy's Pagination the report templates use, over
+    a list already in memory — the payment and refund rows of a report are
+    merged in Python, so the database cannot page them."""
+
+    def __init__(self, items, page, per_page, total):
+        self.items = items
+        self.page = page
+        self.per_page = per_page
+        self.total = total
+
+    @property
+    def pages(self):
+        return -(-self.total // self.per_page)
+
+    @property
+    def has_prev(self):
+        return self.page > 1
+
+    @property
+    def has_next(self):
+        return self.page < self.pages
+
+    @property
+    def prev_num(self):
+        return self.page - 1 if self.has_prev else None
+
+    @property
+    def next_num(self):
+        return self.page + 1 if self.has_next else None
+
+    def iter_pages(self, left_edge=2, left_current=2, right_current=4, right_edge=2):
+        last = 0
+        for num in range(1, self.pages + 1):
+            if (num <= left_edge
+                    or self.page - left_current <= num <= self.page + right_current
+                    or num > self.pages - right_edge):
+                if last + 1 != num:
+                    yield None
+                yield num
+                last = num
+
+
+def _exam_report_rows(exam_query, refund_query, loaded, build, page=None, per_page=15):
+    """Rows of a one-examination-per-row report: a row per examination paid in
+    the period and a row per refund made in it, newest first.
+
+    `loaded(query)` adds the eager loads `build(exam, refund)` needs. With `page`
+    returns (rows, pagination) for that page, otherwise (rows, None) for all.
+    Only ids and dates are read for the whole period; the full objects are
+    loaded for the rows actually returned."""
+    entries = [(at, 0, exam_id, None)
+               for exam_id, at in exam_query.with_entities(Examination.id, Examination.paid_at)]
+    entries += [(at, 1, refund_id, exam_id)
+                for refund_id, exam_id, at in refund_query.with_entities(
+                    ExaminationRefund.id, ExaminationRefund.examination_id,
+                    ExaminationRefund.refunded_at)]
+    # Newest first; on the same moment a refund sits above its payment.
+    entries.sort(key=lambda e: (e[0] or datetime.min, e[1], e[2]), reverse=True)
+
+    pagination = None
+    if page is not None:
+        total = len(entries)
+        pages = max(1, -(-total // per_page))
+        page = min(max(page, 1), pages)
+        entries = entries[(page - 1) * per_page:page * per_page]
+
+    exam_ids = {e[2] if e[1] == 0 else e[3] for e in entries}
+    refund_ids = [e[2] for e in entries if e[1] == 1]
+    exams = ({x.id: x for x in loaded(Examination.query.filter(Examination.id.in_(exam_ids)))}
+             if exam_ids else {})
+    refunds = ({r.id: r for r in ExaminationRefund.query
+                .filter(ExaminationRefund.id.in_(refund_ids))
+                .options(joinedload(ExaminationRefund.refunded_by),
+                         subqueryload(ExaminationRefund.analyses),
+                         subqueryload(ExaminationRefund.directions),
+                         subqueryload(ExaminationRefund.blanks),
+                         subqueryload(ExaminationRefund.tools))}
+               if refund_ids else {})
+
+    rows = []
+    for _, kind, obj_id, refund_exam_id in entries:
+        refund = refunds[obj_id] if kind == 1 else None
+        exam = exams[refund_exam_id if kind == 1 else obj_id]
+        row = build(exam, refund)
+        row['refund'] = refund
+        row['at'] = refund.refunded_at if refund else exam.paid_at
+        row['cashier'] = refund.refunded_by if refund else exam.paid_by
+        rows.append(row)
+
+    if page is not None:
+        pagination = _ListPagination(rows, page, per_page, total)
+    return rows, pagination
+
+
 def _tools_report_query():
     """Build the filtered Examination query for the tools report and return
     (query, date_from, date_to, search, cashier_id). Dates default to today
@@ -1310,6 +1666,25 @@ def _tools_report_query():
     return query, date_from, date_to, search, cashier_id
 
 
+def _patient_search_filter(search):
+    like = f'%{search}%'
+    return db.or_(
+        Patient.full_name.ilike(like),
+        Patient.passport_number.ilike(like),
+        Patient.insurance_number.ilike(like),
+    )
+
+
+def _tools_refund_query(date_from, date_to, search):
+    """Refunds the tools report books in the period — same patient search."""
+    query = _refunds_query(date_from, date_to)
+    if search:
+        query = (query.join(ExaminationRefund.examination)
+                 .join(Examination.patient)
+                 .filter(_patient_search_filter(search)))
+    return query
+
+
 def _tools_report_loaded(query):
     return query.options(
         joinedload(Examination.patient),
@@ -1332,18 +1707,18 @@ def _tools_report_loaded(query):
 @reports_required
 def reports_tools():
     query, date_from, date_to, search, cashier_id = _tools_report_query()
+    refund_query = _tools_refund_query(date_from, date_to, search)
     show_cashier = current_user.role == 'senior_cashier'
 
     if request.args.get('export') == 'xlsx':
-        exams = _tools_report_loaded(query).all()
-        rows = [_build_tools_row(exam) for exam in exams]
-        grand = _reports_grand_totals(query)
+        rows, _ = _exam_report_rows(query, refund_query, _tools_report_loaded, _build_tools_row)
+        grand = _reports_grand_totals(query, refund_query)
         return _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier)
 
     page = request.args.get('page', 1, type=int)
-    pagination = _tools_report_loaded(query).paginate(page=page, per_page=15, error_out=False)
-    rows = [_build_tools_row(exam) for exam in pagination.items]
-    grand = _reports_grand_totals(query)
+    rows, pagination = _exam_report_rows(query, refund_query, _tools_report_loaded,
+                                         _build_tools_row, page=page)
+    grand = _reports_grand_totals(query, refund_query)
 
     return render_template(
         'main/reports/tools_report.html',
@@ -1357,6 +1732,26 @@ def reports_tools():
         cashiers=_report_cashiers() if show_cashier else [],
         cashier_id=cashier_id,
     )
+
+
+def _xlsx_text(value):
+    """Free text typed by a user, made safe for a spreadsheet cell: Excel would
+    run «=…» (and its «+ - @» cousins) as a formula."""
+    if value and value[0] in '=+-@':
+        return "'" + value
+    return value
+
+
+def _xlsx_method(entry):
+    """The payment-method cell of a line-level export — a refund row says so."""
+    method = 'Terminal' if entry['is_terminal'] else 'Nagt'
+    return f'{method} (gaýtarma)' if entry.get('is_refund') else method
+
+
+def _xlsx_row_moment(r):
+    """The date cell of an examination-per-row export — a refund row says so."""
+    moment = r['at'].strftime('%d.%m.%Y %H:%M') if r['at'] else ''
+    return f'{moment} (yzyna gaýtarma)' if r['refund'] else moment
 
 
 def _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
@@ -1428,7 +1823,7 @@ def _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
         patient = exam.patient
         ws.append([
             exam.id,
-            exam.paid_at.strftime('%d.%m.%Y %H:%M') if exam.paid_at else '',
+            _xlsx_row_moment(r),
             exam.created_by.full_name if exam.created_by else '',
             patient.full_name if patient else '',
             patient.birth_year if patient else '',
@@ -1454,7 +1849,7 @@ def _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
 
         if show_cashier:
             cc = ws.cell(row=row_idx, column=len(headers))
-            cc.value = exam.paid_by.full_name if exam.paid_by else ''
+            cc.value = r['cashier'].full_name if r['cashier'] else ''
 
         # Category / subcategory breakdown of tools for this examination.
         if r['categories'] or r['uncategorized_total']:
@@ -1518,20 +1913,16 @@ def _tools_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
     )
 
 
-def _exam_section_totals(exam):
-    """Return (totals, full) dicts of section sums for an examination."""
-    totals = {
-        'analyses': sum((ea.effective_total for ea in exam.exam_analyses), Decimal('0')),
-        'directions': sum((ed.effective_total for ed in exam.exam_directions), Decimal('0')),
-        'blanks': sum((eb.effective_total for eb in exam.exam_blanks), Decimal('0')),
-        'tools': sum((et.effective_total for et in exam.exam_tools), Decimal('0')),
-    }
-    full = {
-        'analyses': sum((ea.snapshot_total for ea in exam.exam_analyses), Decimal('0')),
-        'directions': sum((ed.snapshot_total for ed in exam.exam_directions), Decimal('0')),
-        'blanks': sum((eb.snapshot_total for eb in exam.exam_blanks), Decimal('0')),
-        'tools': sum((et.snapshot_total for et in exam.exam_tools), Decimal('0')),
-    }
+def _exam_section_totals(exam, refund=None):
+    """Return (totals, full) dicts of section sums for an examination — or, given
+    a refund, of the lines given back in it, negated."""
+    totals, full = {}, {}
+    for section in _EXAM_SECTIONS:
+        totals[section] = full[section] = Decimal('0')
+        for line in _row_lines(exam, refund, section):
+            amount, full_amount = _line_money(line, refund)
+            totals[section] += amount
+            full[section] += full_amount
     return totals, full
 
 
@@ -1558,6 +1949,16 @@ def _directions_report_query():
     return query, date_from, date_to, direction_id, cashier_id
 
 
+def _directions_refund_query(date_from, date_to, direction_id):
+    """Refunds the directions report books in the period — with a direction
+    picked, those of examinations holding that direction, as on the payment side."""
+    query = _refunds_query(date_from, date_to)
+    if direction_id:
+        query = query.filter(ExaminationRefund.examination.has(
+            Examination.exam_directions.any(ExaminationDirection.direction_id == direction_id)))
+    return query
+
+
 def _directions_report_loaded(query):
     return query.options(
         joinedload(Examination.patient),
@@ -1573,19 +1974,22 @@ def _directions_report_loaded(query):
     ).order_by(Examination.paid_at.desc())
 
 
-def _build_directions_row(exam):
-    """Build the directions-report row dict (with per-direction lines) for one exam."""
-    totals, full = _exam_section_totals(exam)
+def _build_directions_row(exam, refund=None):
+    """Build the directions-report row dict (with per-direction lines) for one
+    exam — or, given a refund, for the lines given back in it, negated."""
+    totals, full = _exam_section_totals(exam, refund)
 
     lines = []
-    for ed in exam.exam_directions:
+    for ed in _row_lines(exam, refund, 'directions'):
+        amount, full_amount = _line_money(ed, refund)
         lines.append({
             'name': ed.direction.name if ed.direction else '—',
             'doctor': ed.doctor.full_name if ed.doctor else '—',
             'visited': ed.is_visited,
-            'full': ed.snapshot_total,
-            'discount': ed.snapshot_total - ed.effective_total,
-            'total': ed.effective_total,
+            'refunded': ed.is_refunded,
+            'full': full_amount,
+            'discount': full_amount - amount,
+            'total': amount,
         })
 
     exam_total = sum(totals.values(), Decimal('0'))
@@ -1609,18 +2013,19 @@ def _build_directions_row(exam):
 @reports_required
 def reports_directions():
     query, date_from, date_to, direction_id, cashier_id = _directions_report_query()
+    refund_query = _directions_refund_query(date_from, date_to, direction_id)
     show_cashier = current_user.role == 'senior_cashier'
 
     if request.args.get('export') == 'xlsx':
-        exams = _directions_report_loaded(query).all()
-        rows = [_build_directions_row(exam) for exam in exams]
-        grand = _reports_grand_totals(query)
+        rows, _ = _exam_report_rows(query, refund_query, _directions_report_loaded,
+                                    _build_directions_row)
+        grand = _reports_grand_totals(query, refund_query)
         return _directions_report_xlsx(rows, grand, date_from, date_to, show_cashier)
 
     page = request.args.get('page', 1, type=int)
-    pagination = _directions_report_loaded(query).paginate(page=page, per_page=15, error_out=False)
-    rows = [_build_directions_row(exam) for exam in pagination.items]
-    grand = _reports_grand_totals(query)
+    rows, pagination = _exam_report_rows(query, refund_query, _directions_report_loaded,
+                                         _build_directions_row, page=page)
+    grand = _reports_grand_totals(query, refund_query)
     directions = DoctorDirection.query.order_by(DoctorDirection.name).all()
 
     return render_template(
@@ -1695,7 +2100,7 @@ def _directions_report_xlsx(rows, grand, date_from, date_to, show_cashier=False)
         patient = exam.patient
         ws.append([
             exam.id,
-            exam.paid_at.strftime('%d.%m.%Y %H:%M') if exam.paid_at else '',
+            _xlsx_row_moment(r),
             exam.created_by.full_name if exam.created_by else '',
             patient.full_name if patient else '',
             patient.birth_year if patient else '',
@@ -1721,7 +2126,7 @@ def _directions_report_xlsx(rows, grand, date_from, date_to, show_cashier=False)
 
         if show_cashier:
             cc = ws.cell(row=row_idx, column=len(headers))
-            cc.value = exam.paid_by.full_name if exam.paid_by else ''
+            cc.value = r['cashier'].full_name if r['cashier'] else ''
 
         # Per-direction breakdown lines for this examination.
         for it in r['lines']:
@@ -1814,6 +2219,10 @@ def _direction_categories_report():
                 .joinedload(DoctorDirection.category),
         ).all()
     )
+    refunded = _refunded_lines(
+        ExaminationDirection, date_from, date_to,
+        options=(joinedload(ExaminationDirection.direction)
+                 .joinedload(DoctorDirection.category),))
 
     def _new_bucket(name, is_uncategorized):
         return {
@@ -1833,7 +2242,8 @@ def _direction_categories_report():
             .all()
     }
 
-    for ed in lines:
+    for entry in _payment_entries(lines, refunded):
+        ed = entry['line']
         category = ed.direction.category if ed.direction else None
         name = category.name if category else _DIRECTION_CATEGORIES_UNCATEGORIZED
         bucket = buckets.get(name)
@@ -1841,9 +2251,9 @@ def _direction_categories_report():
             # An inactive category with income, or the uncategorized bucket.
             bucket = buckets[name] = _new_bucket(name, category is None)
 
-        amount = ed.effective_total
-        discount = ed.snapshot_total - ed.effective_total
-        if ed.payment_method == ExaminationDirection.PAYMENT_TERMINAL:
+        amount = entry['amount']
+        discount = entry['discount']
+        if entry['is_terminal']:
             bucket['terminal'] += amount
             bucket['discount_terminal'] += discount
         else:  # cash, or a legacy line with no method — defaults to cash
@@ -2030,13 +2440,17 @@ def _doctor_payments_report():
                 joinedload(ExaminationDirection.doctor),
             )
         )
+        line_filters = [ExaminationDirection.direction_id == direction_id]
         if not all_doctors:
             query = query.filter(ExaminationDirection.doctor_id == doctor_id)
+            line_filters.append(ExaminationDirection.doctor_id == doctor_id)
     # A plain cashier only ever sees their own takings here; a senior cashier
     # sees everyone's. Same rule as every other report — see _apply_cashier_scope.
         query, _ = _apply_cashier_scope(query)
         query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
         lines = query.all()
+        refunded = _refunded_lines(ExaminationDirection, date_from, date_to, *line_filters,
+                                   options=(joinedload(ExaminationDirection.doctor),))
 
         def _new_doctor_bucket(name):
             return {'name': name, 'count': 0,
@@ -2052,16 +2466,18 @@ def _doctor_payments_report():
             seed = [u] if u else []
         buckets = OrderedDict((u.id, _new_doctor_bucket(u.full_name)) for u in seed)
 
-        for ed in lines:
+        for entry in _payment_entries(lines, refunded):
+            ed = entry['line']
             bucket = buckets.get(ed.doctor_id)
             if bucket is None:
                 # A doctor with income who is no longer assigned / active.
                 bucket = buckets[ed.doctor_id] = _new_doctor_bucket(
                     ed.doctor.full_name if ed.doctor else '—')
-            amount = ed.effective_total
-            discount = ed.snapshot_total - ed.effective_total
-            bucket['count'] += 1
-            if ed.payment_method == ExaminationDirection.PAYMENT_TERMINAL:
+            amount = entry['amount']
+            discount = entry['discount']
+            # A refund takes the reception back off the count as well.
+            bucket['count'] += -1 if entry['is_refund'] else 1
+            if entry['is_terminal']:
                 bucket['terminal'] += amount
                 bucket['discount_terminal'] += discount
             else:  # cash, or a legacy line with no method — defaults to cash
@@ -2071,9 +2487,10 @@ def _doctor_payments_report():
             exam = ed.examination
             bucket['details'].append({
                 'exam_id': ed.examination_id,
-                'paid_at': exam.paid_at,
+                'paid_at': entry['at'],
                 'patient': exam.patient.full_name if exam.patient else '—',
-                'is_terminal': ed.payment_method == ExaminationDirection.PAYMENT_TERMINAL,
+                'is_terminal': entry['is_terminal'],
+                'is_refund': entry['is_refund'],
                 'amount': amount,
                 'discount': discount,
             })
@@ -2206,7 +2623,7 @@ def _doctor_payments_xlsx(rows, totals, direction, date_from, date_to):
                     d['exam_id'],
                     d['paid_at'].strftime('%d.%m.%Y %H:%M') if d['paid_at'] else '',
                     d['patient'],
-                    'Terminal' if d['is_terminal'] else 'Nagt',
+                    _xlsx_method(d),
                     float(d['discount']),
                     float(d['amount']),
                 ])
@@ -2298,6 +2715,8 @@ def _tool_payments_report():
         query, _ = _apply_cashier_scope(query)
         query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
         lines = query.all()
+        refunded = _refunded_lines(ExaminationAnalysisTool, date_from, date_to,
+                                   ExaminationAnalysisTool.tool_id.in_(tool_ids))
 
         selected = (AnalysisTool.query
                     .filter(AnalysisTool.id.in_(tool_ids))
@@ -2310,14 +2729,17 @@ def _tool_payments_report():
                     'details': []})
             for t in selected
         )
-        for et in lines:
+        for entry in _payment_entries(lines, refunded):
+            et = entry['line']
             bucket = buckets.get(et.tool_id)
             if bucket is None:
                 continue
-            amount = et.effective_total
-            discount = et.snapshot_total - et.effective_total
-            bucket['count'] += et.quantity or 1
-            if et.payment_method == ExaminationAnalysisTool.PAYMENT_TERMINAL:
+            amount = entry['amount']
+            discount = entry['discount']
+            quantity = et.quantity or 1
+            # A refund takes its quantity back off the count as well.
+            bucket['count'] += -quantity if entry['is_refund'] else quantity
+            if entry['is_terminal']:
                 bucket['terminal'] += amount
                 bucket['discount_terminal'] += discount
             else:  # cash, or a legacy line with no method — defaults to cash
@@ -2327,10 +2749,11 @@ def _tool_payments_report():
             exam = et.examination
             bucket['details'].append({
                 'exam_id': et.examination_id,
-                'paid_at': exam.paid_at,
+                'paid_at': entry['at'],
                 'patient': exam.patient.full_name if exam.patient else '—',
-                'quantity': et.quantity or 1,
-                'is_terminal': et.payment_method == ExaminationAnalysisTool.PAYMENT_TERMINAL,
+                'quantity': quantity,
+                'is_terminal': entry['is_terminal'],
+                'is_refund': entry['is_refund'],
                 'amount': amount,
                 'discount': discount,
             })
@@ -2448,7 +2871,7 @@ def _tool_payments_xlsx(rows, totals, date_from, date_to):
                     d['paid_at'].strftime('%d.%m.%Y %H:%M') if d['paid_at'] else '',
                     d['patient'],
                     d['quantity'],
-                    'Terminal' if d['is_terminal'] else 'Nagt',
+                    _xlsx_method(d),
                     float(d['discount']),
                     float(d['amount']),
                 ])
@@ -2542,6 +2965,8 @@ def _analysis_payments_report():
         query, _ = _apply_cashier_scope(query)
         query, date_from, date_to = _apply_exam_date_filter(query, date_from, date_to)
         lines = query.all()
+        refunded = _refunded_lines(ExaminationAnalysis, date_from, date_to,
+                                   ExaminationAnalysis.analysis_id.in_(analysis_ids))
 
         selected = (Analysis.query
                     .filter(Analysis.id.in_(analysis_ids))
@@ -2554,14 +2979,17 @@ def _analysis_payments_report():
                     'details': []})
             for a in selected
         )
-        for ea in lines:
+        for entry in _payment_entries(lines, refunded):
+            ea = entry['line']
             bucket = buckets.get(ea.analysis_id)
             if bucket is None:
                 continue
-            amount = ea.effective_total
-            discount = ea.snapshot_total - ea.effective_total
-            bucket['count'] += ea.quantity or 1
-            if ea.payment_method == ExaminationAnalysis.PAYMENT_TERMINAL:
+            amount = entry['amount']
+            discount = entry['discount']
+            quantity = ea.quantity or 1
+            # A refund takes its quantity back off the count as well.
+            bucket['count'] += -quantity if entry['is_refund'] else quantity
+            if entry['is_terminal']:
                 bucket['terminal'] += amount
                 bucket['discount_terminal'] += discount
             else:  # cash, or a legacy line with no method — defaults to cash
@@ -2571,10 +2999,11 @@ def _analysis_payments_report():
             exam = ea.examination
             bucket['details'].append({
                 'exam_id': ea.examination_id,
-                'paid_at': exam.paid_at,
+                'paid_at': entry['at'],
                 'patient': exam.patient.full_name if exam.patient else '—',
-                'quantity': ea.quantity or 1,
-                'is_terminal': ea.payment_method == ExaminationAnalysis.PAYMENT_TERMINAL,
+                'quantity': quantity,
+                'is_terminal': entry['is_terminal'],
+                'is_refund': entry['is_refund'],
                 'amount': amount,
                 'discount': discount,
             })
@@ -2692,7 +3121,7 @@ def _analysis_payments_xlsx(rows, totals, date_from, date_to):
                     d['paid_at'].strftime('%d.%m.%Y %H:%M') if d['paid_at'] else '',
                     d['patient'],
                     d['quantity'],
-                    'Terminal' if d['is_terminal'] else 'Nagt',
+                    _xlsx_method(d),
                     float(d['discount']),
                     float(d['amount']),
                 ])
@@ -2769,6 +3198,16 @@ def _analyses_report_query():
     return query, date_from, date_to, analysis_id, cashier_id
 
 
+def _analyses_refund_query(date_from, date_to, analysis_id):
+    """Refunds the analyses report books in the period — with an analysis
+    picked, those of examinations holding that analysis, as on the payment side."""
+    query = _refunds_query(date_from, date_to)
+    if analysis_id:
+        query = query.filter(ExaminationRefund.examination.has(
+            Examination.exam_analyses.any(ExaminationAnalysis.analysis_id == analysis_id)))
+    return query
+
+
 def _analyses_report_loaded(query):
     return query.options(
         joinedload(Examination.patient),
@@ -2783,21 +3222,24 @@ def _analyses_report_loaded(query):
     ).order_by(Examination.paid_at.desc())
 
 
-def _build_analyses_row(exam):
-    """Build the analyses-report row dict (with per-analysis lines) for one exam."""
-    totals, full = _exam_section_totals(exam)
+def _build_analyses_row(exam, refund=None):
+    """Build the analyses-report row dict (with per-analysis lines) for one exam
+    — or, given a refund, for the lines given back in it, negated."""
+    totals, full = _exam_section_totals(exam, refund)
 
     lines = []
-    for ea in exam.exam_analyses:
+    for ea in _row_lines(exam, refund, 'analyses'):
         responsible = ea.analysis.responsible if ea.analysis else None
+        amount, full_amount = _line_money(ea, refund)
         lines.append({
             'name': ea.analysis.name if ea.analysis else '—',
             'responsible': responsible.full_name if responsible else '—',
             'qty': ea.quantity,
             'submitted': ea.is_submitted,
-            'full': ea.snapshot_total,
-            'discount': ea.snapshot_total - ea.effective_total,
-            'total': ea.effective_total,
+            'refunded': ea.is_refunded,
+            'full': full_amount,
+            'discount': full_amount - amount,
+            'total': amount,
         })
 
     exam_total = sum(totals.values(), Decimal('0'))
@@ -2821,18 +3263,19 @@ def _build_analyses_row(exam):
 @reports_required
 def reports_analyses():
     query, date_from, date_to, analysis_id, cashier_id = _analyses_report_query()
+    refund_query = _analyses_refund_query(date_from, date_to, analysis_id)
     show_cashier = current_user.role == 'senior_cashier'
 
     if request.args.get('export') == 'xlsx':
-        exams = _analyses_report_loaded(query).all()
-        rows = [_build_analyses_row(exam) for exam in exams]
-        grand = _reports_grand_totals(query)
+        rows, _ = _exam_report_rows(query, refund_query, _analyses_report_loaded,
+                                    _build_analyses_row)
+        grand = _reports_grand_totals(query, refund_query)
         return _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier)
 
     page = request.args.get('page', 1, type=int)
-    pagination = _analyses_report_loaded(query).paginate(page=page, per_page=15, error_out=False)
-    rows = [_build_analyses_row(exam) for exam in pagination.items]
-    grand = _reports_grand_totals(query)
+    rows, pagination = _exam_report_rows(query, refund_query, _analyses_report_loaded,
+                                         _build_analyses_row, page=page)
+    grand = _reports_grand_totals(query, refund_query)
     analyses = Analysis.query.order_by(Analysis.name).all()
 
     return render_template(
@@ -2908,7 +3351,7 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
         patient = exam.patient
         ws.append([
             exam.id,
-            exam.paid_at.strftime('%d.%m.%Y %H:%M') if exam.paid_at else '',
+            _xlsx_row_moment(r),
             exam.created_by.full_name if exam.created_by else '',
             patient.full_name if patient else '',
             patient.birth_year if patient else '',
@@ -2934,7 +3377,7 @@ def _analyses_report_xlsx(rows, grand, date_from, date_to, show_cashier=False):
 
         if show_cashier:
             cc = ws.cell(row=row_idx, column=len(headers))
-            cc.value = exam.paid_by.full_name if exam.paid_by else ''
+            cc.value = r['cashier'].full_name if r['cashier'] else ''
 
         # Per-analysis breakdown lines for this examination.
         for it in r['lines']:
@@ -3005,6 +3448,46 @@ ALL_PAYMENT_KINDS = OrderedDict((
     ('blank', 'Blank'),
     ('direction', 'Lukman ugry'),
 ))
+
+
+def _refund_rows(date_from, date_to, search):
+    """One row per line given back in the period, in the all-payments row
+    shape, amounts negative. The patient search matches as on the payment side."""
+    rows = []
+    for kind, model, name_of, note_of, extra in (
+        ('analysis', ExaminationAnalysis, lambda l: l.analysis.name if l.analysis else '—',
+         lambda l: None, (joinedload(ExaminationAnalysis.analysis),)),
+        ('tool', ExaminationAnalysisTool, lambda l: l.tool.name if l.tool else '—',
+         lambda l: None, (joinedload(ExaminationAnalysisTool.tool),)),
+        ('blank', ExaminationBlank, lambda l: l.blank.name if l.blank else '—',
+         lambda l: None, (joinedload(ExaminationBlank.blank),)),
+        ('direction', ExaminationDirection, lambda l: l.direction.name if l.direction else '—',
+         lambda l: l.doctor.full_name if l.doctor else None,
+         (joinedload(ExaminationDirection.direction), joinedload(ExaminationDirection.doctor))),
+    ):
+        filters = ([model.examination.has(Examination.patient.has(_patient_search_filter(search)))]
+                   if search else [])
+        for line in _refunded_lines(model, date_from, date_to, *filters, options=extra):
+            refund = line.refund
+            exam = line.examination
+            rows.append({
+                'paid_at': refund.refunded_at,
+                'exam_id': exam.id,
+                'patient': exam.patient.full_name if exam.patient else '—',
+                'cashier': refund.refunded_by.full_name if refund.refunded_by else '—',
+                'kind': kind,
+                'kind_name': ALL_PAYMENT_KINDS[kind],
+                'name': name_of(line),
+                'note': note_of(line),
+                'quantity': getattr(line, 'quantity', 1) or 1,
+                'is_terminal': line.payment_method == ExaminationAnalysis.PAYMENT_TERMINAL,
+                'amount': -(line.refund_amount or Decimal('0')),
+                'discount': -(line.refund_discount or Decimal('0')),
+                'is_refund': True,
+                'reason': refund.reason,
+                'refund_id': refund.id,
+            })
+    return rows
 
 
 def _all_payments_report():
@@ -3085,11 +3568,22 @@ def _all_payments_report():
                 'is_terminal': line.payment_method == ExaminationAnalysis.PAYMENT_TERMINAL,
                 'amount': amount,
                 'discount': line.snapshot_total - amount,
+                'is_refund': False,
+                'reason': None,
             })
+
+    # Money given back in the period: one negative row per refunded line, on
+    # the moment of the refund, against the cashier who made it.
+    refund_rows = _refund_rows(date_from, date_to, search)
+    refund_count = len(refund_rows)
+    rows.extend(refund_rows)
+    rows.sort(key=lambda r: (r['paid_at'] or datetime.min, r['exam_id']))
 
     totals = {
         'count': len(rows),
         'exams': len(exams),
+        'refund_count': refund_count,
+        'refunded': -sum((r['amount'] for r in rows if r['is_refund']), Decimal('0')),
         'cash': sum((r['amount'] for r in rows if not r['is_terminal']), Decimal('0')),
         'terminal': sum((r['amount'] for r in rows if r['is_terminal']), Decimal('0')),
         'discount_cash': sum((r['discount'] for r in rows if not r['is_terminal']), Decimal('0')),
@@ -3105,7 +3599,7 @@ def _all_payments_report():
     )
     for r in rows:
         entry = by_kind[r['kind']]
-        entry['count'] += 1
+        entry['count'] += -1 if r['is_refund'] else 1
         if r['is_terminal']:
             entry['terminal'] += r['amount']
         else:
@@ -3176,7 +3670,7 @@ def _all_payments_xlsx(rows, totals, date_from, date_to, show_cashier=False):
             row['kind_name'],
             name,
             row['quantity'],
-            'Terminal' if row['is_terminal'] else 'Nagt',
+            _xlsx_method(row),
             float(row['discount']),
             float(row['amount']),
         ])
@@ -3251,6 +3745,164 @@ def reports_all_payments():
     )
 
 
+# ── Refunds report ────────────────────────────────────────────────────────────
+
+def _refunds_report():
+    """Every line given back in the period, one row per line, newest last — the
+    order the refunds were made in. Amounts are shown as given back (positive).
+
+    Returns (rows, totals, date_from, date_to, search, cashier_id, cashiers)."""
+    search = request.args.get('q', '').strip()
+    date_from, date_to = _report_dates_with_today()
+    # Validated the way every other report validates its period.
+    _, date_from, date_to = _apply_exam_date_filter(Examination.query, date_from, date_to)
+    cashier_id = (request.args.get('cashier_id', type=int)
+                  if current_user.role == 'senior_cashier' else None)
+
+    rows = _refund_rows(date_from, date_to, search)
+    for r in rows:
+        r['amount'] = -r['amount']
+        r['discount'] = -r['discount']
+    rows.sort(key=lambda r: (r['paid_at'] or datetime.min, r['refund_id'], r['exam_id']))
+
+    totals = {
+        'count': len(rows),
+        'refunds': len({r['refund_id'] for r in rows}),
+        'exams': len({r['exam_id'] for r in rows}),
+        'cash': sum((r['amount'] for r in rows if not r['is_terminal']), Decimal('0')),
+        'terminal': sum((r['amount'] for r in rows if r['is_terminal']), Decimal('0')),
+    }
+    totals['total'] = totals['cash'] + totals['terminal']
+
+    cashiers = _report_cashiers() if current_user.role == 'senior_cashier' else []
+    return rows, totals, date_from, date_to, search, cashier_id, cashiers
+
+
+def _refunds_xlsx(rows, totals, date_from, date_to, show_cashier=False):
+    """Build an .xlsx workbook of the refunds report."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Gaýtarmalar'
+
+    headers = [
+        '№',
+        'Gaýtarylan senesi',
+        'Barlag №',
+        'Syrkaw (F.A.A.)',
+    ] + (['Kassir'] if show_cashier else []) + [
+        'Görnüşi',
+        'Näme üçin',
+        'Sany',
+        'Töleg görnüşi',
+        'Gaýtarylan',
+        'Sebäbi',
+    ]
+
+    bold = Font(bold=True)
+    header_fill = PatternFill('solid', fgColor='E9ECEF')
+    right = Alignment(horizontal='right')
+    qty_col = len(headers) - 3
+    money_col = len(headers) - 1
+
+    ws.append(['Yzyna gaýtarmalar boýunça hasabat'])
+    ws['A1'].font = Font(bold=True, size=14)
+    if date_from or date_to:
+        ws.append([f'Döwür: {date_from or "…"} — {date_to or "…"}'])
+    ws.append([])
+
+    header_row_idx = ws.max_row + 1
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=header_row_idx, column=col)
+        cell.font = bold
+        cell.fill = header_fill
+
+    for idx, row in enumerate(rows, start=1):
+        name = row['name']
+        if row['note']:
+            name = f"{name} ({row['note']})"
+        ws.append([
+            idx,
+            row['paid_at'].strftime('%d.%m.%Y %H:%M') if row['paid_at'] else '',
+            row['exam_id'],
+            row['patient'],
+        ] + ([row['cashier']] if show_cashier else []) + [
+            row['kind_name'],
+            name,
+            row['quantity'],
+            'Terminal' if row['is_terminal'] else 'Nagt',
+            float(row['amount']),
+            _xlsx_text(row['reason']),
+        ])
+        row_idx = ws.max_row
+        ws.cell(row=row_idx, column=qty_col).alignment = right
+        c = ws.cell(row=row_idx, column=money_col)
+        c.number_format = '#,##0.00'
+        c.alignment = right
+
+    ws.append([])
+    for label, value in (
+        ('Nagt:', totals['cash']),
+        ('Terminal:', totals['terminal']),
+        ('Umumy jemi:', totals['total']),
+    ):
+        line = [''] * len(headers)
+        line[money_col - 2] = label
+        line[money_col - 1] = float(value)
+        ws.append(line)
+        idx = ws.max_row
+        ws.cell(row=idx, column=money_col - 1).font = bold
+        c = ws.cell(row=idx, column=money_col)
+        c.font = bold
+        c.number_format = '#,##0.00'
+        c.alignment = right
+
+    widths = [6, 18, 10, 30] + ([24] if show_cashier else []) + [14, 40, 8, 14, 14, 40]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = 'refunds_report'
+    if date_from or date_to:
+        fname += f'_{date_from or "all"}_{date_to or "all"}'
+    fname += '.xlsx'
+
+    return Response(
+        buf.getvalue(),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename={fname}'},
+    )
+
+
+@main_bp.route('/reports/refunds')
+@reports_required
+def reports_refunds():
+    rows, totals, date_from, date_to, search, cashier_id, cashiers = _refunds_report()
+    show_cashier = current_user.role == 'senior_cashier'
+
+    if request.args.get('export') == 'xlsx':
+        return _refunds_xlsx(rows, totals, date_from, date_to, show_cashier)
+
+    return render_template(
+        'main/reports/refunds_report.html',
+        rows=rows,
+        totals=totals,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        cashier_id=cashier_id,
+        cashiers=cashiers,
+        show_cashier=show_cashier,
+    )
+
+
 # ── Earning plans (senior cashier) ────────────────────────────────────────────
 
 PLAN_MONTH_NAMES = {
@@ -3311,9 +3963,19 @@ def _direction_earnings(year, month):
         )
         .all()
     )
+    # Refunds made in the month come off it, whenever the line was paid.
+    refunded = (
+        ExaminationDirection.query
+        .join(ExaminationRefund, ExaminationDirection.refund_id == ExaminationRefund.id)
+        .filter(ExaminationRefund.refunded_at >= start, ExaminationRefund.refunded_at < nxt)
+        .all()
+    )
     earned = {}
     for ed in lines:
         earned[ed.doctor_id] = earned.get(ed.doctor_id, Decimal('0')) + ed.effective_total
+    for ed in refunded:
+        earned[ed.doctor_id] = (earned.get(ed.doctor_id, Decimal('0'))
+                                - (ed.refund_amount or Decimal('0')))
     return earned
 
 

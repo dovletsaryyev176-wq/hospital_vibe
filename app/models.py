@@ -55,6 +55,20 @@ class PricingSnapshotMixin:
     def snapshot_total_display(self):
         return f'{self.snapshot_total:,.2f}'
 
+    # ── Refund ────────────────────────────────────────────────────────────────
+    # A paid line may be given back as a whole. `refund_amount` / `refund_discount`
+    # freeze what was returned and the insurance discount it carried, because a
+    # line without a price of its own still reads it off the catalogue, which
+    # may change afterwards.
+
+    @property
+    def is_refunded(self):
+        return self.refund_id is not None
+
+    @property
+    def refund_amount_display(self):
+        return f'{self.refund_amount or 0:,.2f}'
+
 
 direction_analyses = db.Table(
     'direction_analyses',
@@ -375,13 +389,87 @@ class Examination(db.Model):
                                  cascade='all, delete-orphan')
     exam_blanks = db.relationship('ExaminationBlank', back_populates='examination',
                                   cascade='all, delete-orphan')
+    refunds = db.relationship('ExaminationRefund', back_populates='examination',
+                              order_by='ExaminationRefund.refunded_at')
 
     @property
     def is_open(self):
         return self.status == self.STATUS_OPEN
 
+    @property
+    def all_lines(self):
+        return (list(self.exam_analyses) + list(self.exam_tools)
+                + list(self.exam_blanks) + list(self.exam_directions))
+
+    @property
+    def active_lines(self):
+        """Lines still standing — refunded ones excluded."""
+        return [line for line in self.all_lines if not line.is_refunded]
+
+    @property
+    def charged_total(self):
+        """What the examination was paid (or is to be paid) in full."""
+        return sum((line.effective_total for line in self.all_lines), Decimal('0'))
+
+    @property
+    def refunded_total(self):
+        return sum((line.refund_amount or Decimal('0')
+                    for line in self.all_lines if line.is_refunded), Decimal('0'))
+
+    @property
+    def active_total(self):
+        return sum((line.effective_total for line in self.active_lines), Decimal('0'))
+
+    @property
+    def has_refunds(self):
+        return any(line.is_refunded for line in self.all_lines)
+
+    @property
+    def is_fully_refunded(self):
+        lines = self.all_lines
+        return bool(lines) and all(line.is_refunded for line in lines)
+
     def __repr__(self) -> str:
         return f'<Examination {self.id}>'
+
+
+class ExaminationRefund(db.Model):
+    """Money given back for some paid lines of an examination.
+
+    One refund may cover several lines at once, under one reason. Each line
+    points at its refund and keeps the amount returned for it, so the refund's
+    total is the sum over its lines. Reports book a refund on the day it was
+    made, against the cashier who made it — the day of payment is left as it was.
+    """
+    __tablename__ = 'examination_refunds'
+
+    id = db.Column(db.Integer, primary_key=True)
+    examination_id = db.Column(db.Integer, db.ForeignKey('examinations.id'), nullable=False)
+    refunded_at = db.Column(db.DateTime, default=datetime.now, nullable=False, index=True)
+    refunded_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    reason = db.Column(db.String(500), nullable=False)
+
+    examination = db.relationship('Examination', back_populates='refunds')
+    refunded_by = db.relationship('User', foreign_keys=[refunded_by_id])
+    analyses = db.relationship('ExaminationAnalysis', back_populates='refund')
+    tools = db.relationship('ExaminationAnalysisTool', back_populates='refund')
+    blanks = db.relationship('ExaminationBlank', back_populates='refund')
+    directions = db.relationship('ExaminationDirection', back_populates='refund')
+
+    @property
+    def lines(self):
+        return list(self.analyses) + list(self.tools) + list(self.blanks) + list(self.directions)
+
+    @property
+    def total(self):
+        return sum((line.refund_amount or Decimal('0') for line in self.lines), Decimal('0'))
+
+    @property
+    def total_display(self):
+        return f'{self.total:,.2f}'
+
+    def __repr__(self) -> str:
+        return f'<ExaminationRefund {self.id}>'
 
 
 class ExaminationAnalysis(PricingSnapshotMixin, db.Model):
@@ -394,11 +482,16 @@ class ExaminationAnalysis(PricingSnapshotMixin, db.Model):
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
     payment_method = db.Column(db.String(10), nullable=True)
+    refund_id = db.Column(db.Integer, db.ForeignKey('examination_refunds.id'),
+                          nullable=True, index=True)
+    refund_amount = db.Column(db.Numeric(10, 2), nullable=True)
+    refund_discount = db.Column(db.Numeric(10, 2), nullable=True)
     is_submitted = db.Column(db.Boolean, default=False, nullable=False)
     submitted_at = db.Column(db.DateTime, nullable=True)
     submitted_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
 
     examination = db.relationship('Examination', back_populates='exam_analyses')
+    refund = db.relationship('ExaminationRefund', back_populates='analyses')
     analysis = db.relationship('Analysis')
     submitted_by = db.relationship('User', foreign_keys=[submitted_by_id])
 
@@ -417,8 +510,13 @@ class ExaminationAnalysisTool(PricingSnapshotMixin, db.Model):
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
     payment_method = db.Column(db.String(10), nullable=True)
+    refund_id = db.Column(db.Integer, db.ForeignKey('examination_refunds.id'),
+                          nullable=True, index=True)
+    refund_amount = db.Column(db.Numeric(10, 2), nullable=True)
+    refund_discount = db.Column(db.Numeric(10, 2), nullable=True)
 
     examination = db.relationship('Examination', back_populates='exam_tools')
+    refund = db.relationship('ExaminationRefund', back_populates='tools')
     tool = db.relationship('AnalysisTool')
 
     @property
@@ -547,8 +645,13 @@ class ExaminationBlank(PricingSnapshotMixin, db.Model):
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
     payment_method = db.Column(db.String(10), nullable=True)
+    refund_id = db.Column(db.Integer, db.ForeignKey('examination_refunds.id'),
+                          nullable=True, index=True)
+    refund_amount = db.Column(db.Numeric(10, 2), nullable=True)
+    refund_discount = db.Column(db.Numeric(10, 2), nullable=True)
 
     examination = db.relationship('Examination', back_populates='exam_blanks')
+    refund = db.relationship('ExaminationRefund', back_populates='blanks')
     blank = db.relationship('Blank')
 
     @property
@@ -566,10 +669,15 @@ class ExaminationDirection(PricingSnapshotMixin, db.Model):
     price = db.Column(db.Numeric(10, 2), nullable=True)
     is_insurance = db.Column(db.Boolean, nullable=True)
     payment_method = db.Column(db.String(10), nullable=True)
+    refund_id = db.Column(db.Integer, db.ForeignKey('examination_refunds.id'),
+                          nullable=True, index=True)
+    refund_amount = db.Column(db.Numeric(10, 2), nullable=True)
+    refund_discount = db.Column(db.Numeric(10, 2), nullable=True)
     is_visited = db.Column(db.Boolean, default=False, nullable=False)
     visited_at = db.Column(db.DateTime, nullable=True)
 
     examination = db.relationship('Examination', back_populates='exam_directions')
+    refund = db.relationship('ExaminationRefund', back_populates='directions')
     direction = db.relationship('DoctorDirection')
     doctor = db.relationship('User', foreign_keys=[doctor_id])
 

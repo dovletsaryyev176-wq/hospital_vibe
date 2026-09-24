@@ -51,13 +51,14 @@
   {% if examinations %}
   {% for exam in examinations %}
   {% set a_total = namespace(val=0) %}
-  {% for ea in exam.exam_analyses %}{% set a_total.val = a_total.val + ea.effective_total %}{% endfor %}
+  {# Refunded lines stay listed but no longer count towards the totals. #}
+  {% for ea in exam.exam_analyses if not ea.is_refunded %}{% set a_total.val = a_total.val + ea.effective_total %}{% endfor %}
   {% set t_total = namespace(val=0) %}
-  {% for et in exam.exam_tools %}{% set t_total.val = t_total.val + et.effective_total %}{% endfor %}
+  {% for et in exam.exam_tools if not et.is_refunded %}{% set t_total.val = t_total.val + et.effective_total %}{% endfor %}
   {% set b_total = namespace(val=0) %}
-  {% for eb in exam.exam_blanks %}{% set b_total.val = b_total.val + eb.effective_total %}{% endfor %}
+  {% for eb in exam.exam_blanks if not eb.is_refunded %}{% set b_total.val = b_total.val + eb.effective_total %}{% endfor %}
   {% set d_total = namespace(val=0) %}
-  {% for ed in exam.exam_directions %}{% set d_total.val = d_total.val + ed.effective_total %}{% endfor %}
+  {% for ed in exam.exam_directions if not ed.is_refunded %}{% set d_total.val = d_total.val + ed.effective_total %}{% endfor %}
   {% set grand = a_total.val + t_total.val + b_total.val + d_total.val %}
 
   <div class="col-12">
@@ -82,6 +83,15 @@
             <span class="badge bg-success-subtle text-success">
               <i class="bi bi-cash-coin me-1"></i>Tölenen
             </span>
+            {% if exam.is_fully_refunded %}
+              <span class="badge bg-danger-subtle text-danger">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Doly yzyna gaýtarylan
+              </span>
+            {% elif exam.has_refunds %}
+              <span class="badge bg-danger-subtle text-danger">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Bölekleýin gaýtarylan
+              </span>
+            {% endif %}
           {% else %}
             <span class="badge bg-warning-subtle text-warning">
               <i class="bi bi-hourglass-split me-1"></i>Tölenmedik
@@ -130,7 +140,12 @@
               {% for ea in exam.exam_analyses %}
               <li class="d-flex justify-content-between align-items-center px-4 py-2 border-bottom">
                 <div class="small">
-                  {{ ea.analysis.name }}
+                  <span class="{% if ea.is_refunded %}text-decoration-line-through text-muted{% endif %}">{{ ea.analysis.name }}</span>
+                  {% if ea.is_refunded %}
+                    <span class="badge bg-danger-subtle text-danger ms-1" style="font-size:.6rem">
+                      <i class="bi bi-arrow-counterclockwise"></i> Yzyna gaýtarylan
+                    </span>
+                  {% endif %}
                   {% if ea.is_submitted %}
                     <span class="badge bg-success-subtle text-success ms-1" style="font-size:.6rem">
                       <i class="bi bi-check-circle-fill"></i> Tabşyrylan
@@ -169,7 +184,12 @@
               {% for ed in exam.exam_directions %}
               <li class="d-flex justify-content-between align-items-center px-4 py-2 border-bottom">
                 <div class="small">
-                  <div>{{ ed.direction.name }}</div>
+                  <div class="{% if ed.is_refunded %}text-decoration-line-through text-muted{% endif %}">{{ ed.direction.name }}</div>
+                  {% if ed.is_refunded %}
+                    <span class="badge bg-danger-subtle text-danger ms-1" style="font-size:.6rem">
+                      <i class="bi bi-arrow-counterclockwise"></i> Yzyna gaýtarylan
+                    </span>
+                  {% endif %}
                   <div class="text-muted" style="font-size:.75rem">
                     <i class="bi bi-person-fill me-1"></i>{{ ed.doctor.full_name }}
                     {% if ed.doctor.cabinet %}

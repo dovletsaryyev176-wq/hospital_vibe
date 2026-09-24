@@ -85,7 +85,7 @@
         <div class="fw-bold text-primary fs-5">{{ '%.2f' | format(grand.total) }}</div>
         <div class="text-primary-emphasis small">
           Doly bahasy: {{ '%.2f' | format(grand.full_total) }}
-          {% if grand.discount_total %} · Ýeňillik: −{{ '%.2f' | format(grand.discount_total) }}{% endif %}
+          {% if grand.discount_total %} · Ýeňillik: {{ grand.discount_total | signed_discount }}{% endif %}{% if grand.refunded %} · <span class="text-danger">Gaýtarylan: −{{ '%.2f' | format(grand.refunded) }}</span>{% endif %}
         </div>
       </div>
     </div>
@@ -123,11 +123,14 @@
         {% if rows %}
           {% for r in rows %}
           {% set exam = r.exam %}
-          <tr>
+          <tr class="{% if r.refund %}table-danger{% endif %}">
             <td class="fw-semibold">{{ exam.id }}</td>
-            <td class="text-nowrap">{{ exam.paid_at.strftime('%d.%m.%Y %H:%M') if exam.paid_at else '—' }}</td>
+            <td class="text-nowrap">
+              {{ r.at.strftime('%d.%m.%Y %H:%M') if r.at else '—' }}
+              {% if r.refund %}<div><span class="badge bg-danger-subtle text-danger" title="{{ r.refund.reason }}"><i class="bi bi-arrow-counterclockwise me-1"></i>Yzyna gaýtarma</span></div>{% endif %}
+            </td>
             <td class="text-nowrap">{{ exam.created_by.full_name }}</td>
-            {% if show_cashier %}<td class="text-nowrap">{{ exam.paid_by.full_name if exam.paid_by else '—' }}</td>{% endif %}
+            {% if show_cashier %}<td class="text-nowrap">{{ r.cashier.full_name if r.cashier else '—' }}</td>{% endif %}
             <td class="text-nowrap">{{ exam.patient.full_name }}</td>
             <td>{{ exam.patient.birth_year }}</td>
             <td>{{ exam.patient.age }}</td>
@@ -141,13 +144,13 @@
             <td class="text-end">{{ '%.2f' | format(r.tools_total) }}</td>
             <td class="text-end">{{ '%.2f' | format(r.full_total) }}</td>
             <td class="text-end {% if r.discount_total %}text-success fw-semibold{% endif %}">
-              {% if r.discount_total %}−{{ '%.2f' | format(r.discount_total) }}{% else %}0.00{% endif %}
+              {{ r.discount_total | signed_discount }}
             </td>
             <td class="text-end fw-bold">{{ '%.2f' | format(r.exam_total) }}</td>
           </tr>
           <tr>
             <td colspan="{{ col_count }}" class="bg-light p-3">
-              <div class="fw-semibold small text-muted mb-2">Barlag №{{ exam.id }} — lukmanlaryň ugurlary boýunça</div>
+              <div class="fw-semibold small text-muted mb-2">Barlag №{{ exam.id }} — lukmanlaryň ugurlary boýunça{% if r.refund %} — <span class="text-danger">yzyna gaýtarma: {{ r.refund.reason }}</span>{% endif %}</div>
 
               {% if r.lines %}
               <table class="table table-sm table-bordered bg-white mb-0">
@@ -167,7 +170,9 @@
                     <td class="fw-semibold">{{ it.name }}</td>
                     <td class="text-muted">{{ it.doctor }}</td>
                     <td class="text-center">
-                      {% if it.visited %}
+                      {% if it.refunded %}
+                        <span class="badge bg-danger-subtle text-danger">Yzyna gaýtarylan</span>
+                      {% elif it.visited %}
                         <span class="badge bg-success-subtle text-success">Baryp gördi</span>
                       {% else %}
                         <span class="badge bg-secondary-subtle text-secondary">Garaşylýar</span>
@@ -175,7 +180,7 @@
                     </td>
                     <td class="text-end">{{ '%.2f' | format(it.full) }}</td>
                     <td class="text-end {% if it.discount %}text-success{% endif %}">
-                      {% if it.discount %}−{{ '%.2f' | format(it.discount) }}{% else %}0.00{% endif %}
+                      {{ it.discount | signed_discount }}
                     </td>
                     <td class="text-end">{{ '%.2f' | format(it.total) }}</td>
                   </tr>

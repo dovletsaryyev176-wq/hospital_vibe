@@ -122,9 +122,12 @@
                     </thead>
                     <tbody>
                       {% for d in row.details %}
-                        <tr>
+                        <tr class="{% if d.is_refund %}table-danger{% endif %}">
                           <td class="fw-semibold">{{ d.exam_id }}</td>
-                          <td class="text-nowrap">{{ d.paid_at.strftime('%d.%m.%Y %H:%M') if d.paid_at else '—' }}</td>
+                          <td class="text-nowrap">
+                            {{ d.paid_at.strftime('%d.%m.%Y %H:%M') if d.paid_at else '—' }}
+                            {% if d.is_refund %}<div><span class="badge bg-danger-subtle text-danger"><i class="bi bi-arrow-counterclockwise me-1"></i>Yzyna gaýtarma</span></div>{% endif %}
+                          </td>
                           <td>{{ d.patient }}</td>
                           <td>{{ 'Terminal' if d.is_terminal else 'Nagt' }}</td>
                           <td class="text-end {% if d.discount %}text-success fw-semibold{% endif %}">

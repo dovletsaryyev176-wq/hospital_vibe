@@ -3,7 +3,36 @@
 {% block title %}Barlag №{{ exam.id }}{% endblock %}
 {% block page_title %}Barlag №{{ exam.id }}{% endblock %}
 
+{% block head %}
+<style>
+  /* A refunded line stays listed, struck through, with who gave it back and why. */
+  tr.line-refunded > td.strike { text-decoration: line-through; opacity: .55; }
+  .refund-note { font-size: .72rem; }
+</style>
+{% endblock %}
+
+{% macro refund_note(line) %}
+{% if line.is_refunded %}
+<div class="refund-note text-danger mt-1">
+  <i class="bi bi-arrow-counterclockwise me-1"></i>Yzyna gaýtarylan:
+  {{ line.refund.refunded_at.strftime('%d.%m.%Y %H:%M') }}{% if line.refund.refunded_by %} — {{ line.refund.refunded_by.full_name }}{% endif %}
+  <div class="text-muted">Sebäbi: {{ line.refund.reason }}</div>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro refunded_badge() %}
+<span class="badge bg-danger-subtle text-danger">
+  <i class="bi bi-arrow-counterclockwise me-1"></i>Yzyna gaýtarylan
+</span>
+{% endmacro %}
+
 {% block content %}
+{% set can_refund = current_user.role in ['cashier', 'senior_cashier'] and exam.is_paid %}
+{% set refundable = namespace(n=0) %}
+{% for line in exam.all_lines %}
+  {% if not refund_block_reason(line) %}{% set refundable.n = refundable.n + 1 %}{% endif %}
+{% endfor %}
 <div class="row g-4">
 
   <!-- Header card -->
@@ -28,6 +57,15 @@
             <span class="badge bg-success-subtle text-success">
               <i class="bi bi-cash-coin me-1"></i>Tölenen
             </span>
+            {% if exam.is_fully_refunded %}
+              <span class="badge bg-danger-subtle text-danger">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Doly yzyna gaýtarylan
+              </span>
+            {% elif exam.has_refunds %}
+              <span class="badge bg-danger-subtle text-danger">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Bölekleýin gaýtarylan
+              </span>
+            {% endif %}
           {% else %}
             <span class="badge bg-warning-subtle text-warning">
               <i class="bi bi-hourglass-split me-1"></i>Tölenmedik
@@ -74,6 +112,16 @@
             <div class="fw-semibold">{{ exam.paid_at.strftime('%d.%m.%Y') }}</div>
             <div class="text-muted small">{{ exam.paid_at.strftime('%H:%M') }}{% if exam.paid_by %} — {{ exam.paid_by.full_name }}{% endif %}</div>
           </div>
+          {% if exam.has_refunds %}
+          <div class="col-sm-6 col-md-3">
+            <div class="text-muted small mb-1">Tölenen / gaýtarylan / galan</div>
+            <div class="fw-semibold font-monospace small">
+              {{ '{:,.2f}'.format(exam.charged_total) }}
+              / <span class="text-danger">−{{ '{:,.2f}'.format(exam.refunded_total) }}</span>
+              / {{ '{:,.2f}'.format(exam.active_total) }} manat
+            </div>
+          </div>
+          {% endif %}
           {% endif %}
         </div>
       </div>
@@ -125,6 +173,12 @@
             </button>
           {% endif %}
         {% endif %}
+        {% if can_refund and refundable.n %}
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  data-bs-toggle="modal" data-bs-target="#refundModal">
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Yzyna gaýtarmak
+          </button>
+        {% endif %}
         {% if current_user.role in ['cashier', 'senior_cashier'] and not exam.is_paid %}
           <button type="button" class="btn btn-sm btn-primary"
                   onclick="confirmPay()">
@@ -163,12 +217,17 @@
           </thead>
           <tbody>
             {% for ea in exam.exam_analyses %}
-            <tr>
+            <tr class="{% if ea.is_refunded %}line-refunded{% endif %}">
               <td class="ps-4 text-muted small">{{ loop.index }}</td>
-              <td>{{ ea.analysis.name }}</td>
-              <td class="text-center small">{{ ea.quantity }}</td>
+              <td>
+                <span class="{% if ea.is_refunded %}text-decoration-line-through text-muted{% endif %}">{{ ea.analysis.name }}</span>
+                {{ refund_note(ea) }}
+              </td>
+              <td class="text-center small strike">{{ ea.quantity }}</td>
               <td class="text-center">
-                {% if ea.is_submitted %}
+                {% if ea.is_refunded %}
+                  {{ refunded_badge() }}
+                {% elif ea.is_submitted %}
                   <span class="badge bg-success-subtle text-success">
                     <i class="bi bi-check-circle-fill me-1"></i>Tabşyrylan
                   </span>
@@ -198,7 +257,7 @@
                   {% endif %}
                 {% endif %}
               </td>
-              <td class="text-end pe-4 font-monospace small">
+              <td class="text-end pe-4 font-monospace small strike">
                 {% if ea.examination.patient_has_insurance and ea.snapshot_is_insurance %}
                   <span class="text-decoration-line-through text-muted">{{ ea.snapshot_total_display }}</span><br>
                   <span class="text-success fw-semibold">{{ ea.effective_total_display }} manat</span>
@@ -215,7 +274,7 @@
               <td colspan="4" class="ps-4 fw-semibold small">Hemmesi</td>
               <td class="text-end pe-4 fw-semibold font-monospace small">
                 {% set total = namespace(val=0) %}
-                {% for ea in exam.exam_analyses %}
+                {% for ea in exam.exam_analyses if not ea.is_refunded %}
                   {% set total.val = total.val + ea.effective_total %}
                 {% endfor %}
                 {{ '%.2f' | format(total.val) }} manat
@@ -254,12 +313,15 @@
           </thead>
           <tbody>
             {% for et in exam.exam_tools %}
-            <tr>
+            <tr class="{% if et.is_refunded %}line-refunded{% endif %}">
               <td class="ps-4 text-muted small">{{ loop.index }}</td>
-              <td>{{ et.tool.name }}</td>
-              <td class="text-muted small">{{ et.tool.analyses | map(attribute='name') | join(', ') }}</td>
-              <td class="text-center small">{{ et.quantity }}</td>
-              <td class="text-end pe-4 font-monospace small">
+              <td>
+                <span class="{% if et.is_refunded %}text-decoration-line-through text-muted{% endif %}">{{ et.tool.name }}</span>
+                {{ refund_note(et) }}
+              </td>
+              <td class="text-muted small strike">{{ et.tool.analyses | map(attribute='name') | join(', ') }}</td>
+              <td class="text-center small strike">{{ et.quantity }}</td>
+              <td class="text-end pe-4 font-monospace small strike">
                 {% if et.examination.patient_has_insurance and et.snapshot_is_insurance %}
                   <span class="text-decoration-line-through text-muted">{{ et.snapshot_total_display }}</span><br>
                   <span class="text-success fw-semibold">{{ et.effective_total_display }} manat</span>
@@ -276,7 +338,7 @@
               <td colspan="4" class="ps-4 fw-semibold small">Hemmesi</td>
               <td class="text-end pe-4 fw-semibold font-monospace small">
                 {% set tools_total = namespace(val=0) %}
-                {% for et in exam.exam_tools %}
+                {% for et in exam.exam_tools if not et.is_refunded %}
                   {% set tools_total.val = tools_total.val + et.effective_total %}
                 {% endfor %}
                 {{ '%.2f' | format(tools_total.val) }} manat
@@ -313,12 +375,15 @@
           </thead>
           <tbody>
             {% for eb in exam.exam_blanks %}
-            <tr>
+            <tr class="{% if eb.is_refunded %}line-refunded{% endif %}">
               <td class="ps-4 text-muted small">{{ loop.index }}</td>
-              <td>{{ eb.blank.name }}</td>
-              <td class="text-muted small">{{ eb.blank.analyses | map(attribute='name') | join(', ') }}</td>
-              <td class="text-center small">{{ eb.quantity }}</td>
-              <td class="text-end pe-4 font-monospace small">
+              <td>
+                <span class="{% if eb.is_refunded %}text-decoration-line-through text-muted{% endif %}">{{ eb.blank.name }}</span>
+                {{ refund_note(eb) }}
+              </td>
+              <td class="text-muted small strike">{{ eb.blank.analyses | map(attribute='name') | join(', ') }}</td>
+              <td class="text-center small strike">{{ eb.quantity }}</td>
+              <td class="text-end pe-4 font-monospace small strike">
                 {% if eb.examination.patient_has_insurance and eb.snapshot_is_insurance %}
                   <span class="text-decoration-line-through text-muted">{{ eb.snapshot_total_display }}</span><br>
                   <span class="text-success fw-semibold">{{ eb.effective_total_display }} manat</span>
@@ -335,7 +400,7 @@
               <td colspan="4" class="ps-4 fw-semibold small">Hemmesi</td>
               <td class="text-end pe-4 fw-semibold font-monospace small">
                 {% set blanks_total = namespace(val=0) %}
-                {% for eb in exam.exam_blanks %}
+                {% for eb in exam.exam_blanks if not eb.is_refunded %}
                   {% set blanks_total.val = blanks_total.val + eb.effective_total %}
                 {% endfor %}
                 {{ '%.2f' | format(blanks_total.val) }} manat
@@ -376,10 +441,13 @@
           </thead>
           <tbody>
             {% for ed in exam.exam_directions %}
-            <tr>
+            <tr class="{% if ed.is_refunded %}line-refunded{% endif %}">
               <td class="ps-4 text-muted small">{{ loop.index }}</td>
-              <td>{{ ed.direction.name }}</td>
               <td>
+                <span class="{% if ed.is_refunded %}text-decoration-line-through text-muted{% endif %}">{{ ed.direction.name }}</span>
+                {{ refund_note(ed) }}
+              </td>
+              <td class="strike">
                 <i class="bi bi-person-fill me-1 text-muted"></i>{{ ed.doctor.full_name }}
                 {% if ed.doctor.cabinet %}
                   <span class="text-muted small ms-2"><i class="bi bi-door-open me-1"></i>Otag {{ ed.doctor.cabinet }}</span>
@@ -389,7 +457,9 @@
                 {% endif %}
               </td>
               <td class="text-center">
-                {% if ed.is_visited %}
+                {% if ed.is_refunded %}
+                  {{ refunded_badge() }}
+                {% elif ed.is_visited %}
                   <span class="badge bg-success-subtle text-success">
                     <i class="bi bi-person-check-fill me-1"></i>Kabul edilen
                   </span>
@@ -413,7 +483,7 @@
                   </span>
                 {% endif %}
               </td>
-              <td class="text-end pe-4 font-monospace small">
+              <td class="text-end pe-4 font-monospace small strike">
                 {% if ed.examination.patient_has_insurance and ed.snapshot_is_insurance %}
                   <span class="text-decoration-line-through text-muted">{{ ed.snapshot_price_display }}</span><br>
                   <span class="text-success fw-semibold">{{ ed.effective_price_display }} manat</span>
@@ -430,7 +500,7 @@
               <td colspan="4" class="ps-4 fw-semibold small">Hemmesi</td>
               <td class="text-end pe-4 fw-semibold font-monospace small">
                 {% set dir_total = namespace(val=0) %}
-                {% for ed in exam.exam_directions %}
+                {% for ed in exam.exam_directions if not ed.is_refunded %}
                   {% set dir_total.val = dir_total.val + ed.effective_total %}
                 {% endfor %}
                 {{ '%.2f' | format(dir_total.val) }} manat
@@ -445,7 +515,147 @@
     </div>
   </div>
 
+  <!-- Refunds -->
+  {% if exam.refunds %}
+  <div class="col-12">
+    <div class="card shadow-sm border-0 rounded-3">
+      <div class="card-header bg-white border-bottom px-4 py-3">
+        <h6 class="mb-0 fw-semibold">
+          <i class="bi bi-arrow-counterclockwise me-2 text-danger"></i>
+          Yzyna gaýtarmalar
+          <span class="badge bg-light text-dark border ms-1">{{ exam.refunds | length }}</span>
+        </h6>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4">Senesi</th>
+              <th>Kassir</th>
+              <th>Pozisiýalar</th>
+              <th>Sebäbi</th>
+              <th class="text-end pe-4">Mukdary</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in exam.refunds %}
+            <tr>
+              <td class="ps-4 small text-nowrap">{{ r.refunded_at.strftime('%d.%m.%Y %H:%M') }}</td>
+              <td class="small">{{ r.refunded_by.full_name if r.refunded_by else '—' }}</td>
+              <td class="small">
+                {% for l in r.analyses %}<div>{{ l.analysis.name }}</div>{% endfor %}
+                {% for l in r.tools %}<div>{{ l.tool.name }}</div>{% endfor %}
+                {% for l in r.blanks %}<div>{{ l.blank.name }}</div>{% endfor %}
+                {% for l in r.directions %}<div>{{ l.direction.name }}{% if l.doctor %} <span class="text-muted">({{ l.doctor.full_name }})</span>{% endif %}</div>{% endfor %}
+              </td>
+              <td class="small">{{ r.reason }}</td>
+              <td class="text-end pe-4 font-monospace small text-danger">−{{ r.total_display }} manat</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
 </div>
+
+{% if can_refund and refundable.n %}
+<!-- Refund modal -->
+{% macro refund_row(kind, line, name) %}
+{% set blocked = refund_block_reason(line) %}
+<tr class="{% if blocked %}text-muted{% endif %}">
+  <td class="text-center" style="width:40px">
+    <input type="checkbox" class="form-check-input refund-check" name="lines"
+           value="{{ kind }}:{{ line.id }}" id="rf_{{ kind }}_{{ line.id }}"
+           data-amount="{{ '%.2f' | format(line.effective_total) }}"
+           data-method="{{ 'terminal' if line.payment_method == 'terminal' else 'cash' }}"
+           {% if blocked %}disabled{% endif %}>
+  </td>
+  <td class="small">
+    <label for="rf_{{ kind }}_{{ line.id }}" class="mb-0">{{ name }}</label>
+    {% if blocked %}<div class="text-muted" style="font-size:.7rem">{{ blocked | capitalize }}</div>{% endif %}
+  </td>
+  <td class="small text-center">
+    {% if line.payment_method == 'terminal' %}Terminal{% else %}Nagt{% endif %}
+  </td>
+  <td class="text-end font-monospace small">{{ '%.2f' | format(line.effective_total) }}</td>
+</tr>
+{% endmacro %}
+<div class="modal fade" id="refundModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <form id="refund-form" method="POST" action="{{ url_for('main.examinations_refund', exam_id=exam.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title mb-0">
+            <i class="bi bi-arrow-counterclockwise text-danger me-2"></i>Tölegi yzyna gaýtarmak №{{ exam.id }}
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Ýapmak"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-2">
+            Yzyna gaýtarylýan pozisiýalary saýlaň. Pul tölenen görnüşinde
+            (<strong>Nagt</strong> ýa-da <strong>Terminal</strong>) gaýtarylýar.
+            Tabşyrylan analizleri we lukmanyň kabul eden ugurlaryny gaýtaryp bolmaýar.
+          </p>
+          <div class="table-responsive" style="max-height:40vh; overflow-y:auto;">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr class="text-muted small">
+                  <th></th>
+                  <th>Pozisiýa</th>
+                  <th class="text-center">Töleg görnüşi</th>
+                  <th class="text-end">Mukdary</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% set active_analyses = exam.exam_analyses | rejectattr('is_refunded') | list %}
+                {% set active_tools = exam.exam_tools | rejectattr('is_refunded') | list %}
+                {% set active_blanks = exam.exam_blanks | rejectattr('is_refunded') | list %}
+                {% set active_directions = exam.exam_directions | rejectattr('is_refunded') | list %}
+                {% if active_analyses %}
+                  <tr class="table-light"><td colspan="4" class="fw-semibold small">Analizler</td></tr>
+                  {% for ea in active_analyses %}{{ refund_row('analysis', ea, ea.analysis.name) }}{% endfor %}
+                {% endif %}
+                {% if active_tools %}
+                  <tr class="table-light"><td colspan="4" class="fw-semibold small">Serişdeler</td></tr>
+                  {% for et in active_tools %}{{ refund_row('tool', et, et.tool.name) }}{% endfor %}
+                {% endif %}
+                {% if active_blanks %}
+                  <tr class="table-light"><td colspan="4" class="fw-semibold small">Blanklar</td></tr>
+                  {% for eb in active_blanks %}{{ refund_row('blank', eb, eb.blank.name) }}{% endfor %}
+                {% endif %}
+                {% if active_directions %}
+                  <tr class="table-light"><td colspan="4" class="fw-semibold small">Lukmanyň ugurlary</td></tr>
+                  {% for ed in active_directions %}{{ refund_row('direction', ed, ed.direction.name ~ ' — ' ~ ed.doctor.full_name) }}{% endfor %}
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          <div class="d-flex flex-wrap justify-content-end gap-3 mt-3 pt-2 border-top small">
+            <span><i class="bi bi-cash text-success me-1"></i>Nagt: <span class="font-monospace fw-semibold" id="refund-cash-total">0.00</span> manat</span>
+            <span><i class="bi bi-credit-card-2-front text-primary me-1"></i>Terminal: <span class="font-monospace fw-semibold" id="refund-term-total">0.00</span> manat</span>
+            <span class="fw-semibold text-danger">Jemi: <span class="font-monospace" id="refund-grand-total">0.00</span> manat</span>
+          </div>
+          <div class="mt-3">
+            <label for="refund-reason" class="form-label fw-medium small mb-1">Sebäbi <span class="text-danger">*</span></label>
+            <textarea class="form-control form-control-sm" id="refund-reason" name="reason"
+                      rows="2" maxlength="500" required></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Ýatyrmak</button>
+          <button type="submit" class="btn btn-danger btn-sm" id="refund-submit" disabled>
+            <i class="bi bi-arrow-counterclockwise me-1"></i>Yzyna gaýtarmak
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- Close confirmation modal -->
 <div class="modal fade" id="closeModal" tabindex="-1" aria-hidden="true">
@@ -629,5 +839,36 @@
   }
 
   function confirmPay() { if (payModal) { recalcPayTotals(); payModal.show(); } }
+
+  const refundForm = document.getElementById('refund-form');
+  if (refundForm) {
+    const refundSubmit = document.getElementById('refund-submit');
+    const refundReason = document.getElementById('refund-reason');
+    function recalcRefund() {
+      let cash = 0, term = 0, count = 0;
+      refundForm.querySelectorAll('.refund-check:checked').forEach(function (cb) {
+        const amount = parseFloat(cb.getAttribute('data-amount')) || 0;
+        if (cb.getAttribute('data-method') === 'terminal') { term += amount; } else { cash += amount; }
+        count += 1;
+      });
+      document.getElementById('refund-cash-total').textContent = cash.toFixed(2);
+      document.getElementById('refund-term-total').textContent = term.toFixed(2);
+      document.getElementById('refund-grand-total').textContent = (cash + term).toFixed(2);
+      refundSubmit.disabled = !(count && refundReason.value.trim());
+    }
+    refundForm.querySelectorAll('.refund-check').forEach(function (cb) {
+      cb.addEventListener('change', recalcRefund);
+    });
+    refundReason.addEventListener('input', recalcRefund);
+    refundForm.addEventListener('submit', function (e) {
+      if (refundSubmit.disabled) { e.preventDefault(); return; }
+      const total = document.getElementById('refund-grand-total').textContent;
+      if (!confirm('Saýlanan pozisiýalaryň tölegi (' + total + ' manat) yzyna gaýtarylsynmy? Bu amaly yzyna alyp bolmaýar.')) {
+        e.preventDefault();
+        return;
+      }
+      refundSubmit.disabled = true;  // no double submit
+    });
+  }
 </script>
 {% endblock %}
